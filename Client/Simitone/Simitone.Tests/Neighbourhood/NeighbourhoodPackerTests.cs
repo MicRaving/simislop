@@ -884,52 +884,6 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
-        public void AMaskBoundToASlotChoosesTheDoorSides()
-        {
-            // The seam, end to end: bind a mask to a slot, place a lot there, and the driveway comes
-            // out on the edge the mask says. This is what Part 8 changes about a drive's direction
-            // and it is worth an integration test because the two halves live in different files.
-            const int mapSize = 128;
-            const int size = 32;
-
-            var mask = new bool[mapSize * mapSize];
-            //a band across the lot's south edge, four tiles below its bottom row at y=80, and
-            //extending past its right edge so the east probe finds nothing to count
-            for (int x = 40; x < 88; x++)
-            {
-                for (var y = 81; y < 85; y++) mask[y * mapSize + x] = true;
-            }
-
-            var reads = new List<NeighbourhoodLotRead>
-            {
-                //bitmap (400, 300) is the map's centre, so the rectangle lands at (48, 48)
-                new NeighbourhoodLotRead { Number = 21, MapX = 400, MapY = 300, HasHouse = true, Size = size },
-            };
-
-            var slot = 41;
-            try
-            {
-                NeighbourhoodRoadInference.Remember(4, mapSize, mask, "a test's mask");
-                NeighbourhoodLayoutBuilder.BindRoadMask(slot, 4, mapSize);
-
-                var layout = NeighbourhoodLayoutBuilder.Pack(reads, slot, 1, mapSize);
-                Assert.Equal(NeighbourhoodLotSide.South, layout.FindLot(21).DoorSide);
-
-                //and with nothing bound, the old rule answers instead
-                var unbound = NeighbourhoodLayoutBuilder.Pack(reads, slot + 1, 1, mapSize);
-                Assert.Equal(NeighbourhoodLayoutBuilder.DoorSideFor(
-                    unbound.FindLot(21).WorldX, unbound.FindLot(21).WorldY,
-                    NeighbourhoodLayoutBuilder.FootprintFor(size), mapSize),
-                    unbound.FindLot(21).DoorSide);
-            }
-            finally
-            {
-                NeighbourhoodRoadInference.Forget(4, mapSize);
-                NeighbourhoodRoadInference.ForgetSlot(slot);
-            }
-        }
-
-        [Fact]
         public void EveryDoorSide_IsOneOfTheFourRectangleEdges()
         {
             foreach (var layout in new[]

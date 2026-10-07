@@ -485,33 +485,8 @@ namespace Simitone.Client.Neighbourhood
         /// says, for any source, and so a source that does not know about the table still gets the
         /// right answer.
         /// </para>
-        ///
-        /// <para>
-        /// The connector mask for <paramref name="mode"/> is built here too, when the source can
-        /// name the mode's backdrop - once per mode per session, memoised by
-        /// <see cref="NeighbourhoodRoadInference"/> - because this is the only point in the
-        /// pipeline that knows the mode, and the mask is the only reason the mode is needed beyond
-        /// the location table itself.
-        /// </para>
         /// </remarks>
         public static IReadOnlyList<NeighbourhoodLotRead> ReadLots(ILotContentSource source, int mode)
-        {
-            return ReadLots(source, mode, true);
-        }
-
-        /// <summary>
-        /// Read a neighbourhood's lots through a content source, optionally inferring the mode's
-        /// connector mask. The revert's shipped path passes <c>false</c> so the synthetic road graph
-        /// is what runs; see <see cref="NeighbourhoodConnected.InferredConnectors"/>.
-        /// </summary>
-        /// <param name="source">The content source to read.</param>
-        /// <param name="mode">The neighbourhood mode, 1..8.</param>
-        /// <param name="rememberConnectors">
-        /// Whether to classify the mode's backdrop and remember the connector mask. A test or a
-        /// future connected mode passes <c>true</c>; the shipped revert passes <c>false</c>.
-        /// </param>
-        public static IReadOnlyList<NeighbourhoodLotRead> ReadLots(
-            ILotContentSource source, int mode, bool rememberConnectors)
         {
             var result = new List<NeighbourhoodLotRead>();
             if (source == null) return result;
@@ -533,80 +508,14 @@ namespace Simitone.Client.Neighbourhood
                 if (!source.TryReadLot(id, out lot) || lot == null) continue;
 
                 //the lot's real position on the 2D map, in bitmap pixels, from the line this entry
-                //came from. Never dropped again: the layout's WorldX/WorldY, the camera, the house
-                //buttons and the hit test all derive from these two numbers
+                //came from. The layout records it for the camera, the house buttons and the hit
+                //test; the synthetic packer places the rectangle and never reads these back.
                 lot.MapX = x;
                 lot.MapY = y;
                 result.Add(lot);
             }
 
-            if (rememberConnectors) RememberRoadMask(source, mode, DefaultMapSize, result);
             return result;
-        }
-
-        /// <summary>
-        /// Build and cache the connector mask for <paramref name="mode"/> at
-        /// <paramref name="mapSize"/>, if the source can name that mode's backdrop bitmap.
-        /// </summary>
-        /// <remarks>
-        /// Best effort by design and never a failure: no backdrop, an unreadable provider, a bitmap
-        /// that will not decode and a classification that finds nothing are all answered by
-        /// <see cref="NeighbourhoodRoadInference"/>'s deterministic lattice fallback, with the
-        /// reason in the cache. A neighbourhood that cannot be read is a neighbourhood the 2D panel
-        /// decides about, not an exception out of a worker.
-        /// </remarks>
-        private static void RememberRoadMask(
-            ILotContentSource source, int mode, int mapSize, IReadOnlyList<NeighbourhoodLotRead> reads)
-        {
-            var ts1 = source as TS1LotContentSource;
-            if (ts1 == null) return;
-
-            try
-            {
-                //the decoded bitmap rather than the texture reference: generation is off the game
-                //thread and ITextureRef.GetImage() needs a GraphicsDevice in this build
-                NeighbourhoodRoadInference.ForBitmap(ts1.Mode, mapSize, ts1.BackdropBitmap,
-                    AsLots(reads, mapSize), out _);
-            }
-            catch (Exception e)
-            {
-                SimitoneLog.Warn("NeighbourhoodLayoutBuilder: the connectors for mode " + mode
-                    + " could not be inferred (" + e.Message
-                    + "), so the road graph will measure its own streets.", e);
-            }
-        }
-
-        /// <summary>
-        /// The read records as bare lots, for the one inference that wants lot rectangles - which
-        /// is the lot-lattice fallback's row and column clustering. Placed through the same
-        /// transform <see cref="MapPlacements"/> uses and at the same map size the mask is being
-        /// built for, so the fallback's "which two lots are neighbours" is asked in the same tile
-        /// space the mask will live in. Only the fields that inference reads are filled in.
-        /// </summary>
-        private static IReadOnlyList<NeighbourhoodLot> AsLots(
-            IReadOnlyList<NeighbourhoodLotRead> reads, int mapSize)
-        {
-            if (reads == null) return new NeighbourhoodLot[0];
-            var lots = new List<NeighbourhoodLot>(reads.Count);
-            for (int i = 0; i < reads.Count; i++)
-            {
-                var read = reads[i];
-                var size = ClampSize(read.Size);
-                var origin = NeighbourhoodPixelTransform.ClampOrigin(
-                    NeighbourhoodPixelTransform.OriginForCentre(
-                        new Vector2(read.MapX, read.MapY), size, mapSize),
-                    size, mapSize);
-                lots.Add(new NeighbourhoodLot
-                {
-                    Number = read.Number,
-                    MapX = read.MapX,
-                    MapY = read.MapY,
-                    Size = size,
-                    WorldX = origin.X,
-                    WorldY = origin.Y,
-                });
-            }
-            return lots;
         }
 
         /// <summary>
@@ -640,29 +549,7 @@ namespace Simitone.Client.Neighbourhood
             if (mapSize <= 0) throw new ArgumentOutOfRangeException(nameof(mapSize), mapSize, "A generated map has a positive side length.");
 
             var placements = MapPlacements(reads, mapSize);
-            return Finish(slot, seed, mapSize, placements, RoadMaskFor(slot, mapSize));
-        }
-
-        /// <summary>
-        /// The connector mask this builder will use for a slot, or <c>null</c> when nothing is bound
-        /// to it.
-        /// </summary>
-        /// <remarks>
-        /// The one place the layout asks about the mask, and it asks by slot because the slot is all
-        /// it has: a read record knows the lot, not the neighbourhood.
-        /// <see cref="NeighbourhoodRoadInference.Bind"/> is what puts one there.
-        /// </remarks>
-        private static bool[] RoadMaskFor(int slot, int mapSize)
-        {
-            try
-            {
-                return NeighbourhoodRoadInference.CachedForSlot(slot, mapSize);
-            }
-            catch (Exception)
-            {
-                //a diagnostic cache is never the reason a neighbourhood cannot be laid out
-                return null;
-            }
+            return Finish(slot, seed, mapSize, placements, null);
         }
 
         /// <summary>
@@ -825,11 +712,6 @@ namespace Simitone.Client.Neighbourhood
         public static NeighbourhoodLayout Build(ILotContentSource source, int mode, int slot, int seed, int mapSize)
         {
             var reads = ReadLots(source, mode);
-            //ReadLots inferred the mask at the default map size; this entry point knows the size the
-            //layout is actually for, so a map that is not the default gets its own mask rather than
-            //falling back to measured streets because the two grids do not match
-            if (mapSize != DefaultMapSize) RememberRoadMask(source, mode, mapSize, reads);
-            NeighbourhoodRoadInference.Bind(slot, mode, mapSize);
             return Pack(reads, slot, seed, mapSize);
         }
 
@@ -850,25 +732,6 @@ namespace Simitone.Client.Neighbourhood
         {
             if (provider == null) throw new ArgumentNullException(nameof(provider));
             return Build(new TS1LotContentSource(provider, mode), mode, slot, seed, mapSize);
-        }
-
-        /// <summary>
-        /// Bind a neighbourhood slot to a mode's connector mask without building a layout. The seam
-        /// for a pipeline that reads and places in separate steps.
-        /// </summary>
-        /// <remarks>
-        /// <see cref="Build(ILotContentSource,int,int,int,int)"/> does this for you; a caller that
-        /// already has the read records and only wants to place them - which is what
-        /// <c>NeighbourhoodLifecycle</c> does, because it has to measure and log the two halves
-        /// separately - has to call it itself, because the mode is known in the first half and the
-        /// slot only in the second.
-        /// </remarks>
-        /// <param name="slot">The neighbourhood slot id.</param>
-        /// <param name="mode">The neighbourhood mode the slot is showing.</param>
-        /// <param name="mapSize">The generated map's side length, in tiles.</param>
-        public static void BindRoadMask(int slot, int mode, int mapSize)
-        {
-            NeighbourhoodRoadInference.Bind(slot, mode, mapSize);
         }
 
         // ---- queries --------------------------------------------------------------------------

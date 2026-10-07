@@ -398,8 +398,7 @@ namespace Simitone.Client.Neighbourhood
                     lot.HasHouse));
             }
 
-            var mask = NeighbourhoodRoadInference.CachedForSlot(layout.Slot, layout.MapSize);
-            return new NeighbourhoodMapInput(layout.Seed, layout.MapSize, lots, mask);
+            return new NeighbourhoodMapInput(layout.Seed, layout.MapSize, lots);
         }
 
         /// <summary>

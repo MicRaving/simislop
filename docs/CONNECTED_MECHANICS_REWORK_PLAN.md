@@ -188,9 +188,21 @@ The owner wants the modes **separate**. The correct shape is therefore:
 
 ---
 
-## 6. Immediate next step
+## 6. Status — executed (functional revert + dead-code removal)
 
-The plan's Phase 0 cannot be executed byte-exactly without the pre-rework client source. Please
-provide one of: a backup of `D:\Simitone\Client` from before the connected work, a git repo for
-it, or a decision to do the functional revert (0B). Until then I will not make further changes to
-the connected code, because every change so far has made a working mode worse.
+Phase 0B was executed, and the connected classes that nothing reachable uses were then deleted:
+
+- The shipped path is the previous two modes: the 2D painted map, and the 3D neighbourhood on its
+  own bespoke mesh (`NeighbourhoodCityMeshBuilder`/`NeighbourhoodMeshGeometry`) with the synthetic
+  shelf packer (`NeighbourhoodLayoutBuilder.PackOnGrid`) and the road graph's own measured streets.
+- Deleted: `NeighbourhoodConnected` (the capability switch), `NeighbourhoodSharedWorld` (the
+  shared two-view world), `NeighbourhoodRoadInference` (connectors inferred off the 2D bitmap), and
+  the whole `NeighbourhoodWorldUnification` type set - with the tests that exercised them.
+- Kept: `NeighbourhoodPixelTransform` (the bitmap/tile coordinate helper the camera still uses) and
+  the pure placement helpers (`Pack`, `TryDoorSideFromRoad`, `NeighbourhoodLayoutPatch`), which the
+  working path does not call.
+- The FreeSO fork's lifted `FSO.LotView.City` types are still present but unreferenced by the
+  client; reverting them is a separate step (see §2.1) and is not required for the shipped build.
+
+A byte-exact revert remains impossible (there is no pre-rework client source), so the tree is the
+previous *behaviour*, not the previous *text*.

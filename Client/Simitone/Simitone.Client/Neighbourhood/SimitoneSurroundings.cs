@@ -1170,7 +1170,9 @@ namespace Simitone.Client.Neighbourhood
                 short activeLot)
             {
                 if (map == null || layout == null || !cull.IsValid) return null;
-                var mask = InferredRoadMask(layout, map);
+                //The band is built against the map's own road bytes; the connector mask the
+                //connected-mechanics rework inferred off the 2D bitmap was removed.
+                bool[] mask = null;
                 var active = layout.FindLot(activeLot);
                 if (active == null)
                 {
@@ -1189,26 +1191,6 @@ namespace Simitone.Client.Neighbourhood
                     Math.Max(0, active.WorldX), Math.Max(0, active.WorldY),
                     Math.Max(0, active.Size), Math.Max(0, active.Size));
                 return SimitoneLotViewRoadBand.For(map, mask, new[] { active }, lotRegion);
-            }
-
-            /// <summary>
-            /// The connector mask for this neighbourhood, or <c>null</c>. A cache read of
-            /// <see cref="NeighbourhoodRoadInference"/>'s slot binding, guarded because it is the
-            /// one call here that reads a process-wide dictionary a generation worker may be writing
-            /// at the same time.
-            /// </summary>
-            private static bool[] InferredRoadMask(NeighbourhoodLayout layout, NeighbourhoodMap map)
-            {
-                try
-                {
-                    return NeighbourhoodRoadInference.CachedForSlot(layout.Slot, map.Width);
-                }
-                catch (Exception)
-                {
-                    //the band falls back to the map's own road bytes, which is the pre-Part-8
-                    //behaviour; a mask that cannot be read is not a reason to draw no street
-                    return null;
-                }
             }
 
             private void Upload(SimitoneSurroundingsCropResult crop)

@@ -1616,59 +1616,19 @@ namespace Simitone.Client.Neighbourhood
 
             if (reads == null) reads = ReadLots(source, mode, timings);
 
-            //Part 8's hand-off. `ReadLots` inferred the connector mask for this mode (WS1's
-            //`NeighbourhoodLayoutBuilder` does that as its last statement), but the mask is keyed by
-            //slot and the reader of a neighbourhood only knows the mode - so it has to be pointed at
-            //the slot before anything below can find it. Two things are waiting for it: `Pack` uses it
-            //to decide which edge each lot's driveway leaves from, and `InputFor` hands it to the
-            //generator so the streets in `RoadData` are the ones drawn on the 2D map rather than ones
-            //measured off the lots. Without this call the whole inference is computed and thrown away,
-            //which is what made "lots are at their real positions, streets are still synthetic" true.
-            BindConnectorMask(slot, mode, NeighbourhoodLayout.DefaultMapSize);
-
             NeighbourhoodLayout layout = null;
             timings.Measure(NeighbourhoodGenerationPhase.LayoutBuild, () =>
             {
-                if (plan.PatchOnlyChangedLots && NeighbourhoodConnected.MapDerivedPlacements)
-                {
-                    var patched = NeighbourhoodLayoutPatch.Apply(cached, reads, slot, seed);
-                    layout = patched.Layout;
-                    SimitoneLog.Info("Neighbourhood " + slot + ": " + patched + ".");
-                    if (patched.RepackedEverything)
-                    {
-                        //The plan said "only these lots"; the repair could not honour it, so the
-                        //facade cache has to be told that every lot is a different lot now. The panel
-                        //drops and rebuilds its facades on a layout change anyway, so this is a log
-                        //line rather than a second mechanism - but it is the difference between a
-                        //player understanding the map and not.
-                        SimitoneLog.Warn("Neighbourhood " + slot
-                            + ": the layout had to be packed again in full, so every lot in it is"
-                            + " placed differently from the last visit.");
-                    }
-                }
-                else
-                {
-                    //The shipped revert packs synthetically. The map-derived placement is the
-                    //connected-mechanics change the owner asked to gate off; see NeighbourhoodConnected.
-                    layout = NeighbourhoodConnected.MapDerivedPlacements
-                        ? NeighbourhoodLayoutBuilder.Pack(reads, slot, seed)
-                        : NeighbourhoodLayoutBuilder.PackOnGrid(reads, slot, seed);
-                }
+                //The synthetic shelf packer, which is the placement the 3D neighbourhood shipped
+                //with. The connected-mechanics rework briefly placed lots at their bitmap
+                //positions instead; that path was removed.
+                layout = NeighbourhoodLayoutBuilder.PackOnGrid(reads, slot, seed);
             });
 
             if (layout == null)
             {
                 return NeighbourhoodGeneratedWorld.Failed(slot, null, plan,
                     "the layout could not be packed");
-            }
-
-            //The bind above used the default map size, which is what `Pack(reads, slot, seed)` packs
-            //at. A layout that came out at some other size - the patch path, or a caller that asked
-            //for one - needs its own binding, because `InputFor` looks the mask up by the layout's own
-            //map size and a mask classified on a different grid is not the mask for this one.
-            if (layout.MapSize != NeighbourhoodLayout.DefaultMapSize)
-            {
-                BindConnectorMask(slot, mode, layout.MapSize);
             }
 
             //B7, and the only place the session is decided. Everything above rebuilt the layout -
@@ -1762,58 +1722,8 @@ namespace Simitone.Client.Neighbourhood
         {
             IReadOnlyList<NeighbourhoodLotRead> reads = null;
             timings.Measure(NeighbourhoodGenerationPhase.LotReads,
-                () => { reads = NeighbourhoodLayoutBuilder.ReadLots(source, mode,
-                    NeighbourhoodConnected.InferredConnectors); });
+                () => { reads = NeighbourhoodLayoutBuilder.ReadLots(source, mode); });
             return reads;
-        }
-
-        /// <summary>
-        /// Points a neighbourhood slot at the connector mask that was inferred for its mode, so the
-        /// packer and the generator can both find it.
-        ///
-        /// <para><b>The half of the seam that cannot be derived.</b> Part 8 §8.3 has the mask built
-        /// where the mode is known - <see cref="NeighbourhoodLayoutBuilder.ReadLots"/>, which is the
-        /// only place in the pipeline that reads a neighbourhood's own backdrop - and consumed where
-        /// the slot is known: <see cref="NeighbourhoodLayoutBuilder.Pack"/> for the door sides, and
-        /// <see cref="NeighbourhoodMapAdapter.InputFor"/> for the streets themselves. A
-        /// <see cref="NeighbourhoodLayout"/> carries neither a mode nor a slot-to-mode table, so
-        /// something has to make the connection and it has to be explicit: guessing - "the slot is
-        /// the mode", which is true for four of the eight views and wrong for the other four - would
-        /// produce a neighbourhood with the wrong streets in it rather than an error.</para>
-        ///
-        /// <para><b>Best effort, and never a failure.</b> A neighbourhood whose backdrop could not be
-        /// read, could not be decoded, or classified as degenerate still has an answer:
-        /// <see cref="NeighbourhoodRoadInference"/>'s deterministic lot-lattice fallback, already
-        /// memoised under the mode. So this only reports; a caller that cannot reach the cache falls
-        /// back to the pre-Part-8 answer of measured streets, which is what a neighbourhood with no
-        /// backdrop deserves anyway.</para>
-        /// </summary>
-        /// <param name="slot">The neighbourhood slot the world is being generated for.</param>
-        /// <param name="mode">The neighbourhood view the slot is showing.</param>
-        /// <param name="mapSize">The generated map's side length, in tiles.</param>
-        private static void BindConnectorMask(int slot, int mode, int mapSize)
-        {
-            if (mapSize < 1) return;
-            //The shipped revert does not infer connectors off the 2D map's pixels; the road graph
-            //measures its own streets. See NeighbourhoodConnected.InferredConnectors.
-            if (!NeighbourhoodConnected.InferredConnectors) return;
-            try
-            {
-                NeighbourhoodLayoutBuilder.BindRoadMask(slot, mode, mapSize);
-                var reason = NeighbourhoodRoadInference.ReasonForSlot(slot, mapSize);
-                if (reason != null)
-                {
-                    SimitoneLog.Info("Neighbourhood " + slot + " (view " + mode + ") at "
-                        + mapSize + "x" + mapSize + " tiles: " + reason + ".");
-                }
-            }
-            catch (Exception e)
-            {
-                //A diagnostic cache is never the reason a neighbourhood cannot be laid out, so this
-                //is a log line and not a fallback to 2D.
-                SimitoneLog.Warn("Neighbourhood " + slot + " could not bind its inferred connectors ("
-                    + e.Message + "), so the road graph will measure its own streets.", e);
-            }
         }
 
         /// <summary>
