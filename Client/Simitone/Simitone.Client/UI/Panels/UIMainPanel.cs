@@ -308,42 +308,6 @@ namespace Simitone.Client.UI.Panels
             return OptionsStripLeft + lastLabelX + OptionsStripLabelWidth;
         }
 
-        // -------------------------------------------------------------------------------------
-        // Free will quick toggle.
-        //
-        // The setting's canonical home is the Gameplay page of the Options dialog (see
-        // UIGeneralOptionsSubpanel). This is the one-tap version the upstream PR wanted: a
-        // button on the Options category of this strip, beside Save and Settings, so a player
-        // who wants the household to stand still does not have to open a dialog first.
-        //
-        // It is a child of the main panel rather than one more UICatFunc because that list is
-        // read once, when UIButtonSubpanel builds the label, and a button that flips a setting
-        // has to redraw its own caption. The main panel also outlives every rebuild of the
-        // strip, which is the same reason the catalogue search box lives here.
-        // -------------------------------------------------------------------------------------
-
-        /// <summary>
-        /// Slot the free will button takes in the strip. The Options buttons take 0..n-1, so
-        /// this is the next one along - derived rather than written down, because a stale
-        /// literal here does not leave a gap, it lands the toggle on top of a button.
-        /// </summary>
-        public const int FreeWillSlot = OptionsStripOptionsButtonCount;
-
-        private UICatButton freeWillButton;
-        private UILabel freeWillLabel;
-
-        /// <summary>
-        /// Whether the free will button is currently built, or null when it has never been
-        /// decided. Used so a resize is a no-op unless it changes the answer.
-        /// </summary>
-        private bool? freeWillShown;
-
-        /// <summary>
-        /// Opacity the strip is currently being faded to, so a button built while the pickup
-        /// panel has the strip hidden starts hidden rather than popping in over it.
-        /// </summary>
-        private float stripOpacity = 1f;
-
         public UIMainPanel(TS1GameScreen game) : base()
         {
             Game = game;
@@ -579,108 +543,11 @@ namespace Simitone.Client.UI.Panels
                         new UICatFunc(SimitoneStrings.Get("20", "Settings"), "opt_setting.png", () => { Game.ShowOptionsDialog(); }),
                         new UICatFunc(GameFacade.Strings.GetString("145", "5"), "opt_quit.png", () => { Game.CloseAttempt(); }),
                     });
-                    // Four buttons, and OptionsStripOptionsButtonCount says so. The count is not
-                    // a nicety: UICreditsPanel was removed from this list and the free will
-                    // toggle moved down a slot to fill the gap, so a button added or dropped
-                    // here without moving the constant would put the toggle back on top of a
-                    // button instead of past the end of the strip.
+                    // Four buttons, and OptionsStripOptionsButtonCount says so: a button added
+                    // to or dropped from this list has to move that constant with it.
                     break;
             }
             SetSubpanel(panel);
-            //Built after the subpanel rather than inside its UICatFunc list, so the button can
-            //redraw its own caption; SetSubpanel cleared whatever was there first.
-            RefreshFreeWillToggle();
-        }
-
-        /// <summary>
-        /// Builds the free will quick toggle for the current mode, or tears it down when it does
-        /// not belong. Idempotent: it does nothing if the answer has not changed, so it is safe
-        /// to call from the paths that rebuild the strip anyway (a category switch, a language
-        /// change) and from <see cref="GameResized"/>.
-        /// </summary>
-        private void RefreshFreeWillToggle()
-        {
-            var wanted = Mode == UIMainPanelMode.OPTIONS && FreeWillFits();
-            if (freeWillShown == wanted) return;
-            freeWillShown = wanted;
-
-            KillFreeWillToggle();
-            if (!wanted) return;
-
-            freeWillLabel = new UILabel
-            {
-                Alignment = TextAlignment.Middle | TextAlignment.Center,
-                Wrapped = true,
-                Position = new Vector2(OptionsStripLabelX(FreeWillSlot), 106),
-                Size = new Vector2(OptionsStripLabelWidth, 1)
-            };
-            freeWillLabel.CaptionStyle = freeWillLabel.CaptionStyle.Clone();
-            freeWillLabel.CaptionStyle.Size = 12;
-            Add(freeWillLabel);
-
-            freeWillButton = new UICatButton(Content.Get().CustomUI.Get(FreeWillSetting.IconName).Get(GameFacade.GraphicsDevice))
-            {
-                Position = new Vector2(OptionsStripButtonX(FreeWillSlot), 16)
-            };
-            freeWillButton.OnButtonClick += (btn) => ToggleFreeWill();
-            Add(freeWillButton);
-
-            //Slid in from the left like the strip's own buttons, so a toggle appearing or
-            //disappearing reads as part of the strip rather than as a pop.
-            GameFacade.Screens.Tween.To(freeWillLabel, 0.5f, new Dictionary<string, float>() { { "X", OptionsStripLabelX(FreeWillSlot) } }, TweenQuad.EaseOut);
-            GameFacade.Screens.Tween.To(freeWillButton, 0.5f, new Dictionary<string, float>() { { "X", OptionsStripButtonX(FreeWillSlot) } }, TweenQuad.EaseOut);
-
-            //The tween above only moves the button in from off-panel; the strip's own fade is a
-            //separate thing, and a button built while the pickup panel is up has to respect it.
-            freeWillButton.Opacity = freeWillLabel.Opacity = stripOpacity;
-
-            UpdateFreeWillToggleVisuals();
-        }
-
-        /// <summary>
-        /// Whether the strip is wide enough for the free will button to be fully on screen. A
-        /// button past the right edge cannot be clicked, so on a narrow window the toggle is
-        /// left off and the Gameplay page remains the way in.
-        /// </summary>
-        private bool FreeWillFits()
-        {
-            return OptionsStripRequiredWidth(FreeWillSlot + 1) <= (Game.ScreenWidth - X);
-        }
-
-        private void KillFreeWillToggle()
-        {
-            if (freeWillButton != null)
-            {
-                Remove(freeWillButton);
-                freeWillButton = null;
-            }
-            if (freeWillLabel != null)
-            {
-                Remove(freeWillLabel);
-                freeWillLabel = null;
-            }
-        }
-
-        /// <summary>
-        /// Redraws the toggle's visuals from the live setting: the glyph is tinted with
-        /// <c>Selected</c> and the label says which way it is set, with "off" in the money-red
-        /// the rest of the UI uses for a negative value.
-        /// </summary>
-        private void UpdateFreeWillToggleVisuals()
-        {
-            if (freeWillButton == null) return;
-
-            var enabled = FreeWillSetting.Enabled;
-            freeWillButton.Selected = enabled;
-            freeWillButton.Tooltip = FreeWillSetting.DescribeEffect(enabled);
-            freeWillLabel.Caption = FreeWillSetting.DescribeToggle(enabled);
-            freeWillLabel.CaptionStyle.Color = enabled ? UIStyle.Current.Text : UIStyle.Current.NegMoney;
-        }
-
-        private void ToggleFreeWill()
-        {
-            FreeWillSetting.Toggle(GlobalSettings.Default);
-            UpdateFreeWillToggleVisuals();
         }
 
         public UICatalogMode GetLotType(bool music)
@@ -717,12 +584,6 @@ namespace Simitone.Client.UI.Panels
 
         public void SetSubpanel(UISubpanel sub)
         {
-            //The free will button belongs to the strip this panel is about to replace, so it
-            //goes with it. Switcher_OnCategorySelect rebuilds it straight after if the incoming
-            //category is the one it belongs to; Close and ShowSelect pass null and leave it gone.
-            KillFreeWillToggle();
-            freeWillShown = null;
-
             if (SubPanel != null)
             {
                 //Clear the search on the way out. The panel holding the filtered list is about to be
@@ -759,29 +620,12 @@ namespace Simitone.Client.UI.Panels
                 // lot behind it. Visibility is flipped at the ends of the tween to match.
                 SubPanel.Visible = opacity == 0 ? false : true;
             }
-            // The free will button is a child of this panel rather than of the subpanel, so it
-            // has to be faded out of the way itself or it is left sitting on the pickup panel.
-            foreach (var fade in FreeWillFadeables())
-            {
-                GameFacade.Screens.Tween.To(fade, 0.3f, new Dictionary<string, float>() { { "Opacity", opacity } }, TweenQuad.EaseOut);
-            }
-            stripOpacity = opacity;
             GameFacade.Screens.Tween.To(Switcher.MainButton, 0.3f, new Dictionary<string, float>() { { "Opacity", opacity } }, TweenQuad.EaseOut);
             GameFacade.Screens.Tween.To(Game.LotControl.PickupPanel, 0.3f, new Dictionary<string, float>() { { "Opacity", 1-opacity } }, TweenQuad.EaseOut);
             if (opacity == 0)
             {
                 Switcher.Close();
             }
-        }
-
-        /// <summary>
-        /// The free will button and its label, for the fades that have to move them with the
-        /// rest of the strip. Empty when the button is not built.
-        /// </summary>
-        private UIElement[] FreeWillFadeables()
-        {
-            if (freeWillButton == null) return Array.Empty<UIElement>();
-            return new UIElement[] { freeWillButton, freeWillLabel };
         }
 
         private void UpdateWidth()
@@ -908,10 +752,6 @@ namespace Simitone.Client.UI.Panels
             }
 
             Game.LotControl.PickupPanel.Visible = Game.LotControl.PickupPanel.Opacity > 0;
-            // A faded-out button keeps eating clicks, so visibility follows the fade rather than
-            // being set once at the ends of it (the same reason PickupPanel does this above).
-            foreach (var free in FreeWillFadeables())
-                free.Visible = free.Opacity > 0;
 
             if (Mode != UIMainPanelMode.LIVE)
             { // when in BUILD or BUY, gameplay cannot proceed. Set multiplier to GameplaySpeed.Disabled to ensure this cannot be bypassed by changing speed using speed buttons.
@@ -1123,10 +963,6 @@ namespace Simitone.Client.UI.Panels
             base.GameResized();
             if (PanelActive) CurWidth = Game.ScreenWidth - X;
             HideButton.X = Game.ScreenWidth - (50 + X);
-            // A wider window can bring the free will button into reach and a narrower one can
-            // take it away again. RefreshFreeWillToggle is a no-op unless that answer changed,
-            // so this does not rebuild the button on every resize tick.
-            RefreshFreeWillToggle();
         }
     }
 

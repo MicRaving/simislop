@@ -36,7 +36,7 @@ namespace Simitone.Client.UI.Panels
         /// <summary>Number of toggle columns laid out to the left of the action buttons.</summary>
         private const int ItemCount = 7;
 
-        private const int ToggleSize = 50;
+        private const int ToggleSize = UISwitch.TrackWidth;
         private const int ButtonMargin = 6;
         private const int LabelFontSize = 11;
 
@@ -49,7 +49,7 @@ namespace Simitone.Client.UI.Panels
         private int pendingShadowDetail;
         private int pendingWaterReflections;
 
-        private readonly UITwoStateButton[] toggles = new UITwoStateButton[ItemCount];
+        private readonly UISwitch[] toggles = new UISwitch[ItemCount];
         private readonly UILabel[] nameLabels = new UILabel[ItemCount];
         private readonly UILabel[] valueLabels = new UILabel[ItemCount];
         private UILabel statusLabel;
@@ -113,27 +113,25 @@ namespace Simitone.Client.UI.Panels
             pendingShadowDetail = GraphicsOptions.ResolveShadowDetail(settings.ShadowDetail);
             pendingWaterReflections = GraphicsOptions.ResolveWaterReflections(settings.WaterReflections);
 
-            var toggleTexture = Content.Get().CustomUI.Get("blank_blue.png").Get(GameFacade.GraphicsDevice);
-
-            toggles[0] = MakeToggle(toggleTexture);
+            toggles[0] = MakeToggle();
             toggles[0].OnButtonClick += (b) => CycleAntiAlias();
 
-            toggles[1] = MakeToggle(toggleTexture);
+            toggles[1] = MakeToggle();
             toggles[1].OnButtonClick += (b) => CycleLightingMode();
 
-            toggles[2] = MakeToggle(toggleTexture);
+            toggles[2] = MakeToggle();
             toggles[2].OnButtonClick += (b) => CycleShadowDetail();
 
-            toggles[3] = MakeToggle(toggleTexture);
+            toggles[3] = MakeToggle();
             toggles[3].OnButtonClick += (b) => CycleWaterReflections();
 
-            toggles[4] = MakeToggle(toggleTexture);
+            toggles[4] = MakeToggle();
             toggles[4].OnButtonClick += (b) => Flip(ref pendingComplexShaders);
 
-            toggles[5] = MakeToggle(toggleTexture);
+            toggles[5] = MakeToggle();
             toggles[5].OnButtonClick += (b) => Flip(ref pendingEnableTransitions);
 
-            toggles[6] = MakeToggle(toggleTexture);
+            toggles[6] = MakeToggle();
             toggles[6].OnButtonClick += (b) => Flip(ref pendingEdgeScroll);
 
             for (int i = 0; i < ItemCount; i++)
@@ -187,9 +185,9 @@ namespace Simitone.Client.UI.Panels
             Refresh();
         }
 
-        private UITwoStateButton MakeToggle(Texture2D texture)
+        private UISwitch MakeToggle()
         {
-            var button = new UITwoStateButton(texture);
+            var button = new UISwitch();
             Add(button);
             return button;
         }

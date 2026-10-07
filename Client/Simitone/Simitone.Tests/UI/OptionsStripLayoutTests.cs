@@ -4,29 +4,19 @@ using Xunit;
 namespace Simitone.Tests.UI
 {
     /// <summary>
-    /// Tests for the arithmetic behind the free will button on the live-mode strip.
+    /// Tests for the arithmetic behind the live-mode Options strip.
     ///
     /// <para>
     /// <c>UIButtonSubpanel</c> lays its buttons out on a fixed pitch and the main panel's own
     /// constants mirror it, so the position of a slot is arithmetic rather than something to
-    /// read off a screenshot. That matters because the last slot is only built when the whole
-    /// strip is on screen: a button past the right edge renders but cannot be clicked, so the
-    /// "is there room" decision has to agree with the positions the strip is actually drawn at.
-    /// </para>
-    ///
-    /// <para>
-    /// It matters a second time, which is why the slot the toggle takes is pinned here. It sits
-    /// on the same pitch as the Options buttons rather than being laid out after them, so a
-    /// count that drifts out of step with the button list is not a gap - it is a button drawn on
-    /// top of the one before it.
+    /// read off a screenshot. The constants and the strip's own layout have to agree, or a
+    /// button is drawn on top of the one before it.
     /// </para>
     /// </summary>
     public sealed class OptionsStripLayoutTests
     {
         /// <summary>
-        /// The Options buttons: Save, Neighbourhood, Settings, Quit. Credits used to be the
-        /// fifth; it is no longer offered here, so this is a fourth and the toggle's slot moved
-        /// down with it.
+        /// The Options buttons: Save, Neighbourhood, Settings, Quit.
         /// </summary>
         private const int ExistingOptionsButtons = UIMainPanel.OptionsStripOptionsButtonCount;
 
@@ -34,16 +24,6 @@ namespace Simitone.Tests.UI
         public void TheOptionsCategoryIsSaveNeighbourhoodSettingsAndQuit()
         {
             Assert.Equal(4, ExistingOptionsButtons);
-        }
-
-        /// <summary>
-        /// The toggle takes the first slot no Options button uses. Derived in the panel rather
-        /// than counted here, so this only has to catch the two drifting apart.
-        /// </summary>
-        [Fact]
-        public void TheFreeWillSlotIsTheFirstSlotNoOptionsButtonTakes()
-        {
-            Assert.Equal(ExistingOptionsButtons, UIMainPanel.FreeWillSlot);
         }
 
         [Fact]
@@ -100,7 +80,7 @@ namespace Simitone.Tests.UI
         [Fact]
         public void EachLabelClearsTheButtonOfTheSlotAfterIt()
         {
-            for (int slot = 0; slot < UIMainPanel.FreeWillSlot; slot++)
+            for (int slot = 0; slot < ExistingOptionsButtons; slot++)
             {
                 var labelRight = UIMainPanel.OptionsStripLabelX(slot) + UIMainPanel.OptionsStripLabelWidth;
                 var nextButtonLeft = UIMainPanel.OptionsStripButtonX(slot + 1);
@@ -133,33 +113,14 @@ namespace Simitone.Tests.UI
         }
 
         /// <summary>
-        /// The last slot still is past the edge at 800px, so on the narrowest window the game
-        /// supports the button is deliberately not built.
+        /// One more slot than the Options buttons is past the edge at 800px, and comfortably fits
+        /// a normal desktop window.
         /// </summary>
         [Fact]
-        public void AddingTheFreeWillSlotOverflowsTheMinimumWindow()
+        public void OneMoreSlotOverflowsTheMinimumWindowButFitsAComfortableOne()
         {
             Assert.True(UIMainPanel.OptionsStripRequiredWidth(ExistingOptionsButtons + 1) > 800);
-        }
-
-        /// <summary>And comfortably fits a normal one.</summary>
-        [Fact]
-        public void AddingTheFreeWillSlotFitsAComfortableWindow()
-        {
             Assert.True(UIMainPanel.OptionsStripRequiredWidth(ExistingOptionsButtons + 1) <= 1280);
-        }
-
-        /// <summary>
-        /// The width the fit decision is made on is the width of the whole strip, toggle
-        /// included. If these two ever disagree the button is built on a screen it does not fit
-        /// on, or left off a screen it would have fitted.
-        /// </summary>
-        [Fact]
-        public void TheFitDecisionMeasuresTheWholeStrip()
-        {
-            Assert.Equal(
-                UIMainPanel.OptionsStripRequiredWidth(ExistingOptionsButtons + 1),
-                UIMainPanel.OptionsStripRequiredWidth(UIMainPanel.FreeWillSlot + 1));
         }
 
         /// <summary>

@@ -41,10 +41,9 @@ namespace Simitone.Client.UI.Panels
         /// <see cref="CreateFamilyButtonIndex"/> rather than merely appending it first.
         /// </para>
         /// <para>
-        /// <b>Why it is on the left at all.</b> The travel buttons are on the right because they change
-        /// which map you are looking at; this one leaves the map for the Create-a-Sim editor, so it
-        /// belongs with the other "leave this map" buttons on the left - the management page and, off
-        /// the base map, the button back to it.
+        /// <b>The left column now holds only the CAS button.</b> The button back to the base
+        /// neighbourhood and the neighbourhood-management page used to sit under it; both moved to
+        /// the right column, which is the column of places to go rather than of ways to leave.
         /// </para>
         /// </remarks>
         public const int CreateFamilyButtonIndex = 0;
@@ -70,7 +69,42 @@ namespace Simitone.Client.UI.Panels
         }
 
         /// <summary>
-        /// The map's lot filter bar, and the Next/Previous pair and Add Lot button on it.
+        /// The right column's x, in unscaled screen pixels: one button-width in from the right edge.
+        /// </summary>
+        public static float RightColumnX(int screenWidth)
+        {
+            return screenWidth - (17 + 96) + 48;
+        }
+
+        /// <summary>Vertical pitch between two buttons in the right column.</summary>
+        public const float RightColumnPitch = 110f;
+
+        /// <summary>
+        /// Where the button at <paramref name="index"/> in the right column goes, in unscaled screen
+        /// pixels.
+        /// </summary>
+        /// <remarks>
+        /// The column holds the base view, five travel views and the management page - seven
+        /// buttons - which does not fit a 110px pitch on a short window. The pitch therefore shrinks
+        /// when it has to, so the last button stays on screen instead of running off the bottom.
+        /// </remarks>
+        /// <param name="index">The button's position in the column, counting from zero.</param>
+        /// <param name="count">How many buttons the column has.</param>
+        /// <param name="screenWidth">The window's width, in unscaled screen pixels.</param>
+        /// <param name="screenHeight">The window's height, in unscaled screen pixels.</param>
+        public static Vector2 RightButtonPosition(int index, int count, int screenWidth, int screenHeight)
+        {
+            var pitch = RightColumnPitch;
+            if (count > 1)
+            {
+                var room = screenHeight - (LeftColumnY * 2);
+                pitch = Math.Min(pitch, room / (float)(count - 1));
+            }
+            return new Vector2(RightColumnX(screenWidth), LeftColumnY + pitch * index);
+        }
+
+        /// <summary>
+        /// The map's lot filter bar: the lot filters and the count they leave.
         ///
         /// <para>
         /// A child of the switcher rather than of the map panel, and that is a layout decision
@@ -123,41 +157,50 @@ namespace Simitone.Client.UI.Panels
                     + " neighbourhood switcher, so it is not where §8.1 puts it.");
             }
 
+            //The right column, top to bottom: the base neighbourhood, the travel views, then the
+            //neighbourhood page. The base button is first because it is the way home from any other
+            //view; the page is last because it is the one button that leaves the map altogether.
+            //
             //"Back to the base neighbourhood" now means what it says. It used to go to view 4,
             //the Unleashed map, because Simitone's hybrid mode opened there and called that the
             //residential neighbourhood - which left view 1, The Sims 1's own map, with no way to
             //be reached at all. Unleashed has a button of its own below, so nothing was traded
             //away to get here; see NeighbourhoodModeMap, which is where the numbers come from.
-            if (mode != NeighbourhoodModeMap.BaseResidential)
+            var back = AddBtn(RightBtns, "ngbh_back.png", (btn) =>
             {
-                var back = AddBtn(LeftBtns, "ngbh_back.png", (btn) =>
-                    PopMode(NeighbourhoodModeMap.TransitionIcon(NeighbourhoodModeMap.BaseResidential),
-                        NeighbourhoodModeMap.BaseResidential));
-                back.Tooltip = NeighbourhoodModeMap.TravelTooltip(NeighbourhoodModeMap.BaseResidential);
-            }
+                //Already on the base map: the button is the active-view indicator, not a
+                //destination, so pressing it does nothing.
+                if (mode == NeighbourhoodModeMap.BaseResidential) return;
+                PopMode(NeighbourhoodModeMap.TransitionIcon(NeighbourhoodModeMap.BaseResidential),
+                    NeighbourhoodModeMap.BaseResidential);
+            });
+            back.Active = mode == NeighbourhoodModeMap.BaseResidential;
+            back.Tooltip = NeighbourhoodModeMap.TravelTooltip(NeighbourhoodModeMap.BaseResidential);
 
-            //The management page is the way into creating, copying in, renaming and deleting whole
-            //neighbourhoods, and into opening one instead of the one that is open. It is on the
-            //left column with the other "leave this map" buttons rather than among the travel
-            //buttons, because it is not travel: the travel buttons move between the views inside
-            //the slot that is open, while the page is about the slots themselves. Shown in every
-            //mode including move-in, which hides the travel buttons, because the page is safe to
-            //use there - and it refuses its own Open button while a family is waiting to move in.
-            //The tooltip is what makes a "..." button findable at all.
-            var manageBtn = AddBtn(LeftBtns, "ngbh_opt.png", (btn) => UINeighbourhoodManagementPanel.Show());
-            manageBtn.Tooltip = UINeighbourhoodManagementPanel.Title;
-
-            //Right column, in view order. The three marked hidden are the ones that were: a family
-            //waiting to move in is about to be given a lot, and travelling to another expansion
-            //first is not a thing the original let you do. Unleashed and MagicTown were not hidden
-            //before this change either, and Unleashed in particular could not be given one without
-            //losing its button: the map opens on it, so the only button that reached it was the
-            //"back" one, which now goes to the base map.
+            //The travel views, in view order. The view the player is already on is added too and
+            //marked active, so the column always shows every view and which one is on screen -
+            //that is the indicator the active view's button carries. The three marked hidden are
+            //the ones the original hid while a family was waiting to move in: a family about to be
+            //given a lot should not travel to another expansion first. Unleashed and MagicTown
+            //were not hidden before this change either, and Unleashed in particular could not be
+            //given one without losing its button: the map opens on it, so the only button that
+            //reached it was the "back" one, which now goes to the base map.
             AddTravel(RightBtns, mode, NeighbourhoodModeMap.Downtown, hiddenDuringMoveIn: true);
             AddTravel(RightBtns, mode, NeighbourhoodModeMap.Vacation, hiddenDuringMoveIn: true);
             AddTravel(RightBtns, mode, NeighbourhoodModeMap.Unleashed, hiddenDuringMoveIn: false);
             AddTravel(RightBtns, mode, NeighbourhoodModeMap.Studiotown, hiddenDuringMoveIn: true);
             AddTravel(RightBtns, mode, NeighbourhoodModeMap.Magictown, hiddenDuringMoveIn: false);
+
+            //The management page is the way into creating, copying in, renaming and deleting whole
+            //neighbourhoods, and into opening one instead of the one that is open. It sits below
+            //the travel buttons because it is not travel: the travel buttons move between the views
+            //inside the slot that is open, while the page is about the slots themselves. Shown in
+            //every mode including move-in, which hides the travel buttons, because the page is safe
+            //to use there - and it refuses its own Open button while a family is waiting to move in.
+            //The tooltip is what makes a "..." button findable at all.
+            var manageBtn = AddBtn(RightBtns, "ngbh_opt.png", (btn) => UINeighbourhoodManagementPanel.Show());
+            manageBtn.Tooltip = UINeighbourhoodManagementPanel.Title;
+
             Mode = mode;
 
             //The bar describes the map that is now on screen, not the one that was: which lots
@@ -171,23 +214,29 @@ namespace Simitone.Client.UI.Panels
         }
 
         /// <summary>
-        /// Adds one travel button, unless the player is already on that view or the view is hidden
-        /// in this context.
+        /// Adds one travel button, unless the view is hidden in this context.
         /// </summary>
         /// <param name="target">The buttons to add to.</param>
-        /// <param name="from">The view the player is on.</param>
+        /// <param name="from">The view the player is on. The button for this view is the active
+        /// indicator and is not a destination.</param>
         /// <param name="mode">The view to travel to.</param>
         /// <param name="hiddenDuringMoveIn">
         /// True for the views the original hid while a family was waiting to move in.
         /// </param>
         private void AddTravel(List<UIElasticButton> target, ushort from, ushort mode, bool hiddenDuringMoveIn)
         {
-            if (mode == from) return;
             if (hiddenDuringMoveIn && MoveInMode) return;
             if (!NeighbourhoodModeMap.HasView(mode)) return;
 
+            var active = mode == from;
             var btn = AddBtn(target, NeighbourhoodModeMap.TravelIcon(mode),
-                (b) => PopMode(NeighbourhoodModeMap.TransitionIcon(mode), mode));
+                (b) =>
+                {
+                    //The view already on screen is the active-view indicator, not a destination.
+                    if (active) return;
+                    PopMode(NeighbourhoodModeMap.TransitionIcon(mode), mode);
+                });
+            btn.Active = active;
             var tooltip = NeighbourhoodModeMap.TravelTooltip(mode);
             if (tooltip != null) btn.Tooltip = tooltip;
         }
@@ -221,11 +270,12 @@ namespace Simitone.Client.UI.Panels
                 i++;
             }
 
-            i = 0;
-            foreach (var btn in RightBtns)
+            var screen = UIScreen.Current;
+            var width = screen?.ScreenWidth ?? 0;
+            var height = screen?.ScreenHeight ?? 0;
+            for (i = 0; i < RightBtns.Count; i++)
             {
-                btn.Position = new Microsoft.Xna.Framework.Vector2(UIScreen.Current.ScreenWidth - (17+96) + 48, 14 + 110 * i + 48);
-                i++;
+                RightBtns[i].Position = RightButtonPosition(i, RightBtns.Count, width, height);
             }
 
             //The filter bar is anchored to the top centre, so the window's width changing moves it

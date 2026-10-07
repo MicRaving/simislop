@@ -23,18 +23,16 @@ using System.Collections.Generic;
 namespace Simitone.Client.UI.Panels
 {
     /// <summary>
-    /// The strip of controls along the top of the neighbourhood map: the lot filters, the count
-    /// they leave, the Add Lot button, and the Previous/Next pair that steps through the lots
-    /// that are left.
+    /// The strip of controls along the top of the neighbourhood map: the lot filters, and the
+    /// count of lots they leave.
     ///
     /// <para>
     /// <b>Where it comes from.</b> Retail's neighbourhood view had a filter bar - three
     /// <c>filter_toolbar*.bmp</c> plates in the shipped <c>UIGraphics.far</c>, one per map, plus
-    /// thirteen four-state <c>Filter*Btn.bmp</c> toggles along it - and a <c>Next</c>/
-    /// <c>Previous</c> pair of arrows at one end. The shape is copied; none of the artwork is.
-    /// Simitone's plates and glyphs are its own, in the palette its other neighbourhood buttons
-    /// already use, and the set of filters is four rather than thirteen because that is what this
-    /// tree can answer a question about - see <see cref="NeighLotFilters"/>.
+    /// thirteen four-state <c>Filter*Btn.bmp</c> toggles along it. The shape is copied; none of
+    /// the artwork is. Simitone's plates and glyphs are its own, in the palette its other
+    /// neighbourhood buttons already use, and the set of filters is four rather than thirteen
+    /// because that is what this tree can answer a question about - see <see cref="NeighLotFilters"/>.
     /// </para>
     /// <para>
     /// <b>Why four states per button.</b> Not decoration, and not a copy of the retail layout for
@@ -60,11 +58,8 @@ namespace Simitone.Client.UI.Panels
     /// </summary>
     public class UINeighbourhoodFilterBar : UIContainer
     {
-        /// <summary>Side of one filter or Add Lot button, in pixels. The art's own size.</summary>
+        /// <summary>Side of one filter button, in pixels. The art's own size.</summary>
         public const int ButtonSize = 44;
-
-        /// <summary>Side of one of the two arrow buttons, in pixels. The art's own size.</summary>
-        public const int ArrowSize = 36;
 
         /// <summary>Inset from the bar's edge to the buttons, in pixels.</summary>
         public const int Padding = 8;
@@ -89,9 +84,6 @@ namespace Simitone.Client.UI.Panels
         private readonly UILabel _count;
         private readonly List<UITwoStateButton> _filters = new List<UITwoStateButton>();
         private readonly List<NeighLotFilter> _filterKinds = new List<NeighLotFilter>();
-        private UITwoStateButton _addLot;
-        private UITwoStateButton _previous;
-        private UITwoStateButton _next;
 
         /// <summary>
         /// Every control on the bar, in draw order. Held so <see cref="IsOverAControl"/> can tell a
@@ -131,30 +123,6 @@ namespace Simitone.Client.UI.Panels
                 _filterKinds.Add(filter);
             }
 
-            _addLot = MakeToggle(ui.Get("ngbh_addlot.png").Get(GameFacade.GraphicsDevice));
-            _addLot.OnButtonClick += (b) =>
-            {
-                _panel.RequestAddLot();
-                Refresh();
-            };
-            _addLot.Tooltip = SimitoneStrings.Get("252", "Add a lot");
-
-            _previous = MakeToggle(ui.Get(NeighLotNavigator.IconName(NeighLotNavigator.Backward))
-                .Get(GameFacade.GraphicsDevice));
-            _previous.OnButtonClick += (b) =>
-            {
-                _panel.StepToAdjacentLot(NeighLotNavigator.Backward);
-                Refresh();
-            };
-
-            _next = MakeToggle(ui.Get(NeighLotNavigator.IconName(NeighLotNavigator.Forward))
-                .Get(GameFacade.GraphicsDevice));
-            _next.OnButtonClick += (b) =>
-            {
-                _panel.StepToAdjacentLot(NeighLotNavigator.Forward);
-                Refresh();
-            };
-
             _count = new UILabel();
             _count.NewStyle(UIStyle.Current.Text, CountTextSize);
             _count.Alignment = TextAlignment.Middle | TextAlignment.Left;
@@ -162,10 +130,7 @@ namespace Simitone.Client.UI.Panels
             // add order is draw order: backdrop, then every control left to right
             Add(_backdrop);
             foreach (var button in _filters) { Add(button); Controls.Add(button); }
-            Add(_addLot); Controls.Add(_addLot);
             Add(_count);
-            Add(_previous); Controls.Add(_previous);
-            Add(_next); Controls.Add(_next);
 
             Refresh();
             LayOut();
@@ -255,16 +220,6 @@ namespace Simitone.Client.UI.Panels
 
             _count.Caption = NeighLotFilters.CountText(_panel.ActiveLotFilters, facts);
 
-            //The arrows step through the lots that are on show, so they are dead when a filter has
-            //left nothing to step to. A single lot is not dead: Next then re-selects it, which is
-            //also the only way to get its panel back after a filter has hidden the rest.
-            var anyLots = _panel.VisibleLotCount > 0;
-            _previous.Disabled = !anyLots;
-            _next.Disabled = !anyLots;
-            _previous.Tooltip = NeighLotNavigator.Caption(NeighLotNavigator.Backward);
-            _next.Tooltip = NeighLotNavigator.Caption(NeighLotNavigator.Forward);
-
-            _addLot.Disabled = !hasLots;
             LayOut();
         }
 
@@ -286,7 +241,7 @@ namespace Simitone.Client.UI.Panels
             var width = (Padding * 2);
             for (int i = 0; i < _filters.Count; i++) width += ButtonSize + ButtonGap;
             width -= ButtonGap;
-            width += SectionGap + ButtonSize + SectionGap + CountWidth + SectionGap + ArrowSize + ButtonGap + ArrowSize;
+            width += SectionGap + CountWidth + SectionGap;
 
             var screen = UIScreen.Current;
             var windowWidth = screen?.ScreenWidth ?? 0;
@@ -304,20 +259,8 @@ namespace Simitone.Client.UI.Panels
             }
 
             x += SectionGap - ButtonGap;
-            _addLot.Position = new Vector2(x, buttonY);
-            x += ButtonSize;
-
-            x += SectionGap;
             _count.Position = new Vector2(x, Padding);
             _count.Size = new Vector2(CountWidth, ButtonSize);
-            x += CountWidth;
-
-            x += SectionGap;
-            //the arrows are shorter than the buttons, so they are centred on the same row
-            var arrowY = Padding + ((ButtonSize - ArrowSize) / 2);
-            _previous.Position = new Vector2(x, arrowY);
-            x += ArrowSize + ButtonGap;
-            _next.Position = new Vector2(x, arrowY);
         }
 
         /// <summary>

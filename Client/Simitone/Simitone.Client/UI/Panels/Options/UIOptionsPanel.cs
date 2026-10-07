@@ -75,16 +75,24 @@ namespace Simitone.Client.UI.Panels.Options
         // -------------------------------------------------------------------------------------
 
         /// <summary>
-        /// Y of the update row, under the tab strip. The three tab buttons are 93px tall on a
-        /// 93px pitch, so 279 is the first free row in this column.
+        /// Y of the update row. It sits below the pages rather than in the tab column: once the
+        /// page's 113px left edge is taken off, the column is 73px wide, and the row's caption,
+        /// version stamp and status line cannot be drawn in that without spilling over the page
+        /// and over each other.
         /// </summary>
-        public const int UpdateRowY = 279;
+        public const int UpdateRowY = 330;
 
-        /// <summary>Y offset of the version stamp below the button.</summary>
-        public const int UpdateVersionOffsetY = 34;
+        /// <summary>Width of the update button, wide enough for its caption.</summary>
+        public const int UpdateButtonWidth = 220;
 
-        /// <summary>Y offset of the status line below the button.</summary>
-        public const int UpdateStatusOffsetY = 52;
+        /// <summary>X of the version stamp and status line, to the right of the button.</summary>
+        public const int UpdateTextX = 272;
+
+        /// <summary>Y offset of the version stamp from the row's top.</summary>
+        public const int UpdateVersionOffsetY = 6;
+
+        /// <summary>Y offset of the status line from the row's top.</summary>
+        public const int UpdateStatusOffsetY = 26;
 
         private readonly UITwoStateButton UpdateButton;
         private readonly UILabel UpdateVersionLabel;
@@ -136,6 +144,7 @@ namespace Simitone.Client.UI.Panels.Options
             UpdateButton = new UITwoStateButton(Content.Get().CustomUI.Get("blank_blue.png").Get(gd))
             {
                 Position = new Vector2(40, UpdateRowY),
+                Width = UpdateButtonWidth,
                 Caption = UpdateCheckPresenter.ButtonCaption(UpdateCheckState.Idle),
                 Tooltip = UpdateCheckPresenter.Describe(UpdateCheckState.Idle, null).Message
             };
@@ -144,7 +153,7 @@ namespace Simitone.Client.UI.Panels.Options
 
             UpdateVersionLabel = new UILabel()
             {
-                Position = new Vector2(40, UpdateRowY + UpdateVersionOffsetY),
+                Position = new Vector2(UpdateTextX, UpdateRowY + UpdateVersionOffsetY),
                 Caption = UpdateCheckPresenter.VersionText(SimitoneVersion.Current)
             };
             UpdateVersionLabel.CaptionStyle = UpdateVersionLabel.CaptionStyle.Clone();
@@ -154,7 +163,7 @@ namespace Simitone.Client.UI.Panels.Options
 
             UpdateStatusLabel = new UILabel()
             {
-                Position = new Vector2(40, UpdateRowY + UpdateStatusOffsetY),
+                Position = new Vector2(UpdateTextX, UpdateRowY + UpdateStatusOffsetY),
                 Caption = UpdateCheckPresenter.Describe(UpdateCheckState.Idle, null).StatusText
             };
             UpdateStatusLabel.CaptionStyle = UpdateStatusLabel.CaptionStyle.Clone();
@@ -246,8 +255,8 @@ namespace Simitone.Client.UI.Panels.Options
             AudioTabButton.Position = new Vector2(left, 186);
             GraphicsTabButton.Position = new Vector2(left, 93);
             UpdateButton.Position = new Vector2(left, UpdateRowY);
-            UpdateVersionLabel.Position = new Vector2(left, UpdateRowY + UpdateVersionOffsetY);
-            UpdateStatusLabel.Position = new Vector2(left, UpdateRowY + UpdateStatusOffsetY);
+            UpdateVersionLabel.Position = new Vector2(UpdateTextX, UpdateRowY + UpdateVersionOffsetY);
+            UpdateStatusLabel.Position = new Vector2(UpdateTextX, UpdateRowY + UpdateStatusOffsetY);
             if (SubpanelContent != null)
                 SubpanelContent.Position = new Vector2(113, 0);
         }

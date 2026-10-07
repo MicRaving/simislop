@@ -6,6 +6,7 @@ using FSO.Content;
 using FSO.LotView;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Simitone.Client.UI.Controls;
 using Simitone.Client.UI.Screens;
 using Simitone.Client.Utils;
 using System;
@@ -559,7 +560,6 @@ namespace Simitone.Client.UI.Panels.Options
         /// </summary>
         protected abstract IEnumerable<UIOptionDescriprion> GetSettingsDescriptors();
 
-        public Texture2D CheckboxTexture { get; }
         public Texture2D RadioTexture { get; }
 
         /// <summary>
@@ -596,7 +596,6 @@ namespace Simitone.Client.UI.Panels.Options
 
         protected UIOptionsSubpanelBase(object SettingsObjectInstance) : base()
         {
-            CheckboxTexture = Content.Get().CustomUI.Get("check.png").Get(GameFacade.GraphicsDevice);
             RadioTexture = Content.Get().CustomUI.Get("radio.png").Get(GameFacade.GraphicsDevice);
 
             LocalLowText = OptionsStrings.Get(LowTitle, "Low");
@@ -671,7 +670,7 @@ namespace Simitone.Client.UI.Panels.Options
                     case SettingType.BoolProp:
                         {
                             CreateCheckBox(setting as UIBoolPropOptionDescription, ColumnX, column2Y);
-                            column2Y += 25;
+                            column2Y += 30;
                         }
                         continue;
                     case SettingType.ToggleVariable:
@@ -784,7 +783,7 @@ namespace Simitone.Client.UI.Panels.Options
 
             if (Descriptor.HasMute)
             {
-                var mute = new UIButton(CheckboxTexture)
+                var mute = new UISwitch
                 {
                     Position = new Vector2(trackLeft + SliderTrackWidth + SliderMuteGap, ColumnY),
                     Tooltip = Descriptor.MuteTooltip,
@@ -819,9 +818,9 @@ namespace Simitone.Client.UI.Panels.Options
             //get title
             string Caption = Descriptor.GetTitle();
 
-            //create checkbox and label
+            //create switch and label
             int left = 200 + ColumnX;
-            var check = new UIButton(CheckboxTexture)
+            var check = new UISwitch
             {
                 Position = new Vector2(left, ColumnY),
                 Tooltip = Descriptor.GetAboutInfo(),
@@ -858,7 +857,7 @@ namespace Simitone.Client.UI.Panels.Options
             string Caption = ToggleSetting.GetTitle();
 
             // ON/OFF TOGGLE
-            var check = new UIButton(CheckboxTexture)
+            var check = new UISwitch
             {
                 Position = new(left, ColumnY),
                 // Not one of TS1's own strings: the game never drew this checkbox, so there is no
