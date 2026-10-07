@@ -1,0 +1,13 @@
+{
+  "sdk": {
+    "version": "10.0.100",
+    "rollForward": "latestFeature",
+    "allowPrerelease": false
+  },
+  "_comment": {
+    "version": "The minimum feature band. latestFeature is what lets 10.0.401 satisfy a 10.0.100 pin, which is deliberate: a contributor on any 10.0.4xx SDK can build without touching this file, and CI installs 10.0.x to match.",
+    "allowPrerelease": "Explicit false. latestFeature would happily roll forward onto a 10.0 preview the day one is published on a machine that has it side by side with the GA SDK, and the resulting build would not be reproducible. Nothing in this repository needs a preview.",
+    "runtime": "Deliberately not pinned. The audit noted there is no 'runtime' or runtime rollForward entry, so a machine with only the 9.0 runtime can build this tree but not execute the net10.0 test host. That is the right shape here: all 24 solution projects target net9.0 (the vendored FreeSO subtree, deliberately one major behind) or net10.0, and the 10.0 SDK is the floor for the latter. Pinning 'runtime' would force every contributor and CI agent onto a specific patch band for no benefit, since setup-dotnet already installs the SDK. If this ever changes it is because a net9.0 test project was added, not because a tool was.",
+    "note": "This file cannot contain comments; the _comment block above is the documentation, kept adjacent so it is read alongside the values it explains. JSON.parse and MSBuild both ignore unknown properties."
+  }
+}

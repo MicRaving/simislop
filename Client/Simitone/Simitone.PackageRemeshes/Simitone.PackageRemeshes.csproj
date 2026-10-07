@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Single-sourced in Client/Simitone/Directory.Build.props. Simitone.Windows
+         PackageRemeshAddon builds the path into this project's output from the same
+         property, so the two cannot disagree about which TFM folder the tool lands in. -->
+    <TargetFramework>$(SimitoneTargetFramework)</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Simitone.PackageRemeshes</RootNamespace>
+    <AssemblyName>Simitone.PackageRemeshes</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <!-- A build-time tool, not a shipped assembly. It has no reason to be a dependency of
+         anything, and keeping the platform off means it does not drag Windows-only
+         dependencies into the restore graph of the game projects. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only the packaging logic is borrowed from the client assembly. -->
+    <ProjectReference Include="..\Simitone.Client\Simitone.Client.csproj" />
+  </ItemGroup>
+
+</Project>

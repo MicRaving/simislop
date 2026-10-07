@@ -1,0 +1,441 @@
+<Project>
+
+  <!--
+    ============================================================================
+    Trimming / AOT analyzer opt-out for the whole repository
+    ============================================================================
+    Added by the build audit (docs/AUDIT_BUILD_DEPS.md, finding B-01).
+
+    THE SITUATION THIS FIXES
+    Two dozen library projects under FreeSO/TSOClient carry some combination of
+
+        <IsAotCompatible>True</IsAotCompatible>   (usually declared twice, once
+        <PublishAot>true</PublishAot>              'True' and once 'true')
+        <PublishTrimmed>true</PublishTrimmed>
+        <TrimMode>full</TrimMode>
+
+    including two more IsAotCompatible re-declarations inside
+    Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'" and
+    'Release|AnyCPU' PropertyGroups that set the identical value. FSO.Client
+    additionally sets all four on what is a Library.
+
+    Those properties are the SDK's switches for the ILLink trim analyzer and the
+    ILC AOT analyzer (Microsoft.NET.Sdk.Analyzers.targets): IsAotCompatible or
+    PublishAot or PublishTrimmed turns on EnableAotAnalyzer, EnableTrimAnalyzer
+    and EnableSingleFileAnalyzer, and IsAotCompatible additionally implies
+    IsTrimmable. They then emit 176 unique IL2xxx/IL3xxx warnings on every
+    build of every project in the closure.
+
+    WHY TURNING THEM OFF IS THE HONEST FIX, AND A NOWARN IS NOT
+    Every one of those warnings is unfalsifiable here. Simitone is a
+    net10.0-windows WinExe with a MonoGame GraphicsDevice, a WinForms dialog, a
+    Ninject-style object graph and FSO.SimAntics.JIT, a JIT that emits IL at run
+    time. It is never trimmed and never AOT-compiled: Simitone.Windows.csproj
+    sets neither PublishTrimmed nor PublishAot, and the only publish-time
+    trimming in this repo is a file-deletion target, not ILLink. So the analyzer
+    reports on a program that does not exist, and none of its 176 diagnostics
+    can be acted on. You cannot fix a missing reflection annotation in code that
+    will never be trimmed.
+
+    A NoWarn list (IL2026;IL2070;IL2072;IL2075;IL2077;IL2080;IL2087;IL2090;
+    IL2091;IL3000;IL3050) would suppress the output while leaving the project
+    still asserting AOT compatibility it does not have: the same lie, quieter.
+    Turning the analyzers off at the source says the true thing. This code is
+    not, and is not going to be, trim- or AOT-clean. The trade is real and
+    deliberate. If Simitone is ever published trimmed or AOT, ~176 real
+    diagnostics appear on day one of that work, which is the correct time to
+    pay them.
+
+    WHY A DIRECTORY.BUILD.TARGETS AND NOT TWENTY CSPROJ EDITS
+    Directory.Build.props is imported *before* the project body, so a property
+    set there would simply be overwritten by the project's own
+    <IsAotCompatible>True</IsAotCompatible>. Directory.Build.targets is imported
+    after the project body (it arrives with Microsoft.Common.targets, inside
+    the SDK's target import), so a single file here overrides every one of
+    those declarations, including the duplicates, and keeps doing so for any
+    project added later.
+
+    One file in the vendored FreeSO subtree instead of twenty edits to it also
+    keeps the submodule diff empty, so a future FreeSO bump does not have to
+    resolve twenty near-identical conflicts. The individual csproj files are left
+    exactly as upstream wrote them.
+
+    NOTHING HERE CHANGES THE BUILD OUTPUT
+    IsTrimmable, PublishTrimmed and PublishAot are consumed only when an
+    application is published (dotnet publish), and IsTrimmable only matters to
+    the trimmer for a project being trimmed. None of the 24 solution projects
+    publishes, and Simitone.Windows never did. The one side effect is a
+    bookkeeping improvement: _RequiresILLinkPack goes false, so the ILLink tool
+    pack drops out of the restore graph.
+
+    ESCAPE HATCH
+    A project that genuinely needs these analyzers (a NativeAOT-published tool
+    in this repo, say) sets
+
+        <EnableSimitoneTrimAnalyzers>true</EnableSimitoneTrimAnalyzers>
+
+    in its own body and gets them back, because the project body is evaluated
+    before this file.
+  -->
+
+  <PropertyGroup Condition=" '$(EnableSimitoneTrimAnalyzers)' != 'true' ">
+    <!-- Do not claim AOT/trim compatibility we do not have. -->
+    <IsAotCompatible>false</IsAotCompatible>
+    <IsTrimmable>false</IsTrimmable>
+    <PublishAot>false</PublishAot>
+    <PublishTrimmed>false</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <!-- And do not run the analyzers, whatever any project file says. These
+         are the properties the SDK actually branches on, so setting them
+         directly is immune to a project re-declaring IsAotCompatible later. -->
+    <EnableAotAnalyzer>false</EnableAotAnalyzer>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>false</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
+  <!--
+    ============================================================================
+    Package hygiene for the vendored FreeSO subtree (A-08, A-04)
+    ============================================================================
+    Added by the build audit (docs/AUDIT_BUILD_DEPS.md, findings A-08 and A-04).
+
+    WHAT IS FIXED HERE
+    ==================
+    A-08. Three PackageReferences that do nothing but produce restore noise:
+
+        FreeSO/TSOClient/tso.client/FSO.Client.csproj:142-143
+            System.IO.FileSystem            4.3.0
+            System.IO.FileSystem.Primitives 4.3.0
+        FreeSO/TSOClient/FSO.Server.Core/FSO.Server.Core.csproj:23
+            System.IO.FileSystem.Primitives 4.3.0
+        FreeSO/TSOClient/FSO.Server.Api.Core/FSO.Server.Api.Core.csproj:41
+            System.Security.Cryptography.Algorithms 4.3.1
+
+        All three are netstandard1.x / .NET Framework shim packages that exist only
+        for pre-.NET Core. Every type they nominally provide - FileSystem, Path,
+        FileInfo, SHA256 and the rest - is in the framework on net9.0/net10.0. What
+        they actually contributed was worse than no-ops: each one drags its own
+        dependency family of 4.3.0 out-of-band shims into the graph, and every one
+        of those is restored from a .NET Framework asset and therefore emits NU1701
+        in every project downstream.
+
+        Measured, by restoring the -p:BuildIde=true graph with and without this
+        block and counting the package resolutions that land on a .NET Framework
+        asset (which is exactly what NU1701 is):
+
+            with the block:    436
+            without the block: 486
+
+        The 50 that disappear are not three packages. Removing
+        System.Security.Cryptography.Algorithms takes System.Collections,
+        System.Globalization, System.Linq, System.Runtime.Handles,
+        System.Runtime.Extensions, System.Runtime.Numerics,
+        System.Diagnostics.Debug, System.Diagnostics.Tracing,
+        System.Collections.Concurrent, System.Resources.ResourceManager,
+        runtime.native.System.Security.Cryptography.Apple,
+        runtime.native.System.Security.Cryptography.OpenSsl and
+        System.IO.FileSystem* out of FSO.Client, FSO.Server and
+        FSO.Server.Api.Core - 36 resolutions in all, because those were only ever
+        in the graph as its dependencies.
+
+        The 4 that are introduced are the same two shim packages in FSO.IDE and
+        FSO.Windows at 4.3.0 rather than 4.3.1, which is the honest floor for the
+        transitive route they arrive by; without the block, FSO.Server.Api.Core's
+        direct 4.3.1 declaration was quietly unifying them upward. So the distinct
+        package-identity count goes 61 -> 63 while the number of NU1701-producing
+        resolutions goes 486 -> 436. The 4.3.0 pair is not removable from here at
+        all: it comes in through the TSO auth stack (System.Security.Cryptography.
+        Algorithms) and the Windows speech path (System.IO.FileSystem.Primitives),
+        neither of which any project in this repository declares.
+
+        NU1701 is the one diagnostic in this build with no way to act on it from
+        here (see the B-02 discussion in Client/Simitone/Directory.Build.props),
+        which is exactly why a whole family of lines that are pure no-op should not
+        be in it.
+
+    A-04. System.Resources.Extensions is declared at three different versions in
+    one solution:
+
+        FreeSO/TSOClient/tso.files/FSO.Files.csproj:35        8.0.0
+        FreeSO/TSOClient/FSO.UI/FSO.UI.csproj:37              9.0.0
+        FreeSO/TSOClient/FSO.Server.Debug/FSO.Server.Debug   9.0.0
+        FreeSO/Other/libs/.../SimplePaletteQuantizer.csproj:23 9.0.9
+        FreeSO/TSOClient/FSO.Patcher/FSO.Patcher.csproj:22    9.0.9
+
+        NuGet already unified the graph to 9.0.9, so the 8.0.0 and 9.0.0 spellings
+        were decorative for every project that *consumes* the package: the declared
+        version and the resolved version disagreed in three files, which is the
+        cheapest possible example of "no single owner for a package version" and a
+        standing invitation to bump one of them and not the others. 9.0.9 is chosen
+        because it is what the rest of the graph was already resolving, so the fix
+        is the smaller half of the discrepancy: FSO.Files itself, the one project
+        that declared 8.0.0, now compiles against the 9.0.9 its own consumers
+        (FSO.SimAntics, FSO.SimAntics.JIT, everything under FSO.IDE) were already
+        compiled against, instead of against a version nothing else in the solution
+        used. That is the whole of the behavioural difference and it is in the
+        direction of removing the split.
+
+    WHY HERE AND NOT IN THE FIVE PROJECT FILES
+    ===========================================
+    The same reason the trim/AOT block above is here. These are five edits to the
+    FreeSO submodule, and the submodule is a real submodule (.gitmodules, pinned
+    commit recorded in the CI run summary) that gets bumped. Five near-identical
+    one-line hunks in five vendored project files is five conflicts to resolve on
+    every bump, for changes that are pure declarations. One block in a file this
+    repository owns is one reviewable place and zero submodule churn.
+
+    Directory.Build.targets rather than Directory.Build.props, and the ordering
+    matters. props is imported *before* the project body, so a Remove or an
+    Update there would be applied to an item list that the project body then
+    appends to - the three A-08 references would be re-added and the A-04 version
+    metadata overwritten. targets is imported after the body (it arrives with
+    Microsoft.Common.targets), so these operations see the finished list. That is
+    the same argument as the analyzer block above, and it is why there are two
+    files in this repository rather than one.
+
+    It also reaches all 56 FreeSO project files, not the five that happen to be
+    wrong today, and keeps reaching them when upstream fixes it - at which point
+    the override simply agrees with the project file and stops being visible in
+    any diff.
+
+    THE OVERRIDE IS NOT A SUBSTITUTE FOR THE UPSTREAM FIX
+    =====================================================
+    These are declarations being corrected, not packages being replaced. The
+    packages that would actually need replacing - Mina, xxHashSharp,
+    FreeSO.HandEvaluator, Portable.JWT, AWSSDK.*, Octokit, System.Data.SqlClient,
+    System.Data.SQLite.Core - are untouched here and remain a FreeSO-side change;
+    see the deliberate-leftovers list in the audit's section 6. In particular this
+    file does NOT touch the A-09 servicing-band pins (the five 9.0.x Microsoft
+    packages), which are left exactly as upstream wrote them: see the note there.
+
+    ESCAPE HATCH
+    A project that needs one of these references for real sets
+
+        <EnableSimitonePackageCleanup>false</EnableSimitonePackageCleanup>
+
+    in its own body and gets the upstream item list back untouched, because the
+    project body is evaluated before this file.
+  -->
+
+  <PropertyGroup Condition=" '$(EnableSimitonePackageCleanup)' != 'false' ">
+    <!--
+      A-08. Semicolon-separated because an ItemGroup Remove with a wildcard is
+      matched as a literal item spec, and 'System.IO.FileSystem*' would remove
+      nothing at all rather than "the FileSystem ones" - the same
+      looks-like-a-glob-but-is-not trap documented above the trim allowlist, and
+      the reason every entry here is a full package id. System.IO.FileSystem and
+      System.IO.FileSystem.Primitives are two distinct packages and both are
+      listed; System.IO.FileSystem.AccessControl, .Watcher, .DriveInfo and the
+      rest are NOT listed, because removing a package some future project really
+      does need is a compile error this repository would have to undo from here.
+    -->
+    <SimitoneRemovePackageReference>System.IO.FileSystem;System.IO.FileSystem.Primitives;System.Security.Cryptography.Algorithms</SimitoneRemovePackageReference>
+
+    <!--
+      A-04. The version every System.Resources.Extensions declaration is
+      normalised to. Verified after the fact by reading every project.assets.json
+      in the tree: all 26 of the projects that resolve this package now resolve
+      9.0.9, and the three that declared something else declared it in a file that
+      is not a Simitone-owned project anyway.
+    -->
+    <SimitoneSystemResourcesExtensionsVersion>9.0.9</SimitoneSystemResourcesExtensionsVersion>
+  </PropertyGroup>
+
+  <ItemGroup Condition=" '$(EnableSimitonePackageCleanup)' != 'false' ">
+    <!--
+      $(...) and not @(SimitoneRemovePackageReference): an item reference in a
+      top-level element attribute is not expanded by MSBuild outside a target, so
+      it would be taken as the literal spec "@(SimitoneRemovePackageReference)"
+      and match nothing - silently, which is the worst way for a Remove to fail.
+      Remove splits its attribute on ';', so the property is already the list.
+    -->
+    <PackageReference Remove="$(SimitoneRemovePackageReference)" />
+    <!--
+      Update, not a second Include. A second PackageReference with the same id is
+      a *different* item and restore reports it as a duplicate, so the fix has to
+      overwrite the metadata on the item the project already declared.
+
+      The spec on the Update is the package id, not a condition. Update is
+      Remove-then-Include against the item's own spec, so naming the id matches
+      exactly the items that declare it - with no condition, and therefore without
+      the self-reference that a Condition="'%(Identity)' == ..." would be: MSBuild
+      rejects MSB4190 there, because an item operation may not read metadata of
+      the items it is operating on. The obvious spelling of this does not compile;
+      this is the spelling that does.
+    -->
+    <PackageReference Update="System.Resources.Extensions"
+                      Version="$(SimitoneSystemResourcesExtensionsVersion)" />
+  </ItemGroup>
+
+  <!--
+    ============================================================================
+    The dead OpenTK reference (C-13, last item)
+    ============================================================================
+    FreeSO/TSOClient/tso.client/FSO.Client.csproj:166-168 carries
+
+        <Reference Include="OpenTK">
+          <HintPath>OpenTK.dll</HintPath>
+        </Reference>
+
+    for a 4.1 MB OpenTK 1.1.2022.6406 binary committed to the tree. The audit
+    asked for this to be audited rather than assumed, and it is now measured:
+
+        * `Select-String -Pattern 'OpenTK'` over every .cs file in FreeSO/ returns
+          0 hits. Not "no using directive" - no occurrence of the token at all, so
+          there is no extern alias, no fully-qualified use and no type reached
+          through some other import.
+        * FSO.Client is the only project in the graph that declares the reference
+          that matters. The other two declarations of OpenTK in the tree are in
+          FreeSO/Charvatia (not in any solution) and FreeSO/TSOClient/FSO.iOS (a
+          packages.config-era Xamarin project that cannot build here - C-12), and
+          the latter carries its own HintPath, so this does not touch it. That is
+          why the removal is scoped to FSO.Client by name rather than applied
+          globally.
+        * Simitone.deps.json does not mention OpenTK, so it is not in the shipped
+          runtime graph - and it cannot be, because FSO.Client itself left the game
+          build in B-12.
+
+    So the reference is dead weight that costs a copy into the -ide output and
+    4.1 MB in git, and removing it is safe by the same test that found it dead: if
+    a future FreeSO bump starts using OpenTK, this is a compile error in the
+    -p:BuildIde=true build and the ide-build CI job reports it, with the
+    EnableSimitonePackageCleanup=false escape hatch available.
+
+    The DLL itself is left on disk. It is a tracked file in a vendored submodule,
+    and once the reference is gone nothing copies or loads it - deleting it is an
+    upstream change, not a build-hygiene one, and it is recorded in NOTICE with its
+    version and hash so the next person to look has the facts rather than the
+    4.1 MB.
+  -->
+  <ItemGroup Condition=" '$(EnableSimitonePackageCleanup)' != 'false' AND '$(MSBuildProjectName)' == 'FSO.Client' ">
+    <Reference Remove="OpenTK" />
+  </ItemGroup>
+
+  <!--
+    ============================================================================
+    B-05: the FSO.UI / FSO.Client type collision - CS0436
+    ============================================================================
+    The audit found 28 CS0436 warnings ("the type X in 'source' conflicts with the imported
+    type X in 'assembly'") and asked for them to be suppressed with the reasoning recorded,
+    so that the 45 warnings which do matter are not buried under them.
+
+    WHAT THE COLLISION IS, AND WHY IT CANNOT BE FIXED FROM HERE
+    =========================================================
+    FSO.UI and FSO.Client each declare a set of lot-control types with the same names in the
+    same namespace (FSO.Client.UI.Panels.LotControls):
+
+        FreeSO/TSOClient/FSO.UI/Panels/LotControls/     FreeSO/TSOClient/tso.client/UI/Panels/LotControls/
+        public abstract class UICustomLotControl          public interface UICustomLotControl
+        public class UIFloorPainter : UICustomLotControl  public class UIFloorPainter : UICustomLotControl
+        public class UIGrassPaint : UICustomLotControl    public class UIGrassPaint : UICustomLotControl
+        public class UIRoofer : UICustomLotControl        public class UIRoofer : UICustomLotControl
+        public class UITerrainFlatten : UICustomLotControl public class UITerrainFlatten : UICustomLotControl
+        public class UITerrainRaiser : UICustomLotControl public class UITerrainRaiser : UICustomLotControl
+        public class UIWallPainter : UICustomLotControl   public class UIWallPainter : UICustomLotControl
+        public class UIWallPlacer : UICustomLotControl    public class UIWallPlacer : UICustomLotControl
+
+    Eight names, two assemblies, one namespace. UICustomLotControl is the sharp one - an
+    abstract class on the FSO.UI side and an interface on the FSO.Client side - so a bare use
+    of the name is not merely ambiguous, it binds to two structurally different things
+    depending on which assembly the compiler resolved it in favour of. The other seven are
+    distinct class definitions under one name, so every reference silently picks a type.
+
+    The compiler resolves each ambiguity in favour of the type declared in the file being
+    compiled, and only warns. Nothing else fails, nothing is marked [Obsolete], and nothing in
+    a diff points at it. The 16 warnings this removes were the only trace of it.
+
+    WHY THIS CANNOT BE FIXED FROM HERE
+    ==================================
+    Renaming one side is the only real cure, and it is a large change to vendored code:
+    FSO.UI's eight files, FSO.Client's nine, and every reference to them in both trees. It
+    belongs upstream, not in a submodule this repository bumps.
+
+    What it has already cost is architectural, and that is recorded in
+    Client/Simitone/Simitone.Client/Simitone.Client.csproj: Simitone.Client cannot reference
+    FSO.Client at all. Aliases="tso" was tried and rejected, for reasons written out there.
+    So the two assemblies can never be loaded into the same compilation, and the constraint
+    is now the build file's job rather than a comment nobody reads.
+
+    WHY THE SUPPRESSION IS SCOPED BY PROJECT NAME
+    =============================================
+    FSO.Client is the only project that sees these: it is the one that references both sides,
+    and Simitone.Client - the largest body of Simitone's own new code - does not reference
+    FSO.Client at all, so it never sees CS0436 and must not be suppressed there. The audit
+    says the same thing, and scoping by name rather than globally is what stops a genuine
+    type collision introduced by future Simitone code from being silenced by accident.
+
+    WHICH CLOSURE IS THIS EVEN IN
+    =============================
+    Since B-12, FSO.Client is not in the default game build at all, so this removes 16
+    warnings from `dotnet build -p:BuildIde=true -t:Compile` and 0 from
+    `dotnet build -c Release`. The count is small because the game build already dropped the
+    project; it is worth doing anyway, because the -ide build is the one job where every
+    remaining warning is visible, and CS0436 is the most misleading family in it.
+
+    IF UPSTREAM FIXES IT
+    ====================
+    Nothing here fights the fix. The suppression becomes inert the moment the duplicate type
+    names go away, because there is then nothing for it to suppress, and MSBuild does not
+    complain about a NoWarn entry that matches no diagnostic.
+  -->
+  <PropertyGroup Condition=" '$(MSBuildProjectName)' == 'FSO.Client' ">
+    <NoWarn>$(NoWarn);CS0436</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    ============================================================================
+    A-09 - the five 9.0.x servicing-band pins: DELIBERATELY NOT CHANGED
+    ============================================================================
+    The audit listed five Microsoft packages pinned to the 9.0 servicing band
+    under a tree that targets net10.0, and suggested moving them to 10.0.x:
+
+        System.Configuration.ConfigurationManager 9.0.9   (FSO.Server.Debug,
+                                                           SimplePaletteQuantizer)
+        System.Drawing.Common                     9.0.9   (FSO.UI, FSO.Server.Debug)
+        System.Speech                             9.0.9   (FSO.Windows)
+        System.Diagnostics.PerformanceCounter     9.0.9   (FSO.Server)
+        Microsoft.Data.Sqlite.Core                9.0.9   (FSO.Server.Api.Core)
+
+    The fix was checked and not applied, because the thing the finding is worried
+    about - "they will not receive net10.0 servicing" - was measured to not apply
+    to the software this repository ships.
+
+    MEASURED, NOT ASSUMED
+    =====================
+    Simitone.Windows/obj/project.assets.json, for the post-B-12 game closure,
+    resolves 52 libraries and NONE of them is any of the five. The assembly is
+    already in the Microsoft.NETCore.App targeting pack that net10.0-windows
+    brings in, so the SDK's package/file conflict resolution drops the package
+    as framework-provided before it ever becomes a reference. (The same assets
+    file does contain all five names, but only inside the targeting pack's own
+    assembly list at version range (,10.0.32767] - which is what the .NET 10
+    shared framework provides, not a resolution of the 9.0.9 package.)
+
+    So on the shipped path these pins are as decorative as A-04's 8.0.0 and
+    9.0.0 spellings: nothing is compiled against them, nothing is copied from
+    them, and there is no servicing to receive. A 10.0.x pin would resolve to
+    exactly the same framework assembly.
+
+    WHY NOT ANYWAY
+    ==============
+    For the -p:BuildIde=true closure they are real, because those FreeSO
+    projects target net9.0 and the packages are not pruned there. Bumping them
+    was validated - a scratch net9.0 project restoring all five at 10.0.12
+    succeeds, with no NU1202, and every one of them picks its lib/net9.0 asset
+    (so this is not the netstandard2.0 downgrade it could have been) - but it
+    also pulls a different transitive graph into the TSO server closure:
+    Microsoft.Data.Sqlite.Core 9.0.9 -> 10.0.12 moves SQLitePCLRaw to 2.1.12 and
+    System.Configuration.ConfigurationManager 9.0.9 -> 10.0.12 moves
+    System.Security.Cryptography.ProtectedData, System.Threading.AccessControl
+    and System.Win32.SystemEvents forward. That is a real change to code this
+    repository does not own, does not ship, and cannot test, in exchange for
+    nothing measurable in the artefact that is shipped.
+
+    Upstream owns it. Same line as the A-05/A-07/A-10 items in the audit's
+    section 6: five one-line PackageReference edits in a vendored submodule, for
+    zero benefit to the game and a non-zero risk to the -ide build, is a change
+    to make upstream rather than one to make here. If a FreeSO bump moves these
+    to the 10.0 band on its own, nothing in this file contradicts it.
+  -->
+
+</Project>

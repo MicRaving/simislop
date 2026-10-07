@@ -1,0 +1,169 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36518.9
+MinimumVisualStudioVersion = 10.0.40219.1
+#
+# ============================================================================
+# Simitone.sln - THE GAME
+# ============================================================================
+# Two changes from the file this replaces, both from docs/AUDIT_BUILD_DEPS.md.
+#
+# C-11: Xamarin-era solution configurations pruned
+# ================================================
+# The old file declared 20 solution configurations - Ad-Hoc and AppStore across
+# Any CPU / iPhone / iPhoneSimulator / x86 / x64 - for 24 SDK-style projects that
+# only ever build Debug|Any CPU and Release|Any CPU. The Xamarin projects that
+# wanted Ad-Hoc and AppStore (FSO.iOS, FSODroid) have not been in this solution for
+# years and are packages.config-era projects that cannot build here at all (C-12).
+# Roughly 620 of the old file's 1045 lines were the resulting ProjectConfigurationPlatforms
+# entries, which is exactly the sort of noise that hides real state in a solution
+# diff.
+#
+# The mappings were not merely redundant, they were wrong. For several projects
+# "{guid}.Ad-Hoc|Any CPU.ActiveCfg = Release|Any CPU" and
+# "{guid}.Ad-Hoc|x64.ActiveCfg = Ad-Hoc|Any CPU", so `dotnet build -c Debug -p:Platform=x64`
+# - which the old solution accepted - mapped to a mixture of Debug|Any CPU and
+# Ad-Hoc|Any CPU depending on the project. There is now no such configuration to
+# select: `dotnet build -p:Platform=x64` fails immediately with MSB4126 naming the
+# valid configurations, which is the correct outcome for a configuration nobody defined.
+#
+# B-12: the -ide host and the TSO server closure are out
+# =====================================================
+# FSO.Client (the TSO online client) ProjectReferences FSO.Server, FSO.Server.Database,
+# FSO.Server.DataService, FSO.Server.Clients, FSO.Server.Protocol, FSO.Server.Updater
+# and FSO.Server.Common, and FSO.IDE (the Volcanic IDE host) ProjectReferences FSO.Client,
+# FSO.Windows and FSO.SimAntics.JIT.Roslyn. So one edge - Simitone.Windows -> FSO.IDE -
+# used to reach 19 projects, 9 of which are the ones dropped from the list below. None
+# of it survived into the game: TrimSingleplayerOutput in Simitone.Windows.csproj
+# deletes server.dll, watchdog.*, FSO.Server.*, FSO.Common.DataService, MySql.Data,
+# System.Data.SqlClient, System.Data.SQLite, AWSSDK.*, Octokit, RestSharp, JWT, crypto,
+# NLog and the SSPI/GSSAPI/SQLite natives from $(OutDir) seconds after the build has
+# spent ten minutes producing them. The audit measured 203 of 574 unique warnings -
+# 35 % - in those projects.
+#
+# They are no longer listed here, and Simitone.Windows no longer references them
+# (see the BuildIde comment block in Directory.Build.props). Both halves are needed:
+# a solution builds every project in its project table whether or not anything
+# references it, and a project reference is followed whether or not the target is
+# listed. Dropping one without the other would have changed nothing.
+#
+# Consequence worth knowing before you file a bug: `dotnet msbuild <one of them>`,
+# opening them in an IDE, and `-p:BuildIde=true` on this solution all still work. The
+# projects have not been deleted and have not been edited; they are simply not part of
+# the game build any more. To get an -ide-capable Simitone.exe:
+#
+#     dotnet build Client/Simitone/Simitone.sln -c Release -p:BuildIde=true
+#
+# which restores both references and rebuilds their closure. Add
+# -p:TrimSingleplayerOutput=false to keep the TSO server assemblies in the output,
+# which is what a Debug build already does.
+#
+# Simitone.GenerateMeshes and Simitone.PackageRemeshes are still absent from this file
+# and still built, as build-only ProjectReferences of Simitone.Windows. That is
+# unchanged and correct.
+# ============================================================================
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Simitone.Client", "Simitone.Client\Simitone.Client.csproj", "{0F20013D-0610-4573-A346-1C5A461B0BA0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Simitone.Windows", "Simitone.Windows\Simitone.Windows.csproj", "{2ABF195A-A2CC-D3A6-9480-6E1F61E35AC6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Simitone.Tests", "Simitone.Tests\Simitone.Tests.csproj", "{24FD6DBE-C584-4F84-B679-5C99BCD0C208}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.Common", "..\..\FreeSO\TSOClient\tso.common\FSO.Common.csproj", "{D5C4F503-4F2D-913A-4041-DAFD775F1244}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.LotView", "..\..\FreeSO\TSOClient\tso.world\FSO.LotView.csproj", "{D3C91BAB-BB7E-9FEE-6303-D50EE825577C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.UI", "..\..\FreeSO\TSOClient\FSO.UI\FSO.UI.csproj", "{A68BE312-A1AA-1705-BF6D-35DF3FD15C67}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.SimAntics", "..\..\FreeSO\TSOClient\tso.simantics\FSO.SimAntics.csproj", "{AB660706-92AA-09DC-8748-AEC544D7CE10}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.Files", "..\..\FreeSO\TSOClient\tso.files\FSO.Files.csproj", "{A1149144-4DA3-BE0E-68E9-71EC09831CB1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.SimAntics.JIT", "..\..\FreeSO\TSOClient\FSO.SimAntics.JIT\FSO.SimAntics.JIT.csproj", "{3E41D5D6-F2C4-EC9F-4493-9F20028C8CEA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.Content", "..\..\FreeSO\TSOClient\tso.content\FSO.Content.csproj", "{3B1DB21E-FC6B-ADF6-4FC9-395AC6911363}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.Vitaboy.Engine", "..\..\FreeSO\TSOClient\tso.vitaboy.engine\FSO.Vitaboy.Engine.csproj", "{5630F78C-C81D-5D99-BF38-45F784E79116}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.Vitaboy", "..\..\FreeSO\TSOClient\tso.vitaboy.model\FSO.Vitaboy.csproj", "{8F5AB72E-FC70-0422-7515-04C551383F95}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FSO.HIT", "..\..\FreeSO\TSOClient\tso.sound\FSO.HIT.csproj", "{73326C15-C925-51B5-00C8-2F55EC0177E1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MSDFData", "..\..\FreeSO\Other\libs\MSDFData\MSDFData.csproj", "{886280B1-2565-2173-2DF6-E4349A115D45}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TargaImagePCL", "..\..\FreeSO\Other\libs\TargaImagePCL\TargaImagePCL.csproj", "{00B4BD4E-D607-7D6A-6B43-7FF12776003A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0F20013D-0610-4573-A346-1C5A461B0BA0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0F20013D-0610-4573-A346-1C5A461B0BA0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0F20013D-0610-4573-A346-1C5A461B0BA0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0F20013D-0610-4573-A346-1C5A461B0BA0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2ABF195A-A2CC-D3A6-9480-6E1F61E35AC6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2ABF195A-A2CC-D3A6-9480-6E1F61E35AC6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2ABF195A-A2CC-D3A6-9480-6E1F61E35AC6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2ABF195A-A2CC-D3A6-9480-6E1F61E35AC6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{24FD6DBE-C584-4F84-B679-5C99BCD0C208}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{24FD6DBE-C584-4F84-B679-5C99BCD0C208}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{24FD6DBE-C584-4F84-B679-5C99BCD0C208}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{24FD6DBE-C584-4F84-B679-5C99BCD0C208}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D5C4F503-4F2D-913A-4041-DAFD775F1244}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D5C4F503-4F2D-913A-4041-DAFD775F1244}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D5C4F503-4F2D-913A-4041-DAFD775F1244}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D5C4F503-4F2D-913A-4041-DAFD775F1244}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D3C91BAB-BB7E-9FEE-6303-D50EE825577C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D3C91BAB-BB7E-9FEE-6303-D50EE825577C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D3C91BAB-BB7E-9FEE-6303-D50EE825577C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D3C91BAB-BB7E-9FEE-6303-D50EE825577C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A68BE312-A1AA-1705-BF6D-35DF3FD15C67}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A68BE312-A1AA-1705-BF6D-35DF3FD15C67}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A68BE312-A1AA-1705-BF6D-35DF3FD15C67}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A68BE312-A1AA-1705-BF6D-35DF3FD15C67}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AB660706-92AA-09DC-8748-AEC544D7CE10}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AB660706-92AA-09DC-8748-AEC544D7CE10}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AB660706-92AA-09DC-8748-AEC544D7CE10}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AB660706-92AA-09DC-8748-AEC544D7CE10}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1149144-4DA3-BE0E-68E9-71EC09831CB1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1149144-4DA3-BE0E-68E9-71EC09831CB1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1149144-4DA3-BE0E-68E9-71EC09831CB1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1149144-4DA3-BE0E-68E9-71EC09831CB1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3E41D5D6-F2C4-EC9F-4493-9F20028C8CEA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3E41D5D6-F2C4-EC9F-4493-9F20028C8CEA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3E41D5D6-F2C4-EC9F-4493-9F20028C8CEA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3E41D5D6-F2C4-EC9F-4493-9F20028C8CEA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3B1DB21E-FC6B-ADF6-4FC9-395AC6911363}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3B1DB21E-FC6B-ADF6-4FC9-395AC6911363}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3B1DB21E-FC6B-ADF6-4FC9-395AC6911363}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3B1DB21E-FC6B-ADF6-4FC9-395AC6911363}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5630F78C-C81D-5D99-BF38-45F784E79116}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5630F78C-C81D-5D99-BF38-45F784E79116}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5630F78C-C81D-5D99-BF38-45F784E79116}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5630F78C-C81D-5D99-BF38-45F784E79116}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8F5AB72E-FC70-0422-7515-04C551383F95}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8F5AB72E-FC70-0422-7515-04C551383F95}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8F5AB72E-FC70-0422-7515-04C551383F95}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8F5AB72E-FC70-0422-7515-04C551383F95}.Release|Any CPU.Build.0 = Release|Any CPU
+		{73326C15-C925-51B5-00C8-2F55EC0177E1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{73326C15-C925-51B5-00C8-2F55EC0177E1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{73326C15-C925-51B5-00C8-2F55EC0177E1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{73326C15-C925-51B5-00C8-2F55EC0177E1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{886280B1-2565-2173-2DF6-E4349A115D45}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{886280B1-2565-2173-2DF6-E4349A115D45}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{886280B1-2565-2173-2DF6-E4349A115D45}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{886280B1-2565-2173-2DF6-E4349A115D45}.Release|Any CPU.Build.0 = Release|Any CPU
+		{00B4BD4E-D607-7D6A-6B43-7FF12776003A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{00B4BD4E-D607-7D6A-6B43-7FF12776003A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{00B4BD4E-D607-7D6A-6B43-7FF12776003A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{00B4BD4E-D607-7D6A-6B43-7FF12776003A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F2FD9699-EAC6-4F94-8505-2B0ECD1E5D59}
+	EndGlobalSection
+EndGlobal

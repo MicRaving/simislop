@@ -1,0 +1,225 @@
+Simitone
+Copyright (c) The Simitone contributors
+
+This file records the licensing position of this project. The licence terms
+themselves are in LICENSE, which is the Mozilla Public License 2.0 (MPL-2.0),
+reproduced there verbatim so it is byte-identical to the one FreeSO ships.
+
+================================================================================
+1. What licence Simitone is under, and why
+================================================================================
+
+Simitone is a derivative work of FreeSO (https://freeso.org,
+https://github.com/alexjyong/FreeSO), which Simitone vendors as the FreeSO/
+submodule. The solution file builds FreeSO's projects directly, and
+Simitone.Windows references FSO.UI, FSO.Common, FSO.Files, FSO.SimAntics,
+FSO.LotView, FSO.Content, FSO.HIT, FSO.Vitaboy, FSO.Vitaboy.Engine and the
+FSO.SimAntics.JIT compiler. The shipped output therefore contains FSO.Common.dll,
+FSO.SimAntics.dll, FSO.LotView.dll, FSO.Files.dll, FSO.UI.dll, FSO.Content.dll,
+FSO.Vitaboy.dll and FSO.Vitaboy.Engine.dll.
+
+The default build does NOT reach two more of FreeSO's projects, and that is a
+deliberate build split rather than an omission. FSO.Client (The Sims Online's
+online client) ProjectReferences the whole TSO *server*, and FSO.IDE (the
+"Volcanic" editor) ProjectReferences FSO.Client, so one reference used to pull
+nineteen projects into every build - none of which survived into the game, since
+the singleplayer output trim deleted them all seconds after producing them. They
+are now built only with -p:BuildIde=true, so a stock Simitone.exe contains
+neither FSO.Client.dll nor the Volcanic IDE host, and the -ide flag in it throws
+a PlatformNotSupportedException naming the switch. The build verifies this: it
+reads back the resolved runtime graph in Simitone.deps.json and fails if any of
+the twenty-two assemblies the split removed is still in it.
+
+The same split drops one package of FreeSO *content*. FSO.Content.TSO ships
+1,405 files (284 MB) of The Sims Online's data - its avatar meshes and
+textures, its city, its object table, its client patches, its UI strings and its
+UI graphics. Simitone is a The Sims 1 game: it reads the player's own TS1
+install at run time and has no use for TSO's data, and the earlier build only
+carried those files so that the -ide host could be started. None of it is in a
+Simitone build output. The nine content roots are listed, and the drop is
+checked, in the _SimitoneContentContract comment in
+Client/Simitone/Simitone.Windows/Simitone.Windows.csproj; that same list is why
+the split is safe to make at all, because "the game does not need TSO's data"
+has to be checked against something rather than believed.
+
+FreeSO is MPL-2.0, and MPL-2.0 is a file-level copyleft licence: a derivative
+work that modifies MPL-covered files must keep those files available under
+MPL-2.0, and the licence must be made available with any distribution of the
+software. Simitone's own code is built on and adapted from those sources, so
+there is no way to relicense the result as anything stricter or more permissive
+without renegotiating with every FreeSO contributor. Simitone is therefore
+released as a whole under MPL-2.0 as well.
+
+The practical consequences, which are the ones that matter to anyone
+redistributing a build:
+
+  * LICENSE (MPL-2.0) ships next to the executable. Simitone.Windows.csproj
+    copies it, and this NOTICE, into the build output, so a release zip is
+    self-describing without reference to this repository.
+  * Modified MPL-covered source files remain available. If you take the
+    Simitone source and the FreeSO source, your modified versions of those
+    files stay under MPL-2.0 and you owe recipients those sources.
+  * New Simitone-only files that are not derived from FreeSO could in
+    principle carry different terms. They do not: shipping one repository
+    under two incompatible licences is a support burden for every downstream
+    packager, and it buys nothing that the contributors want. Everything here
+    is MPL-2.0 unless a component below says otherwise.
+
+A note on scope: MPL-2.0 obligations attach to the software, not to the
+player. Nothing in this file, and nothing in Simitone's build output, grants or
+is intended to grant any right in Maxis or EA game assets. See section 3.
+
+================================================================================
+2. Third-party components redistributed in the build output
+================================================================================
+
+FreeSO carries a number of third-party libraries. The ones that reach
+Simitone's output, or that are compiled into it, are listed here. Versions and
+licences are as declared in the corresponding .csproj files; the audit trail for
+any of them is the project file plus the library's own upstream distribution.
+
+  FreeSO                      MPL-2.0        FreeSO/LICENSE.md - the whole
+                                               FreeSO/ subtree and every FSO.*,
+                                               FSO.Server.* and tso.* assembly
+                                               built from it.
+
+  Ninject                     Apache-2.0     SilkenAardvark/Ninject
+  Newtonsoft.Json             MIT            James Newton-King
+  SixLabors.ImageSharp        LGPL-2.1       Six Labors
+  Ninject.Extensions.ChildKernel  Apache-2.0
+  NLog                        MIT            NLog Project
+  MP3Sharp / NLayer           LGPL-2.1       Hydraena (see
+                                               FreeSO/Other/libs/mp3sharp)
+  VoronoiLib                  MIT            Logan Lembke -
+                                               FreeSO/Other/libs/VoronoiLib/License.md
+  Dapper                      Apache-2.0     Marc Gravell
+  Mina                        Apache-2.0     Mika Antonovich
+  CommandLineParser           MIT            Ironyta
+  System.Speech, System.Data.Sqlite.Core,
+  System.Configuration.ConfigurationManager,
+  System.Drawing.Common, System.Resources.Extensions,
+  System.Runtime.Caching, System.Security.Cryptography.Algorithms,
+  Microsoft.NET.Test.Sdk      MIT            Microsoft (.NET runtime and
+                                               servicing band packages)
+
+  JWT Portable for .NET       CC0-1.0        John Sheehan / Mitja Bombac
+                                               (a public-domain dedication, not
+                                               a licence) - recorded at
+                                               FreeSO/TSOClient/FSO.Server/LICENSE.
+                                               This is the Portable.JWT package.
+  BouncyCastle (portable)     MIT            Legion of the Bouncy Castle
+  RestSharp                   Apache-2.0     RestSharp
+  MySql.Data                  LGPL-2.1       Oracle
+  AWSSDK.Core / AWSSDK.S3     Apache-2.0     Amazon Web Services
+  Octokit                     MIT            Octokit contributors
+  Open.Nat                    MIT            ghoukie
+  xxHashSharp                 BSD-3-Clause   Stadtfeinde / xorfor
+  System.Data.SqlClient       MIT            Microsoft (the legacy package)
+  System.Data.SQLite.Core     Public Domain   SQLite Project
+  MonoGame.Framework.DesktopGL / .WindowsDX  MS-PL / zlib
+                                               See the MonoGame distribution for
+                                               the full dual licence.
+
+  Emoticon / emoji UI assets   MIT            Mu-An Chiou -
+                                               FreeSO/TSOClient/tso.content/Content/UI/LICENSE.txt.
+                                               FSO.Content.csproj already copies
+                                               that file to the output, so it
+                                               ships with the game.
+
+  Eyedropper tool icon        Icons8 free    https://icons8.com/icon/78728/color-dropper
+  (Simitone's own UI asset)
+
+  FSO.Remeshes community pack  per-author     Distributed separately by its
+                                               authors, NOT vendored in this
+                                               repository (see .gitignore). The
+                                               pack's own licensing is whatever
+                                               each author states in the pack;
+                                               see <remeshes>/metadata.json.
+
+Committed binary dependencies inside the FreeSO subtree. These are the C-13
+finding: four DLLs referenced by HintPath, with no PackageReference, so NuGet
+knows nothing about them - no version, no transitive graph, no security
+metadata, and no .deps.json entry that can be audited. They are listed here with
+the version read off each assembly and the SHA-256 of the exact bytes in this
+tree, so a FreeSO bump that swaps one of them shows up as a diff to this file
+rather than as an unexplained 4 MB change. Where a licence is recorded as
+"unverified" it is because the assembly carries no embedded licence resource and
+no licence text ships beside it; that is stated rather than guessed at, and
+closing it is tracked as C-13/H-09 upstream.
+
+  NVorbis.dll         0.8.4.0          licence not stated in the assembly.
+  FreeSO/TSOClient/   68,096 bytes      Author: Andrew Ward. Both NVorbis and
+  tso.client/        sha256 b395f5ef      OpenTK have maintained nuget.org
+                      5508bf83ffda5e5      packages; converting these two to
+                      b483c883f500c8da      PackageReference is the fix the
+                      ad64f19da91288a2      audit recommends, and is a FreeSO-
+                      79d6fdecf4             side change.
+  - Reached by FSO.Client, so -ide build only since B-12.
+
+  OpenTK.dll          1.1.2022.6406    licence not stated in the assembly.
+  FreeSO/TSOClient/   4,308,992 bytes   "The Open Toolkit Library", copyright
+  tso.client/        sha256 d49fae8a      2006-2014. Upstream OpenTK 1.x is
+                      045bed56f42e397      MIT, but that is a fact about the
+                      041bf4ef5786f47      upstream project and not about these
+                      4e0191b58971b8f      bytes, so it is not asserted here.
+                      a151a9f9e44
+  - DEAD. Measured: 'OpenTK' occurs zero times in every .cs file in FreeSO/,
+    and the reference itself is now removed for FSO.Client by
+    Directory.Build.targets (repo root), so the DLL is no longer copied or
+    loaded. The 4.1 MB file is still tracked in the submodule; deleting it is an
+    upstream change and is recorded here so the next person has the facts.
+
+  Mario.dll           1.0.0            licence not stated in the assembly.
+  FreeSO/TSOClient/   361,472 bytes    Product string is just "Mario", with no
+  tso.world/        sha256 e0f46363      author and no copyright line. A Sims
+                      eda85c066f55ce2      object-format library.
+                      fc5369d510aca24f
+                      87ba9d4f8c30c71e
+                      257661ae4
+  - Reached by FSO.LotView, so this one IS in the shipped output.
+
+  GOLDEngine.dll      5.0.6070.308     "Free!" - the GOLD Parser Engine's own
+  FreeSO/TSOClient/   31,744 bytes     licence header, by Devin D. Cook
+  FSO.UI/           sha256 3fbf182c     (www.DevinCook.com/GOLDParser).
+  Dependencies/      c0a3bd4ee838c9       "Free" is not a licence grant, so the
+                      01415f82746cee      upstream terms need reading before
+                      0f4e2bcf474638f      redistribution.
+                      b661395e25ee52
+  - Reached by FSO.UI, so this one IS in the shipped output.
+
+.
+
+================================================================================
+3. Game assets: not included, not licensed, not redistributable
+================================================================================
+
+Simitone is an unofficial fan project. It is not affiliated with, endorsed by,
+or sponsored by Maxis, Electronic Arts, or The Sims / The Sims Online rights
+holders.
+
+Simitone requires the player to supply their own legitimate copy of The Sims:
+Complete Collection. The game reads the player's installed .iff, .far, .piff and
+texture data at run time; none of it is in this repository, none of it is in
+any Simitone build output, and nothing in the licence above conveys or implies
+any right to copy, distribute or sublicense it.
+
+The following are deliberately absent from this repository and are ignored by
+.gitignore so they cannot be committed by accident:
+
+  SimsCompleteCollectionUSA/   ripped retail disc images (.bin/.cue), 2.6 GB
+  mods/                        EA retail expansion/DLC downloads
+  Sims1/, "The Sims"/         the player's own game install
+  GeneratedMeshes/             scratch meshes derived from the player's data
+  FSO.Remeshes-main/, FSO.Remeshes/   the community remesh pack, which is
+                               distributed by its own authors under its own
+                               terms
+
+If you found game data committed inside this repository, it was committed in
+error. Do not redistribute it; remove it.
+
+================================================================================
+4. Contact
+================================================================================
+
+Simitone: https://github.com/riperiperi/Simitone
+FreeSO:  https://github.com/alexjyong/FreeSO

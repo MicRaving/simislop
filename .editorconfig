@@ -1,0 +1,281 @@
+# ============================================================================
+# .editorconfig - Simitone
+# ============================================================================
+# Added by the build audit (docs/AUDIT_BUILD_DEPS.md, finding H-08), which found
+# exactly one .editorconfig in the tree, sitting in FreeSO/TSOClient/FSO.Server/Admin/.
+# This is the one at the root, and it exists for one job: to make the build's
+# remaining warnings legible and to stop the number going back up.
+#
+# WHAT THIS FILE IS NOT
+# =====================
+# It is not a style guide. There are deliberately no formatting rules below - no
+# indent_size, no end_of_line, no insert_final_newline - and the reason is that ~85 %
+# of this repository is the FreeSO submodule. A formatting rule at the root applies to
+# every FreeSO source file too, and a `dotnet format` run against this tree would
+# then produce a diff spanning the whole submodule, which is (a) not this
+# repository's code to reformat, and (b) exactly the kind of noise that makes a
+# submodule bump painful. A C# file under FreeSO/ is left to upstream.
+#
+# WHY BASELINE RATHER THAN SUPPRESS
+# =================================
+# The audit's B-01 already removed the 176 trim/AOT analyzer warnings at the source -
+# the repo-root Directory.Build.targets turns the analyzers off rather than NoWarn-ing
+# them, because Suppressing an IL2026 would leave the project still claiming AOT
+# compatibility it does not have. That left 574 unique warnings, 20 NU1701 lines per
+# consuming project, and no recorded statement anywhere of which of them were
+# accepted. Without that, "this build has 400 warnings" is a number nobody can act on
+# and "I fixed some warnings" is a claim nobody can check.
+#
+# So: every warning family that exists today is written down here at severity
+# `warning`. That is not a no-op in the compiler's eyes - it is an assertion that this
+# is the intended severity and not merely the current one. It means a project that
+# sets TreatWarningsAsErrors, a CI step that passes /warnaserror, or an .editorconfig
+# inherited from a parent directory cannot quietly reclassify an accepted warning as
+# a build-breaking one. It also means the census in the comments below is checkable:
+# if a family that is documented here stops appearing, that is a fix worth noticing,
+# and if one that is not documented appears, that is a new problem.
+#
+# NU1701 IS DELIBERATELY `warning` AND NOT `error`
+# =================================================
+# 20 packages restore for the wrong target framework (B-02) and that is the single
+# largest block of warning volume in the build. Turning NU1701 into an error is the
+# audit's own suggested end state, and it is the right end state - but not today:
+# the remaining set is Mina, xxHashSharp, FreeSO.HandEvaluator and their Common.Logging
+# transitives, all of which are real runtime dependencies of FSO.Common, FSO.Files and
+# FSO.SimAntics, and replacing any of them is an upstream change (a maintained Mina
+# port, a ported HandEvaluator). Promoting the warning to an error now would not make
+# the graph any cleaner; it would make the build unfixable by this repository, and a
+# build that cannot be fixed is a build people stop reading. The gate that does work
+# today is in CI: the NU1701 package list is in the run summary, so it can be watched
+# going down and cannot grow unnoticed.
+#
+# THE `error` ENTRIES AT THE BOTTOM
+# ==================================
+# "New ones are errors" needs care about which ones. A severity of `error` on a
+# diagnostic that is currently *silent* only fails the build if somebody writes the
+# thing it forbids, which is the point. A severity of `error` on a diagnostic that
+# currently *fires* fails the build immediately, and the audit's own lesson from B-01
+# is that a build which fails for a reason nobody chose gets worked around rather than
+# fixed. So the `error` set below is restricted to rules that are enabled at warning
+# level by default, that this codebase does not currently violate, and that have no
+# plausible reading in which violating them is intentional. Everything else is
+# `warning`, including the CA and xUnit families that are still firing.
+# ============================================================================
+
+root = true
+
+# ----------------------------------------------------------------------------
+# C#
+# ----------------------------------------------------------------------------
+[*.cs]
+
+# --- The B-12 baseline, i.e. what exists today -------------------------------
+# Grouped by what the family MEANS, not alphabetically, because the grouping is
+# the part that makes this file useful six months from now.
+
+# Unused things. Trivially fixable, 122 unique at the time of the audit, and the
+# reason this file is worth having: 122 warnings of "you left a variable behind"
+# are 122 warnings nobody reads. Left as warnings rather than errors or NoWarn -
+# they are real, they are cheap, and they are the backlog.
+dotnet_diagnostic.CS0168.severity = warning # variable declared but never used
+dotnet_diagnostic.CS0169.severity = warning # field never used
+dotnet_diagnostic.CS0414.severity = warning # field assigned but never used
+dotnet_diagnostic.CS0219.severity = warning # variable assigned but never used
+dotnet_diagnostic.CS0649.severity = warning # field never assigned
+dotnet_diagnostic.CS0067.severity = warning # event never used
+
+# Hiding / overriding. CS0108 and CS0114 are 18 and 3 in the audit and one of the
+# CS0108s is a real defect - B-06, TS1GameScreen.Rotation hides FSO.UI's UIElement
+# .Rotation and therefore cannot override it, so a write through a UIElement-typed
+# reference silently skips the camera re-centre. Baselined as warnings with the
+# caveat that this specific one is not noise. See docs/AUDIT_BUILD_DEPS.md B-06.
+dotnet_diagnostic.CS0108.severity = warning
+dotnet_diagnostic.CS0114.severity = warning
+dotnet_diagnostic.CS0105.severity = warning # duplicate using directive
+dotnet_diagnostic.CS0659.severity = warning # overrides == but not Equals
+
+# Type collisions. 28 instances of CS0436: FSO.UI and FSO.Client both declare
+# UICustomLotControl, UIFloorPainter, UIRoofer, UIWallPlacer, UITerrainRaiser,
+# UITerrainFlatten, UIGrassPaint and UIWallPainter as *different* types, and the
+# compiler resolves the ambiguity in favour of the local one. This is structural
+# (B-05) and it is the collision that stops Simitone.Client from referencing
+# FSO.Client at all. It will not be fixed by a rename in this repository; it is
+# recorded here so the 28 stop burying everything else.
+dotnet_diagnostic.CS0436.severity = warning
+
+# Nullable annotations in a project with <Nullable>disable</Nullable> (B-10).
+# Five of them, all in FreeSO's MP3Player.cs. The dangerous case is a `string?` that
+# looks null-checked to a human reviewer and has no effect on any diagnostic. The
+# fix is a #nullable enable in that file, which is a source change and therefore not
+# this pass's business.
+dotnet_diagnostic.CS8632.severity = warning
+
+# Obsolete and deprecated BCL/API. B-08. None of these is a live Simitone
+# vulnerability - they are either in assemblies the trim removes or on paths a
+# singleplayer game never executes - but three of them (SslProtocols.Tls, i.e. TLS
+# 1.0; Rfc2898DeriveBytes at 1000 iterations; RNGCryptoServiceProvider) are real
+# weaknesses in the TSO auth path, so the family is tracked rather than dismissed.
+# The TLS and PBKDF2 fixes are upstream FreeSO work and are listed as such in the
+# audit's section 6.
+dotnet_diagnostic.CS0618.severity = warning
+dotnet_diagnostic.SYSLIB0003.severity = warning
+dotnet_diagnostic.SYSLIB0014.severity = warning # WebClient
+dotnet_diagnostic.SYSLIB0021.severity = warning # SHA256Managed
+dotnet_diagnostic.SYSLIB0023.severity = warning # RNGCryptoServiceProvider
+dotnet_diagnostic.SYSLIB0030.severity = warning
+dotnet_diagnostic.SYSLIB0039.severity = warning # SslProtocols.Tls
+dotnet_diagnostic.SYSLIB0041.severity = warning # Rfc2898DeriveBytes defaults
+dotnet_diagnostic.SYSLIB0051.severity = warning
+dotnet_diagnostic.SYSLIB0057.severity = warning
+
+# Dead or unreachable code. CS0162 and CS8073 are 10 and 10 in the audit, and one
+# CS8073 is a real find: NeighborhoodService.IsOutOfWorld tests `entity.Position != null`
+# on a LotTilePos *struct*, which C# lifts so the null check is always true. The code
+# is safe; the guard documents a false belief about the type. Same caveat as CS0108.
+dotnet_diagnostic.CS0162.severity = warning
+dotnet_diagnostic.CS8073.severity = warning
+dotnet_diagnostic.CS8848.severity = warning # + precedence ambiguity
+dotnet_diagnostic.CS1690.severity = warning
+dotnet_diagnostic.CS0472.severity = warning
+dotnet_diagnostic.CS0642.severity = warning
+dotnet_diagnostic.CS0660.severity = warning
+dotnet_diagnostic.CS0661.severity = warning
+dotnet_diagnostic.CS0672.severity = warning
+dotnet_diagnostic.CS0675.severity = warning
+dotnet_diagnostic.CS8981.severity = warning # Type.GetType code is not valid
+dotnet_diagnostic.CS0184.severity = warning
+
+# Platform compatibility. CA1416: Microsoft.Win32.Registry in
+# FreeSO/TSOClient/tso.client/Utils/GameLocator/WindowsLocator.cs and
+# System.Diagnostics.PerformanceCounter in FSO.Server, both in projects that target
+# bare net9.0 rather than net9.0-windows. Simitone is Windows-only by policy, so
+# none of these is a live bug - but the analyzer is right that the project file
+# denies what the code assumes, and the multi-target or the guard is an upstream
+# decision. Not suppressed globally (B-07).
+dotnet_diagnostic.CA1416.severity = warning
+
+# Mechanical quality rules that fire today: rethrow losing the stack trace, and
+# IDisposable not disposed. Both are real and both are easy; neither is worth
+# blocking a build over while 200 unused-variable warnings are outstanding.
+dotnet_diagnostic.CA2200.severity = warning
+dotnet_diagnostic.CA2022.severity = warning
+
+# ASP.NET Core 2.x-era API in FSO.Server.Api.Core (B-11). Genuine defects -
+# UseMvc alongside endpoint routing, and IHeaderDictionary.Add throwing on a
+# duplicate key - in code that is unreachable from Simitone and that the trim
+# deletes. Fixed upstream, not here.
+dotnet_diagnostic.ASP0019.severity = warning
+dotnet_diagnostic.ASP5001.severity = warning
+dotnet_diagnostic.MVC1005.severity = warning
+
+# xUnit test-style rules. 16 in the audit, all in Simitone.Tests (xUnit2000 test
+# argument order, xUnit2017/xUnit2013/xUnit1031/xUnit2031 idioms, and xUnit1026,
+# which is the theory-data "unused parameter" rule and is why some of these tests
+# take a parameter they only exist to prove is not needed). Real, cheap, and not
+# worth gating.
+dotnet_diagnostic.xUnit1000.severity = warning
+dotnet_diagnostic.xUnit1012.severity = warning
+dotnet_diagnostic.xUnit1013.severity = warning
+dotnet_diagnostic.xUnit1026.severity = warning
+dotnet_diagnostic.xUnit1030.severity = warning
+dotnet_diagnostic.xUnit1031.severity = warning
+dotnet_diagnostic.xUnit1032.severity = warning
+dotnet_diagnostic.xUnit1039.severity = warning
+dotnet_diagnostic.xUnit2000.severity = warning
+dotnet_diagnostic.xUnit2003.severity = warning
+dotnet_diagnostic.xUnit2004.severity = warning
+dotnet_diagnostic.xUnit2005.severity = warning
+dotnet_diagnostic.xUnit2013.severity = warning
+dotnet_diagnostic.xUnit2017.severity = warning
+dotnet_diagnostic.xUnit2029.severity = warning
+dotnet_diagnostic.xUnit2030.severity = warning
+dotnet_diagnostic.xUnit2031.severity = warning
+
+# --- Restore / NuGet -------------------------------------------------------
+# NU1701 is a restore diagnostic and is NOT configurable from .editorconfig - the
+# entry is here so the census has one place to live, and because it is the honest
+# statement of intent: known, tracked, and not yet fixable in this repository.
+# The gate that actually works is in .github/workflows/build.yml, which publishes
+# the package list to the run summary. See the header for why this is not `error`.
+dotnet_diagnostic.NU1701.severity = warning
+
+# Vulnerability advisories. Zero today - re-measured against the post-B-12 game
+# closure, which restores five NU1701 packages and no advisory of any severity - so
+# these are `error`, and a package that acquires an advisory fails the build instead
+# of printing a line somebody has to notice. Cheapest real supply-chain gate in the
+# repository, and it costs nothing to hold because the count is already zero.
+#
+# IMPORTANT, and the reason the same four codes appear in two files: NuGet does not
+# read .editorconfig. The entries here are what the IDE shows you and what documents
+# the intent; the entries that actually fail a build are
+# <WarningsAsErrors>NU1702;NU1902;NU1903;NU1904</WarningsAsErrors> in
+# Client/Simitone/Directory.Build.props. Adding them here is not redundant - removing
+# them from there would leave a file that looks like a gate and is not one.
+dotnet_diagnostic.NU1902.severity = error
+dotnet_diagnostic.NU1903.severity = error
+dotnet_diagnostic.NU1904.severity = error
+
+# A package that has to fall back to a *lower* target framework than the one the
+# project asks for is a different failure from NU1701 and is not already
+# demonstrated anywhere in this graph, so it can be held at zero too.
+dotnet_diagnostic.NU1702.severity = error
+
+# --- The "new ones are errors" set -----------------------------------------
+# Every rule here was checked twice before being written down, because the failure
+# mode is asymmetric: a rule that already fires fails every build immediately and
+# gets worked around, while a rule that the compiler has silently stopped emitting
+# is decoration that reads like a gate. Both were real here.
+#
+#   1. FIRE?  A scratch project was compiled with a deliberate violation of each
+#             candidate to confirm the diagnostic is still emitted by the Roslyn
+#             in the .NET 10 SDK, and that `severity = error` in an .editorconfig
+#             actually promotes it (it does - `dotnet_diagnostic.<CSxxxx>` works
+#             for compiler warnings, not only for analyzer rules).
+#   2. SILENT HERE?  The clean `-t:Compile --no-incremental` builds of both closures
+#             on this machine - the game closure and the full -ide closure - contain
+#             none of these four codes, so nothing regresses. The same pair of builds
+#             is also what confirmed NU1702/1902/1903/1904 are at zero: see the
+#             WarningsAsErrors gate in Client/Simitone/Directory.Build.props, which is
+#             the one that actually fails a build, because NuGet does not read
+#             .editorconfig.
+#
+# Promote a rule into this group on the same commit that shows it firing as an
+# error - that is how the list is meant to grow.
+
+# A `Task`-returning call whose result is thrown away. The exception it raises lands
+# on a thread nobody awaits and the caller carries on believing the call succeeded.
+# In a game loop with an explicit game thread and a save pipeline, that is a
+# corrupt-save-shaped bug rather than a compile error.
+dotnet_diagnostic.CS4014.severity = error
+
+# `a == a`, and the `x = x` beside it. Both are typos that happen to compile, and
+# both are the direct relative of the real defect the audit found at
+# NeighborhoodService.IsOutOfWorld (B-09: a null guard on a struct that lifted `!=`
+# to an always-true comparison). This codebase has exactly one of that shape today
+# and the compiler could not see it; these two it can.
+dotnet_diagnostic.CS1718.severity = error
+dotnet_diagnostic.CS1717.severity = error
+
+# `protected` on a member of a `sealed` type. The keyword is a lie about the API -
+# a derived class cannot exist, so callers cannot use the member - and it is
+# invisible in a diff because the field looks exactly like every other field.
+dotnet_diagnostic.CS0628.severity = error
+
+# NOT in this set, and the reason is worth recording: CS1998 ("this async method
+# lacks 'await'") was the first choice here and it is not usable. The Roslyn in the
+# .NET 10 SDK does not emit it - a scratch `public async Task M() { }` compiled with
+# /warn:10 and no diagnostic came out - so pinning it to `error` would have been a
+# gate in the file and nothing in the build. CS4014 above was chosen instead, and it
+# was verified to still fire. If a future SDK re-enables CS1998 it can join the list;
+# until then it is listed as a warning below so the fact is recorded rather than
+# assumed.
+dotnet_diagnostic.CS1998.severity = warning
+
+# --- Explicitly NOT in this file -------------------------------------------
+# IL2026, IL2070, IL2072, IL2075, IL2077, IL2080, IL2087, IL2090, IL2091, IL3000,
+# IL3050. Listed so their absence is deliberate rather than an oversight. These
+# 176 are handled where they belong - at the property that turns them on. See the
+# repo-root Directory.Build.targets and the B-01 discussion there. Writing
+# `severity = none` for them here would suppress the output while leaving every
+# project still asserting AOT compatibility it does not have, which is the lie the
+# audit objected to, only quieter.

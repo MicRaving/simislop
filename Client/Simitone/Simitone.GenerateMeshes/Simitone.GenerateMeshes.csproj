@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Single-sourced in Client/Simitone/Directory.Build.props; generate-meshes.ps1 asks
+         MSBuild for it too, so the script cannot drift from the project. -->
+    <TargetFramework>$(SimitoneTargetFramework)</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Simitone.GenerateMeshes</RootNamespace>
+    <AssemblyName>Simitone.GenerateMeshes</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reuses the remesh pack's naming/alias rules (RemeshPackage) so the generator never
+         claims a drawing group that already has a hand-authored mesh, and the FSO.Files
+         reconstructor (DGRP3DFusion) itself. -->
+    <ProjectReference Include="..\Simitone.Client\Simitone.Client.csproj" />
+  </ItemGroup>
+
+</Project>

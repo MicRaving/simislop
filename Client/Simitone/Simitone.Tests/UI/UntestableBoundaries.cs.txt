@@ -1,0 +1,145 @@
+// ---------------------------------------------------------------------------------------------
+//  DOCUMENTATION ONLY - this file intentionally contains no tests and no types.
+//
+//  Two pieces of logic that the hardening pass touched are NOT reachable from a headless test
+//  host, because each one is fused to process-wide statics that only exist once the game has a
+//  GraphicsDevice, a VM and loaded Content. They are recorded here so the next person does not
+//  waste time trying to construct them from a test, and so the recommended extraction is not
+//  lost. Neither was extracted as part of this test pass: production code under
+//  Client\Simitone\Simitone.Client\ is read-only for this work.
+// ---------------------------------------------------------------------------------------------
+//
+//  (1) LOT TYPE / TOWN BOUNDARIES
+//  ------------------------------
+//  Where:  UI\Panels\UIMainPanel.cs, public UICatalogMode GetLotType(bool music)  (line ~250)
+//
+//  Current shape:
+//
+//      public UICatalogMode GetLotType(bool music)
+//      {
+//          UICatalogMode mode;
+//          var house = Game.vm.GetGlobalValue(10);                        // <-- VM
+//          var zones = Content.Get().Neighborhood.ZoningDictionary;       // <-- Content
+//          short result = 1;
+//          zones.TryGetValue(house, out result);
+//          var community = result == 1;
+//
+//          if (house >= 21 && house <= 31) mode = UICatalogMode.Downtown;
+//          else if (house >= 40 && house <= 49) mode = UICatalogMode.Vacation;
+//          else if (house >= 81 && house <= 89) mode = UICatalogMode.Studiotown;
+//          else if (house >= 90 && house <= 99 && (music || community)) mode = UICatalogMode.Magictown;
+//          else if (community) mode = UICatalogMode.Community;
+//          else mode = (music && Game.vm.GetGlobalValue(32) > 0) ? UICatalogMode.Downtown : UICatalogMode.Normal;
+//          return mode;
+//      }
+//
+//  Why it cannot be tested as written:
+//    - it is an INSTANCE method on UIMainPanel, so reaching it means constructing the panel,
+//      which builds ~20 textures via Content.Get().CustomUI.Get(...).Get(GameFacade.GraphicsDevice);
+//    - `Game.vm` is a field on TS1GameScreen, and `Content.Get()` needs an initialised Content
+//      singleton rooted at a UserDir with a TS1 install. Both need a graphics-capable host.
+//
+//  Recommended extraction (NOT performed here):
+//
+//      // same file, on UIMainPanel - smallest possible diff, keeps UICatalogMode next to the
+//      // rest of the panel's types.
+//      public static UICatalogMode ResolveLotType(int houseNumber, bool isCommunity, bool music, bool simlessBuildMode)
+//
+//      // and leave the instance method as a thin adapter:
+//      public UICatalogMode GetLotType(bool music)
+//      {
+//          var house = Game.vm.GetGlobalValue(10);
+//          short zone = 1;
+//          Content.Get().Neighborhood.ZoningDictionary.TryGetValue(house, out zone);  // default 1 == residential
+//          return ResolveLotType(house, zone == 1, music, Game.vm.GetGlobalValue(32) > 0);
+//      }
+//
+//    Alternative, if UIMainPanel is not the right home: a new
+//    `Simitone.Client.Utils.CatalogModeResolver` static class in
+//    Client\Simitone\Simitone.Client\Utils\ with the same static signature, which would also let
+//    the FSO-side panels reuse it.
+//
+//  Note the fourth parameter. The task brief sketched
+//  `int houseNumber, bool isCommunity, bool music`, but the final else-branch also reads
+//  VM global 32 ("simless build mode", set to 1 by VMTS1LotState.VerifyFamily when there is no
+//  current family and to 0 by VMTS1Activator). Without it the extraction is not behaviour
+//  preserving. Recommended name: `simlessBuildMode` (VM global 32), or `hasNoActiveFamily`.
+//
+//  Once extracted, the table worth locking in is:
+//      house 21..31                          -> Downtown            (regardless of music/community)
+//      house 40..49                          -> Vacation
+//      house 81..89                          -> Studiotown
+//      house 90..99 && (music || community)  -> Magictown
+//      community                             -> Community
+//      music && simlessBuildMode             -> Downtown
+//      otherwise                             -> Normal
+//  plus the boundary cases 20/32, 39/50, 80/90 and 99, house 0, and negative house numbers.
+//
+//
+//  (2) NEIGHBORHOOD LOCATION PARSING
+//  -----------------------------------
+//  Where:  UI\Panels\UINeighbourhoodSelectionPanel.cs, PopulateScreen(ushort mode)  (lines ~178-190)
+//
+//  Current shape:
+//
+//      for (int i = 0; i < locations.Length; i++)
+//      {
+//          var loc = locations.GetString(i).Split(',');
+//          if (loc.Length < 3) continue;
+//          if (!int.TryParse(loc[0].TrimStart(), out var num)) continue;
+//          if (num == 99) continue;
+//          if (!int.TryParse(loc[1].TrimStart(), out var hx)) continue;
+//          if (!int.TryParse(loc[2].TrimStart(), out var hy)) continue;
+//          var button = new UINeighborhoodHouseButton(num, SelectHouse, config.Scale);
+//          button.Position = new Vector2(hx, hy);
+//          HousePositions[num] = button.Position;
+//          buttons.Add(button);
+//      }
+//
+//  Why it cannot be tested as written:
+//    the loop is in the middle of PopulateScreen, which on its first statement calls
+//    Content.Get().CustomUI.Get("ngbh_outline.png").Get(GameFacade.GraphicsDevice). There is no
+//    way to run the loop without a GraphicsDevice and a loaded neighbourhood STR chunk. The
+//    parsing itself, however, touches no game state at all - it is a pure
+//    string -> (int, int, int) transformation plus a skip rule.
+//
+//  Recommended extraction (NOT performed here):
+//
+//      // new file: Client\Simitone\Simitone.Client\Utils\LotLocationParser.cs
+//      namespace Simitone.Client.Utils
+//      {
+//          public static class LotLocationParser
+//          {
+//              /// <summary>Parses a "num,x,y" entry from LotLocations.iff.</summary>
+//              /// <returns>false when the entry must be skipped: fewer than 3 comma-separated
+//              /// parts, any part not an int, or the reserved number 99.</returns>
+//              public static bool TryParseLotLocation(string raw, out int number, out int x, out int y);
+//
+//              /// <summary>Parses a whole neighbourhood table, keyed by lot number and
+//              /// ordered by y (ascending), matching the panel's existing z-order.</summary>
+//              public static Dictionary<int, Vector2> ParseLotLocationTable(IEnumerable<string> entries);
+//          }
+//      }
+//
+//      The panel then becomes:
+//          foreach (var raw in entries)                       // entries = locations.GetString(i)
+//              if (!LotLocationParser.TryParseLotLocation(raw, out var num, out var hx, out var hy)) continue;
+//              ... create the button, HousePositions[num] = ...
+//
+//    TryParseLotLocation should keep the exact current semantics, including that 99 is checked
+//    *between* the first and second TryParse (so "99,abc,1" is skipped for the same reason) and
+//    that only TrimStart is applied (redundant - int.TryParse already tolerates surrounding
+//    whitespace, and it means a trailing comma produces a 4th empty part that is ignored).
+//
+//    Once extracted, the cases worth locking in: "1,100,200" parses; "" and "1" and "1,2" are
+//    skipped; "a,1,2" and "1,b,2" and "1,2,c" are skipped; "99,1,2" is skipped but "98,1,2" and
+//    "100,1,2" are not; " 1 , 2 , 3 " parses; "1,2,3,4" parses and ignores the 4th part;
+//    negative and Int32.MinValue coordinates parse; and out-of-order input is stable.
+//
+//  Related observation while reading (production code, NOT changed, NOT asserted anywhere):
+//  PopulateScreen only records a HousePositions entry for lots whose location string parsed, but
+//  SelectHouse does `HousePositions[house]` unguarded (line ~239). TS1GameScreen.EvictLot calls
+//  TS1NeighPanel.SelectHouse(houseID) for a house ID it has just evicted, and that ID does not
+//  have to be one that produced a button. A skipped/malformed location string for that lot
+//  therefore turns into a KeyNotFoundException during the eviction flow. Worth a TryGetValue
+//  guard at the call site.

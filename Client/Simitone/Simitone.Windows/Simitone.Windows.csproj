@@ -1,0 +1,1271 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- TargetFramework, the MonoGame version and the ImageSharp version come from
+         Client/Simitone/Directory.Build.props, which is where they are single-sourced. -->
+    <TargetFramework>$(SimitoneWindowsTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>Simitone.Windows</RootNamespace>
+    <AssemblyName>Simitone</AssemblyName>
+    <FileAlignment>512</FileAlignment>
+    <ApplicationIcon>Icon.ico</ApplicationIcon>
+    <!--
+      ============================================================================
+      High DPI: WFO0003 suppression
+      ============================================================================
+      WFO0003 is the WinForms analyzer telling us to delete <dpiAware> from app.manifest and
+      configure DPI through Application.SetHighDpiMode / this property instead. We are not doing
+      that, and the suppression is deliberate:
+
+        * The property is not a mechanism here. It is read by the WinForms source generator, which
+          emits ApplicationConfiguration.Initialize() - a method that calls Application.SetHighDpiMode.
+          Nothing calls it: Simitone.Windows has its own hand-written [STAThread] Main in Program.cs
+          (the game also uses MessageBox and the folder/folder-selection dialogs, it is not a
+          WinForms app), and that Main does not call Initialize(). The generator only synthesises
+          a Main for a project that has none, so with ApplicationHighDpiMode set and no generated
+          entry point the call is never made and the property changes nothing at runtime.
+
+        * The manifest element is the mechanism that actually works here, and it is the only one
+          that is guaranteed to have run before the game's first window exists. Removing it to
+          satisfy an analyzer would make the process DPI-unaware: Windows would virtualise the
+          window, scale the surfaces the game draws itself, and round the mouse coordinates the
+          lot view picks with. That is a real regression, traded for a cosmetic build warning.
+
+        * The value is preserved on purpose. "true/pm" is per-monitor *v1*: per-monitor awareness
+          on Windows 8.1+ and system-DPI awareness on anything older. Per-monitor v2 is
+          deliberately not requested - v2 requires every window to re-lay-out and re-scale its own
+          surfaces when it is dragged between displays, and the game's UI scaling is a single
+          DPIScaleFactor applied to the back buffer, built around the scale being fixed for the
+          session. See the comment on app.manifest.
+
+      The two are kept in step, deliberately and checkably:
+
+        * <ApplicationHighDpiMode> below declares the mode the manifest asks for, in the SDK's own
+          vocabulary, so the intent is in the project file rather than only in the manifest.
+        * HighDpiConfigurationTests reads this file and app.manifest and asserts they agree, and
+          that neither has drifted to PerMonitorV2. That is what stops the two rotting apart.
+
+      If this is ever revisited, the way to actually make the property work is to call
+      Application.SetHighDpiMode(HighDpiMode.PerMonitor) as the first line of Program.Main and
+      drop <dpiAware> from the manifest - in that order, and only with a test that says which.
+    -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+    <ApplicationHighDpiMode>PerMonitor</ApplicationHighDpiMode>
+
+    <!-- DPI awareness and the supportedOS list. Without an explicit manifest the SDK generates a
+         DPI-unaware one, which makes Windows scale the window (and round its input) for us. The
+         dpiAware value is the one the comment above is about; ApplicationHighDpiMode above
+         declares the same intent for the SDK and must agree with it. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <!--
+      The version this build reports. Both this value and the release tags the update checker
+      compares against come from here, so leaving it at the SDK default of 1.0.0 made every
+      build look newer than every published 0.x release: UpdateChecker answered "up to date"
+      unconditionally, which is safe but means the check never does anything. 0.9.0 is where
+      Simitone is: pre-1.0, feature-complete for a play session, not yet a released 1.0.
+
+      SimitoneVersion reads this stamp off the entry assembly (Simitone.exe) rather than off
+      Simitone.Client, so bumping it here is enough - see SimitoneVersion.Current. A release
+      pipeline that stamps -p:Version=... still wins over it.
+    -->
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <!--
+    The C-09 fix: this used to carry
+
+        <EmbeddedResource Include="Icon.bmp">
+          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </EmbeddedResource>
+
+    CopyToOutputDirectory is meaningless on an EmbeddedResource. The SDK's copy targets
+    only look at @(_NoneWithTargetPath) and @(_CopyToOutputDirectoryItems); an embedded
+    resource is written into the assembly manifest resource table and is never copied to
+    $(OutDir). So the metadata was a silent no-op, and it was actively misleading: a
+    reader reasonably concludes Icon.bmp lands next to the exe, and a future change that
+    tried to load it from disk would fail with a FileNotFoundException that points at the
+    build system rather than at the mistake.
+
+    Icon.bmp itself stays. It IS embedded, and that is how it gets into the assembly, so
+    deleting the file would change what Simitone.exe contains. The audit notes that nothing
+    in Simitone.Windows references it, but "nothing references it today" is a weaker claim
+    than "the metadata was a no-op", and the icon that actually matters is Icon.ico via
+    <ApplicationIcon> above.
+
+    Icon.ico is listed here as a plain <Content> item, which means it is NOT copied to
+    $(OutDir) and does not need to be: <ApplicationIcon> hands it to the compiler, which
+    embeds it as the Win32 icon resource in Simitone.exe. The earlier version of this
+    comment claimed the opposite ("a Content item and really is copied"), which was wrong
+    - a Content item with no CopyToOutputDirectory metadata is not in
+    @(_CopyToOutputDirectoryItems), which is what the SDK's copy targets read. Listing it
+    keeps it visible in the project rather than only inside <ApplicationIcon>, and saying
+    so here stops the next reader from going looking for it in bin\.
+
+    Adding CopyToOutputDirectory="PreserveNewest" to it would put a 250 KB file in every
+    release zip for a program that never reads it, so it is deliberately not copied.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Icon.bmp" />
+    <Content Include="Icon.ico" />
+  </ItemGroup>
+
+  <!--
+    MPL-2.0 requires the licence to be made available with any distribution of the
+    software, and this build output ships FSO.Common.dll, FSO.SimAntics.dll,
+    FSO.LotView.dll, FSO.Files.dll, FSO.UI.dll, FSO.Vitaboy*.dll and FSO.Content.dll
+    alongside Simitone.exe. A release zip without the licence text is a
+    distribution of MPL-covered binaries with no licence attached.
+
+    Same pattern FSO.Content.csproj already uses for
+    tso.content/Content/UI/LICENSE.txt (the MIT emoji assets), applied to the
+    licence that actually covers the shipped assemblies. Link is set explicitly
+    because both files live outside the project directory, where TargetPath would
+    otherwise depend on how MSBuild folds the external relative path.
+  -->
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)..\..\..\LICENSE" Link="LICENSE">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>false</Pack>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)..\..\..\NOTICE" Link="NOTICE">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>false</Pack>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="$(SimitoneMonoGameVersion)" />
+    <PackageReference Include="MonoGame.Framework.WindowsDX" Version="$(SimitoneMonoGameVersion)" />
+    <!-- Mirrors Simitone.Client's reference. Both projects call into the decoder (the client
+         project defines it, this one registers it with FreeSO), so both must agree on the
+         version rather than trusting a transitive resolution. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="$(SimitoneImageSharpVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\FreeSO\Other\libs\MSDFData\MSDFData.csproj" />
+    <!--
+      The B-12 build split. See the BuildIde comment block in
+      ..\Directory.Build.props for why the default is "game only" and what
+      -p:BuildIde=true costs.
+
+      The FSO.IDE and FSO.Client references are the whole of that cost. FSO.Client is
+      the TSO online client and it ProjectReferences FSO.Server, FSO.Server.Database,
+      FSO.Server.DataService, FSO.Server.Clients, FSO.Server.Protocol, FSO.Server.Updater
+      and FSO.Server.Common, so the two edges below reach 19 of the 24 projects this
+      solution used to hold - The Sims Online's server, its ASP.NET Core API host, the
+      server watchdog, and the MySQL / SQLite / SqlClient / AWS / Octokit / RestSharp /
+      Portable.JWT / BouncyCastle stack that only those assemblies use. All of it is
+      deleted from $(OutDir) by TrimSingleplayerOutput below, a few seconds after the
+      build spends ten minutes producing it.
+
+      FSO.IDE is not removed for its own sake: the audit records it as a *shipped*
+      assembly with 25 warnings, and the -p:TrimSingleplayerOutput=false path (a Debug
+      build, or the IDE run) still wants it. It goes out of the Release game build
+      because it is the edge that reaches FSO.Client.
+
+      Simitone.Client is not referenced at all, deliberately, and the reason is a type
+      collision rather than a preference - see the long comment in
+      Simitone.Client.csproj. Nothing about this split touches that decision.
+    -->
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\FSO.IDE\FSO.IDE.csproj"
+                      Condition=" '$(BuildIde)' != 'false' " />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.client\FSO.Client.csproj"
+                      Condition=" '$(BuildIde)' != 'false' " />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\FSO.SimAntics.JIT\FSO.SimAntics.JIT.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\FSO.UI\FSO.UI.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.common\FSO.Common.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.files\FSO.Files.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.simantics\FSO.SimAntics.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.world\FSO.LotView.csproj" />
+    <ProjectReference Include="..\Simitone.Client\Simitone.Client.csproj" />
+    <!-- Build-only reference: the packager is invoked as a tool by the PackageRemeshAddon target
+         below, so it must be built before that target runs, but the game neither references nor
+         ships it. ReferenceOutputAssembly="false" gives us the build ordering without the
+         assembly reference. -->
+    <ProjectReference Include="..\Simitone.PackageRemeshes\Simitone.PackageRemeshes.csproj"
+                      ReferenceOutputAssembly="false" />
+
+    <!-- Build-only reference to the offline mesh generator (docs/MESH_GENERATION_RESEARCH.md).
+         It is an authoring tool run manually against a TS1 install, never shipped or invoked by
+         the build, so it is compiled here for convenience but not copied. -->
+    <ProjectReference Include="..\Simitone.GenerateMeshes\Simitone.GenerateMeshes.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!--
+    ============================================================================
+    The -ide compile shim
+    ============================================================================
+    Program.cs has exactly one statement that names FSO.IDE or FSO.Client - the
+    `new FSO.IDE.VolcanicStartProxy().InitVolcanic(args)` behind the -ide flag - and it
+    is not behind a preprocessor symbol. So with the two references above gone, that one
+    line no longer compiles unless something still provides the type.
+
+    BuildShims/VolcanicStartProxy.NoIde.cs is that something: the same namespace, type
+    name and InitVolcanic(string[]) signature, whose body throws
+    PlatformNotSupportedException naming the flag that restores the real one. A no-op
+    there would have been worse than a throw - the -ide path would appear to work and
+    silently not start the IDE, with nothing in the log to connect the two.
+
+    The Remove is not optional, and it is not conditional either. The SDK globs
+    **\*.cs under the project directory, so a file in BuildShims\ lands in @(Compile)
+    whether or not any ItemGroup names it; without an unconditional Remove the shim is
+    in the BuildIde=true build too, where the real FSO.IDE also declares
+    FSO.IDE.VolcanicStartProxy - and the compiler picks one of the two without saying
+    which. Unconditional Remove + conditional Include is the only arrangement where
+    "both" and "neither" are both unreachable, and it is why the Include is not allowed
+    to grow a Remove of its own.
+  -->
+  <ItemGroup>
+    <Compile Remove="BuildShims\VolcanicStartProxy.NoIde.cs" />
+  </ItemGroup>
+  <ItemGroup Condition=" '$(BuildIde)' == 'false' ">
+    <Compile Include="BuildShims\VolcanicStartProxy.NoIde.cs" />
+  </ItemGroup>
+
+  <Target Name="_SimitoneReportBuildIde" BeforeTargets="Build" Condition=" '$(BuildIde)' == 'false' ">
+    <Message Importance="high"
+             Text="Simitone B-12 split: building the game only. FreeSO's FSO.IDE, FSO.Client and the seventeen projects behind them (the TSO server, its ASP.NET Core API host, the server watchdog, and FSO.Windows / FSO.SimAntics.JIT.Roslyn / FSO.Content.TSO) are not restored, compiled or copied, and the -ide flag in this binary throws with a message saying so. Use -p:BuildIde=true for the -ide host (and -p:TrimSingleplayerOutput=false to keep the server assemblies in the output)." />
+  </Target>
+
+  <!--
+    Location of the community remesh pack ("FSO.Remeshes"), i.e. the <remeshes> folder that holds
+    metadata.json and the Author/Group tree. The pack is third-party content that is deliberately
+    not committed here (see the root .gitignore), so this path is only a default: point
+    /p:RemeshPackDir=... at a different checkout, or at nothing at all, to build without it.
+  -->
+  <PropertyGroup>
+    <RemeshPackDir Condition=" '$(RemeshPackDir)' == '' ">$(MSBuildThisFileDirectory)..\..\..\FSO.Remeshes-main\remeshes</RemeshPackDir>
+  </PropertyGroup>
+
+  <!--
+    Timestamps the packaging target compares against its stamp, declared at project scope because
+    a target's Inputs/Outputs are evaluated before the target body runs. Deliberately only two
+    levels deep (Author/Group/file) - that is the only shape the pack has, and a recursive glob
+    would stat the authoring files under source/ and alt_* for no benefit.
+  -->
+  <ItemGroup Condition="Exists('$(RemeshPackDir)\metadata.json')">
+    <_RemeshPackInput Include="$(RemeshPackDir)\metadata.json" />
+    <_RemeshPackInput Include="$(RemeshPackDir)\*\*\metadata.json" />
+    <_RemeshPackInput Include="$(RemeshPackDir)\*\*\*.fsom" />
+    <_RemeshPackInput Include="$(RemeshPackDir)\*\*\*.png" />
+  </ItemGroup>
+
+  <!--
+    Flattens the remesh pack into $(OutDir)Content\MeshReplace, which is where the runtime mesh
+    loader (FSO.Content.RCMeshProvider) looks for a hand-authored replacement for an object's
+    auto-generated mesh. Without the pack this target does nothing at all and the game ships with
+    only the handful of sample meshes FreeSO bundles.
+
+    The content is optional, so every failure mode here is a warning rather than an error: a
+    missing or half-installed pack must never be the reason a build of the game fails. The stamp
+    file makes the target incremental (re-run only when a pack file is newer), and is written only
+    on success so a transient failure - another agent building the same tree, say - is retried on
+    the next build instead of being silently baked in.
+
+    Release only, because that is what README.md documents ("the Release build flattens it into
+    Content/MeshReplace"). A Debug build used to run this too, which meant a developer debugging
+    the packager could not see the meshes it produced and could not tell a packager bug from a
+    stale output folder. -p:Configuration=Debug is a deliberate choice, so honouring the
+    documented behaviour here costs nothing; the pack is still optional either way.
+  -->
+  <Target Name="PackageRemeshAddon"
+          AfterTargets="Build"
+          Condition=" '$(Configuration)' == 'Release' AND Exists('$(RemeshPackDir)\metadata.json')"
+          Inputs="@(_RemeshPackInput)"
+          Outputs="$(OutDir)Content\MeshReplace\.remeshpack.stamp">
+
+    <PropertyGroup>
+      <!-- The packager's TFM comes from Directory.Build.props rather than being written
+           out again here. This was the third copy of net10.0 in the build, and the only
+           one with no compile step to catch it going stale: a mismatch here means the
+           target falls through to 'dotnet run' and the game quietly loses the remesh
+           pack, with only a stamp-file warning to say so. -->
+      <_RemeshPackagerDll>$(MSBuildThisFileDirectory)..\Simitone.PackageRemeshes\bin\$(Configuration)\$(SimitoneTargetFramework)\Simitone.PackageRemeshes.dll</_RemeshPackagerDll>
+      <_RemeshPackagerProject>$(MSBuildThisFileDirectory)..\Simitone.PackageRemeshes\Simitone.PackageRemeshes.csproj</_RemeshPackagerProject>
+    </PropertyGroup>
+
+    <Message Importance="high" Text="Packaging remesh addon from $(RemeshPackDir) into $(OutDir)Content\MeshReplace" />
+
+    <!-- Prefer running the tool we just built. Fall back to "dotnet run" so the target still works
+         if the build-only ProjectReference above was somehow not honoured (for instance when this
+         project is built by an IDE that resolved references differently). -->
+    <Exec Command="dotnet &quot;$(_RemeshPackagerDll)&quot; &quot;$(RemeshPackDir)&quot; &quot;$(OutDir)Content\MeshReplace&quot;"
+          Condition="Exists('$(_RemeshPackagerDll)')"
+          ContinueOnError="WarnAndContinue">
+      <Output TaskParameter="ExitCode" PropertyName="_RemeshPackExitCode" />
+    </Exec>
+    <Exec Command="dotnet run --project &quot;$(_RemeshPackagerProject)&quot; -c $(Configuration) -- &quot;$(RemeshPackDir)&quot; &quot;$(OutDir)Content\MeshReplace&quot;"
+          Condition="!Exists('$(_RemeshPackagerDll)')"
+          ContinueOnError="WarnAndContinue">
+      <Output TaskParameter="ExitCode" PropertyName="_RemeshPackExitCode" />
+    </Exec>
+
+    <Touch Files="$(OutDir)Content\MeshReplace\.remeshpack.stamp"
+           Condition="'$(_RemeshPackExitCode)' == '0' AND Exists('$(OutDir)Content\MeshReplace')"
+           AlwaysCreate="true"
+           ContinueOnError="WarnAndContinue" />
+
+    <Warning Condition="'$(_RemeshPackExitCode)' != '0'"
+             Text="Remesh addon packaging failed (exit code '$(_RemeshPackExitCode)'). The game will build and run without the community remeshes; see the message above for the reason." />
+    <Warning Condition="'$(_RemeshPackExitCode)' == '0' AND !Exists('$(OutDir)Content\MeshReplace\.remeshpack.stamp')"
+             Text="The remesh packager reported success but wrote no stamp file; the pack will be repackaged on every build." />
+  </Target>
+
+  <!--
+    NuGetGlobalPackages used to be hardcoded here as $(USERPROFILE)\.nuget\packages with a
+    $(HOME) branch for non-Windows shells. Removed: it is a NuGet-owned property, so the
+    override ignored NUGET_PACKAGES, a nuget.config globalPackagesFolder, and
+    RestorePackagesPath; it applied to this one project out of 24, so it could split this
+    project's restore folder from the rest of the graph; and the non-Windows branch was
+    unreachable, because a net10.0-windows WinExe cannot be built on a non-Windows shell.
+    Restore sets the property itself, which is what CopyMonoGameDLLs already prefers; the
+    repo root now carries a NuGet.config for anything that genuinely belongs in NuGet's file.
+  -->
+
+  <!--
+    ============================================================================
+    Singleplayer output trim
+    ============================================================================
+    The ProjectReference closure above reaches the whole of FreeSO, and .NET copies
+    every referenced assembly into $(OutDir) - including The Sims Online's *server*
+    (server.dll / FSO.Server.*), its ASP.NET Core API host, the server watchdog, and the
+    MySQL / SQLite / SqlClient / AWS / Octokit libraries that only those assemblies use.
+    Simitone is singleplayer, offline, Windows-only: it never constructs a server type.
+
+    Nothing here is inferred from a glob. Every entry below is a file that was verified
+    to be present in bin\Release\net10.0-windows AND to have no remaining referrer once
+    the rest of the list is gone (checked against the AssemblyRef/TypeRef tables of every
+    assembly in the output, not just the project's own dependency graph). If any of that
+    stops being true the smoke test is the backstop: the game must still boot clean, and
+    a file that turns out to be needed simply comes back out of the list.
+
+    Opt out with -p:TrimSingleplayerOutput=false (the build then ships everything, which is
+    what the -ide path, which loads FreeSO's online client code, needs).
+
+    Release only by default, because that is what README.md documents ("The Release build also
+    trims the TSO server stack and non-Windows natives"). This target used to run in Debug too,
+    which meant a Debug build silently lost the TSO server assemblies and could not be stepped
+    into FSO.Server or debugged against the -ide host at all. The switch is still honoured in
+    either direction: -p:TrimSingleplayerOutput=true forces the trim on in a Debug build if you
+    want to reproduce a shipping layout, and =false keeps it off in Release.
+  -->
+  <PropertyGroup>
+    <!-- $(Configuration) is 'Debug' for an unconfigured build, which keeps the guard honest. -->
+    <_TrimSingleplayerOutputDefault Condition=" '$(Configuration)' == 'Release' ">true</_TrimSingleplayerOutputDefault>
+    <_TrimSingleplayerOutputDefault Condition=" '$(_TrimSingleplayerOutputDefault)' == '' ">false</_TrimSingleplayerOutputDefault>
+    <TrimSingleplayerOutput Condition=" '$(TrimSingleplayerOutput)' == '' ">$(_TrimSingleplayerOutputDefault)</TrimSingleplayerOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      (1) The TSO server itself. server.dll is FSO.Server: the only thing the client ever
+          wanted from it is FSO.Server.Embedded.EmbeddedServer, reached exclusively through
+          FSO.Client.GameController.InitializeArchive/RegisterServer. Simitone replaces
+          FSO.Client.GameController wholesale (Simitone.Client.GameController) and never
+          calls those, and no assembly on the shipped boot path has an AssemblyRef to
+          `server` at all - FSO.Client.dll does, and FSO.Client.dll is only ever loaded by
+          the -ide IDE host, not by the game.
+          Everything else in group (1) is referenced only by each other or by server.dll.
+    -->
+    <SingleplayerTrimFile Include="server.dll" />
+    <SingleplayerTrimFile Include="server.pdb" />
+    <SingleplayerTrimFile Include="FSO.Server.Database.dll" />
+    <SingleplayerTrimFile Include="FSO.Server.Database.pdb" />
+    <SingleplayerTrimFile Include="FSO.Server.Domain.dll" />
+    <SingleplayerTrimFile Include="FSO.Server.Domain.pdb" />
+    <SingleplayerTrimFile Include="FSO.Server.Common.dll" />
+    <SingleplayerTrimFile Include="FSO.Server.Common.pdb" />
+    <!-- (2) The ASP.NET Core REST API host (FSO.Server.Api.Core). Sole referrer of AWSSDK.* and Octokit. -->
+    <SingleplayerTrimFile Include="FSO.Server.Api.Core.dll" />
+    <SingleplayerTrimFile Include="FSO.Server.Api.Core.exe" />
+    <SingleplayerTrimFile Include="FSO.Server.Api.Core.pdb" />
+    <SingleplayerTrimFile Include="FSO.Server.Api.Core.deps.json" />
+    <SingleplayerTrimFile Include="FSO.Server.Api.Core.runtimeconfig.json" />
+    <SingleplayerTrimFile Include="FSO.Server.Api.Core.staticwebassets.endpoints.json" />
+    <SingleplayerTrimFile Include="appsettings.json" />
+    <SingleplayerTrimFile Include="appsettings.Development.json" />
+    <!-- (3) FSO.Server.Updater: the server's self-update supervisor, launched as its own
+             process. It appears in FSO.Client's deps.json but FSO.Client has no AssemblyRef
+             to it, and the game never spawns it. -->
+    <SingleplayerTrimFile Include="watchdog.dll" />
+    <SingleplayerTrimFile Include="watchdog.exe" />
+    <SingleplayerTrimFile Include="watchdog.pdb" />
+    <SingleplayerTrimFile Include="watchdog.deps.json" />
+    <SingleplayerTrimFile Include="watchdog.runtimeconfig.json" />
+    <SingleplayerTrimFile Include="watchdog.ini" />
+    <SingleplayerTrimFile Include="watchdog.sh" />
+    <!-- (4) Client-facing halves of the server stack. These ARE referenced by FSO.Client,
+             but only from its online regulators/controllers (LoginRegulator,
+             CityConnectionRegulator, GizmoSearchController, ClientDataService, ...), none
+             of which Simitone instantiates: it has no Ninject kernel, no Network module and
+             no city/archive connection. FSO.Client.dll is kept precisely so that removing
+             these cannot break its *load*; the -ide path additionally needs
+             -p:TrimSingleplayerOutput=false. -->
+    <SingleplayerTrimFile Include="FSO.Server.Clients.dll" />
+    <SingleplayerTrimFile Include="FSO.Server.Clients.pdb" />
+    <SingleplayerTrimFile Include="FSO.Server.Protocol.dll" />
+    <SingleplayerTrimFile Include="FSO.Server.Protocol.pdb" />
+    <SingleplayerTrimFile Include="FSO.Common.DatabaseService.dll" />
+    <SingleplayerTrimFile Include="FSO.Common.DatabaseService.pdb" />
+    <SingleplayerTrimFile Include="FSO.Common.DataService.dll" />
+    <SingleplayerTrimFile Include="FSO.Common.DataService.pdb" />
+    <SingleplayerTrimFile Include="FSO.Common.Domain.dll" />
+    <SingleplayerTrimFile Include="FSO.Common.Domain.pdb" />
+    <!-- (5) Referenced only by the assemblies above. CommandLineParser -> server.dll;
+             Ninject.Extensions.ChildKernel -> server.dll (plain Ninject.dll is KEPT, FSO.Common
+             binds with it); the pre-Core System.Runtime.Caching -> server.dll.
+
+             The two runtimes\ entries below are the Windows-flavoured copies of packages that
+             also drop a lib\ copy at the output root. They are wildcard patterns matched by
+             the PowerShell pass (see the target for why they cannot be MSBuild globs), so they
+             follow the package to whichever TFM folder it ships rather than pinning net9.0 /
+             net8.0 - the C-04 fix. A package bump that moves the TFM folder therefore keeps
+             being trimmed instead of silently ceasing to match. -->
+    <SingleplayerTrimFile Include="CommandLine.dll" />
+    <SingleplayerTrimFile Include="Ninject.Extensions.ChildKernel.dll" />
+    <SingleplayerTrimFile Include="System.Runtime.Caching.dll" />
+
+    <!--
+      (6) Third-party libraries that only the server assemblies above pull in. Each was
+          confirmed to have exactly one referrer inside the trimmed set.
+
+          MySQL: MySql.Data.dll is referenced only by FSO.Server.Database.dll; its own
+          dependencies (BouncyCastle.Cryptography, Google.Protobuf, the K4os LZ4 pair,
+          K4os.Hash.xxHash, ZstdSharp) have no other referrer in the output.
+          SQL Server: System.Data.SqlClient.dll is referenced only by FSO.Server.Database.dll.
+          The sni.dll / comerr64.dll / gssapi64.dll / k5sprt64.dll / krb5_64.dll / krbcc64.dll
+          natives are the Windows SSPI + GSSAPI/Kerberos shims that System.Data.SqlClient
+          P/Invokes; nothing else in the output loads them. (OpenAL/SDL2/SharpDX natives in
+          the same folders are MonoGame's and are left alone.)
+          SQLite: System.Data.SQLite.dll is referenced only by FSO.Server.Database.dll, and
+          Microsoft.Data.Sqlite.dll / SQLitePCLRaw.core.dll have no referrer at all once it
+          is gone - SQLite.Interop.dll is that package's only native. The osx/osx-arm copies
+          leave with their RID directory below.
+          AWS + GitHub: AWSSDK.Core, AWSSDK.S3 and Octokit are referenced only by
+          FSO.Server.Api.Core.dll.
+          HTTP + JWT: RestSharp.dll is referenced only by FSO.Server.Clients.dll; JWT.dll
+          (Portable.JWT) only by FSO.Server.Common.dll; crypto.dll (Portable.BouncyCastle)
+          only by JWT.dll.
+          NLog: referenced only by FSO.Common.DataService.dll. NLog.config is its companion.
+    -->
+    <SingleplayerTrimFile Include="Dapper.dll" />
+    <SingleplayerTrimFile Include="MySql.Data.dll" />
+    <SingleplayerTrimFile Include="BouncyCastle.Cryptography.dll" />
+    <SingleplayerTrimFile Include="Google.Protobuf.dll" />
+    <SingleplayerTrimFile Include="K4os.Compression.LZ4.Streams.dll" />
+    <SingleplayerTrimFile Include="K4os.Compression.LZ4.dll" />
+    <SingleplayerTrimFile Include="K4os.Hash.xxHash.dll" />
+    <SingleplayerTrimFile Include="ZstdSharp.dll" />
+    <SingleplayerTrimFile Include="System.Data.SqlClient.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-x64\native\sni.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-x86\native\sni.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-arm64\native\sni.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-x64\native\comerr64.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-x64\native\gssapi64.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-x64\native\k5sprt64.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-x64\native\krb5_64.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-x64\native\krbcc64.dll" />
+    <SingleplayerTrimFile Include="System.Data.SQLite.dll" />
+    <SingleplayerTrimFile Include="Microsoft.Data.Sqlite.dll" />
+    <SingleplayerTrimFile Include="SQLitePCLRaw.core.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-x64\native\SQLite.Interop.dll" />
+    <SingleplayerTrimFile Include="runtimes\win-x86\native\SQLite.Interop.dll" />
+    <SingleplayerTrimFile Include="AWSSDK.Core.dll" />
+    <SingleplayerTrimFile Include="AWSSDK.S3.dll" />
+    <SingleplayerTrimFile Include="Octokit.dll" />
+    <SingleplayerTrimFile Include="RestSharp.dll" />
+    <SingleplayerTrimFile Include="JWT.dll" />
+    <SingleplayerTrimFile Include="crypto.dll" />
+    <SingleplayerTrimFile Include="NLog.dll" />
+    <SingleplayerTrimFile Include="NLog.config" />
+  </ItemGroup>
+
+  <!--
+    The two TFM-pinned entries this list used to end with, de-pinned.
+
+    They were
+
+        runtimes\win\lib\net9.0\System.Runtime.Caching.dll
+        runtimes\win\lib\net8.0\System.Data.SqlClient.dll
+
+    which is a .NET target-framework version baked into a build script. Bump
+    System.Runtime.Caching to the 10.0.x band - the thing a servicing-band audit is
+    likely to recommend - and those paths become net10.0, stop matching, and the
+    assemblies they were protecting quietly ship in the singleplayer build. Nothing
+    says so: the missing entries were dropped as "not present" by design, and the only
+    summary line reports on what matched, so a partially applied trim looks exactly
+    like a successful one.
+
+    As patterns, they follow the package to whatever folder it ships. A property rather
+    than items, because an item Include containing '*' is globbed at evaluation against
+    the project directory and silently vanishes - see the note above the forbidden list
+    for the full explanation of that trap.
+  -->
+  <PropertyGroup>
+    <SingleplayerTrimPattern>runtimes\*\System.Runtime.Caching.dll;runtimes\*\System.Data.SqlClient.dll</SingleplayerTrimPattern>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      (7) Native payloads for runtimes this build never runs on. Simitone is a
+          net10.0-windows WinExe, so only the win* RIDs can ever be loaded. These are the
+          MonoGame.Library.OpenAL / SDL2 / SQLite native assets for other platforms
+          (libopenal.so, libSDL2-2.0.so.0, libopenal.dylib, libSDL2-2.0.0.dylib,
+          libopenal.a) plus runtimes\unix, which is the RID-specific copy of
+          System.Data.SqlClient. Enumerated, not globbed: 'win', 'win-x64', 'win-x86' and
+          'win-arm64' are deliberately absent and are always kept.
+    -->
+    <SingleplayerTrimRid Include="android-arm" />
+    <SingleplayerTrimRid Include="android-arm64" />
+    <SingleplayerTrimRid Include="android-x64" />
+    <SingleplayerTrimRid Include="android-x86" />
+    <SingleplayerTrimRid Include="ios-arm64" />
+    <SingleplayerTrimRid Include="iossimulator-arm64" />
+    <SingleplayerTrimRid Include="iossimulator-x64" />
+    <SingleplayerTrimRid Include="linux-arm64" />
+    <SingleplayerTrimRid Include="linux-x64" />
+    <SingleplayerTrimRid Include="osx" />
+    <SingleplayerTrimRid Include="osx-x64" />
+    <SingleplayerTrimRid Include="unix" />
+  </ItemGroup>
+
+  <!--
+    ============================================================================
+    Why the trim lists are properties and not items
+    ============================================================================
+    MSBuild's Include has two completely different behaviours, and the difference is
+    invisible in a project file:
+
+      * An Include with NO wildcard character is taken verbatim. It is never checked
+        against the filesystem, so <_TrimForbidden Include="server.dll" /> is a
+        perfectly good entry even though no such file exists in the project directory.
+      * An Include containing '*' or '?' is globbed against the filesystem, relative to
+        the project directory, AT EVALUATION TIME. 'runtimes\*\System.Data.SqlClient.dll'
+        matches nothing there, so the item is silently not created at all. It does not
+        become a pattern; it disappears. No warning, no error.
+
+    That second rule is why a wildcard cannot live in an item list here, and why the TFM
+    pinning cannot be fixed by writing an MSBuild glob. Every pattern is therefore a
+    ';' -separated property below, expanded into an item list at use time and never
+    globbed. A wildcard that has silently vanished is the failure C-04 is about, one
+    level further down - and it is invisible, which is the whole problem.
+
+    Same trap in reverse, for completeness: the reason the original entries were exact
+    paths rather than patterns is not caution, it is that the author hit this.
+  -->
+
+  <!--
+    The invariant the allowlist above exists to establish: nothing belonging to the TSO
+    server stack, to the database/AWS/GitHub/HTTP/JWT libraries only that stack uses, or
+    to the SSPI/GSSAPI/SQLite natives they P/Invoke may remain in the output.
+
+    Patterns, not the exact names above, so a package bump that starts shipping a file
+    nobody listed (MySql.Data.MySqlClient.dll, an AWSSDK.Crt, a transitive RestSharp
+    split) is caught. Quiet in the steady state, because after a successful trim these
+    match nothing - which is what makes them worth having, and what the per-entry "did
+    this path match" report could not be, since that fires on every rebuild.
+
+    Read as PowerShell -like patterns: '*' crosses directory separators, which is what
+    makes runtimes\*\sni.dll cover every RID folder; scope anything path-specific with
+    an explicit backslash. Keep in step with the allowlist - a family that is trimmed
+    but not listed here is trimmed but not verified.
+  -->
+  <PropertyGroup>
+    <SingleplayerTrimForbidden>runtimes\*\sni.dll;runtimes\*\comerr64.dll;runtimes\*\gssapi64.dll;runtimes\*\k5sprt64.dll;runtimes\*\krb5_64.dll;runtimes\*\krbcc64.dll;runtimes\*\SQLite.Interop.dll;runtimes\*\System.Data.SqlClient.dll;runtimes\*\System.Runtime.Caching.dll</SingleplayerTrimForbidden>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <_TrimForbidden Include="server.dll" />
+    <_TrimForbidden Include="server.pdb" />
+    <_TrimForbidden Include="watchdog*" />
+    <_TrimForbidden Include="FSO.Server.*" />
+    <_TrimForbidden Include="FSO.Common.DatabaseService.*" />
+    <_TrimForbidden Include="FSO.Common.DataService.*" />
+    <_TrimForbidden Include="FSO.Common.Domain.*" />
+    <_TrimForbidden Include="appsettings*.json" />
+    <_TrimForbidden Include="CommandLine.dll" />
+    <_TrimForbidden Include="Ninject.Extensions.ChildKernel.*" />
+    <_TrimForbidden Include="NLog.*" />
+    <_TrimForbidden Include="System.Runtime.Caching.dll" />
+    <_TrimForbidden Include="Dapper.dll" />
+    <_TrimForbidden Include="MySql.Data.*" />
+    <_TrimForbidden Include="BouncyCastle.Cryptography.*" />
+    <_TrimForbidden Include="Google.Protobuf.*" />
+    <_TrimForbidden Include="K4os.*" />
+    <_TrimForbidden Include="ZstdSharp.*" />
+    <_TrimForbidden Include="System.Data.Sql*.dll" />
+    <_TrimForbidden Include="System.Data.SQLite.*" />
+    <_TrimForbidden Include="Microsoft.Data.Sqlite.*" />
+    <_TrimForbidden Include="SQLitePCLRaw.*" />
+    <_TrimForbidden Include="AWSSDK.*" />
+    <_TrimForbidden Include="Octokit.*" />
+    <_TrimForbidden Include="RestSharp.*" />
+    <_TrimForbidden Include="JWT.dll" />
+    <_TrimForbidden Include="crypto.dll" />
+  </ItemGroup>
+
+  <!--
+    Publish runs the same trim, against $(PublishDir) instead of $(OutDir). This only fires
+    for a real publish (ComputeFilesToPublish is not part of a normal build), so a plain
+    build below falls through to $(OutDir).
+  -->
+  <Target Name="_SimitoneSelectTrimOutputDirForPublish"
+          BeforeTargets="ComputeFilesToPublish"
+          Condition=" '$(TrimSingleplayerOutput)' == 'true' ">
+    <PropertyGroup>
+      <TrimOutputDir>$(PublishDir)</TrimOutputDir>
+    </PropertyGroup>
+  </Target>
+
+  <!--
+    Say out loud when the trim is deliberately off, so a Debug bin folder full of
+    TSO server assemblies reads as the intended behaviour and not as "the trim
+    silently stopped working". Only fires for the default; an explicit
+    -p:TrimSingleplayerOutput= is not worth talking about.
+  -->
+  <Target Name="_SimitoneReportTrimSkipped"
+          AfterTargets="Build"
+          Condition=" '$(Configuration)' != 'Release' AND '$(TrimSingleplayerOutput)' == 'false' ">
+    <Message Importance="normal"
+             Text="Simitone singleplayer trim: skipped (Configuration is '$(Configuration)', not 'Release'). The TSO server stack and the non-Windows natives are still in the output, so FSO.Server and the -ide Volcanic host can be stepped into. Build Release, or pass -p:TrimSingleplayerOutput=true, for a shipping layout." />
+  </Target>
+
+  <!--
+    Matches the allowlist patterns against the output, measures what that will remove,
+    deletes it, and then verifies the result.
+
+    Why the matching is done in PowerShell and not with MSBuild globs
+    ================================================================
+    The obvious fix for a stale TFM-pinned path is to glob it -
+    runtimes\win\lib\**\System.Data.SqlClient.dll instead of
+    runtimes\win\lib\net8.0\System.Data.SqlClient.dll - and it does not work. The
+    allowlist entries are piped through an item transform to prefix the output
+    directory (@(SingleplayerTrimFile->'$(TrimOutputDir)%(Identity)')), and an item
+    transform copies its source strings through verbatim: wildcards in the result are
+    never expanded, and the Exists() test then simply fails. The TFM-pinned path is
+    replaced with a wildcard that silently matches nothing, which is the exact failure
+    the audit was warning about, wearing a fix's clothes.
+
+    So the expansion happens in the read-only PowerShell pass below, where
+    Get-ChildItem plus -like does the matching, `*` crosses directory separators, and
+    the result is a concrete file list that MSBuild then hands straight to Delete.
+    That is the one place in this target where a wildcard can be trusted to mean
+    something, and it is also the only place that can see the real output tree.
+
+    Effects on the allowlist, all of them deliberate:
+      * Most entries are plain file names and match themselves, unchanged.
+      * The two TFM-pinned runtimes\win\lib\netX.0\... entries are now
+        runtimes\*\System.Data.SqlClient.dll and runtimes\*\System.Runtime.Caching.dll.
+        These follow the package to whichever TFM folder it ships, which is the
+        C-04 fix: no single TFM version is baked in.
+      * Patterns that match nothing are dropped rather than failing, as before, but the
+        ones where that could hide something are reported (see __STALE__ below).
+
+    This target can never fail the build: every task that touches the filesystem uses
+    ContinueOnError, and both PowerShell passes are read-only.
+  -->
+  <Target Name="TrimSingleplayerOutput"
+          AfterTargets="Build;ComputeFilesToPublish"
+          Condition=" '$(TrimSingleplayerOutput)' == 'true' ">
+    <PropertyGroup>
+      <!-- Directory the trim runs against. Left empty here, filled in below: $(OutDir) for a
+           build, $(PublishDir) for a publish (see the target above). A global property passed
+           on the command line wins over both. -->
+      <TrimOutputDir Condition=" '$(TrimOutputDir)' == '' ">$(OutDir)</TrimOutputDir>
+      <_TrimFileList>$(IntermediateOutputPath)singleplayer-trim-files.txt</_TrimFileList>
+      <_TrimRidList>$(IntermediateOutputPath)singleplayer-trim-rids.txt</_TrimRidList>
+      <_TrimForbidList>$(IntermediateOutputPath)singleplayer-trim-forbidden.txt</_TrimForbidList>
+      <_TrimMatchedFile>$(IntermediateOutputPath)singleplayer-trim-matched.txt</_TrimMatchedFile>
+      <_TrimStaleFile>$(IntermediateOutputPath)singleplayer-trim-stale.txt</_TrimStaleFile>
+      <_TrimSummaryFile>$(IntermediateOutputPath)singleplayer-trim-summary.txt</_TrimSummaryFile>
+      <_TrimScanFile>$(IntermediateOutputPath)singleplayer-trim-scan.txt</_TrimScanFile>
+    </PropertyGroup>
+
+    <!-- Items are cleared first because this target can be entered twice in one build
+         (Build, then ComputeFilesToPublish on the publish path) and an Include inside a
+         target appends on re-entry. Without the clear, pass two would report pass one's
+         freshly deleted files as "matched but still present". -->
+    <ItemGroup>
+      <_TrimFile Remove="@(_TrimFile)" />
+      <_TrimRidDir Remove="@(_TrimRidDir)" />
+      <_TrimStale Remove="@(_TrimStale)" />
+      <_TrimSurvivor Remove="@(_TrimSurvivor)" />
+      <_TrimLeftover Remove="@(_TrimLeftover)" />
+    </ItemGroup>
+
+    <!-- Patterns and RID names go out verbatim; the expansion happens in PowerShell.
+         The two properties are appended with ';' because an item Include containing a
+         wildcard would be globbed away at evaluation time - see the note above. -->
+    <WriteLinesToFile File="$(_TrimFileList)" Lines="@(SingleplayerTrimFile);$(SingleplayerTrimPattern)" Overwrite="true" />
+    <WriteLinesToFile File="$(_TrimRidList)" Lines="@(SingleplayerTrimRid)" Overwrite="true" />
+    <WriteLinesToFile File="$(_TrimForbidList)" Lines="@(_TrimForbidden);$(SingleplayerTrimForbidden)" Overwrite="true" />
+
+    <!-- Emptied here rather than by the script, for two reasons. A stale result file is
+         worse than no result file: the reads below are guarded by Exists(), so a leftover
+         from a previous run would be reported as this run's answer, which is how a check
+         ends up confidently wrong. And 'Set-Content -Value @()' is a PowerShell parser
+         error - an empty array cannot be an argument - so the script cannot do it itself. -->
+    <WriteLinesToFile File="$(_TrimMatchedFile)" Overwrite="true" />
+    <WriteLinesToFile File="$(_TrimStaleFile)" Overwrite="true" />
+    <WriteLinesToFile File="$(_TrimSummaryFile)" Overwrite="true" />
+
+    <PropertyGroup>
+      <!-- No PS subexpressions, no cmd metacharacters: this is spliced into a cmd.exe
+           command line verbatim, and __PATTERNS__/__RIDS__/__DIR__/__MATCHED__/__STALE__/
+           __SUMMARY__ are replaced with the temp files and the output directory. Patterns
+           travel in a file rather than inline because PowerShell wildcards contain
+           characters cmd.exe and MSBuild both want to interpret, and the point of this
+           script is that nothing is interpreted on the way in.
+
+           __STALE__ is the C-04 report. A pattern that matches nothing is normally
+           harmless - after the first trim every exact-name pattern matches nothing, and
+           warning about that would mean a warning on every rebuild, which is how a real
+           signal gets ignored. So only the case that can hide a leak is reported: an
+           exact-name pattern that matched nothing while a file with that name exists
+           somewhere else in the output. That is precisely "the allowlist path went
+           stale, the file did not go away". Wildcard patterns are exempt: a
+           runtimes\*\Name that matched nothing means the package stopped shipping that
+           RID/TFM copy, and nothing is left behind. -->
+      <_TrimMatchScript>$ErrorActionPreference='SilentlyContinue'; $p=@(Get-Content -LiteralPath '__PATTERNS__' -Encoding UTF8); $r=@(Get-Content -LiteralPath '__RIDS__' -Encoding UTF8); $hit=New-Object System.Collections.ArrayList; $stale=New-Object System.Collections.ArrayList; $b=0L; $n=0; if(Test-Path -LiteralPath '__DIR__'){; $root=(Resolve-Path -LiteralPath '__DIR__').Path.TrimEnd('\','/'); $all=New-Object System.Collections.ArrayList; $leaf=@{}; foreach($i in @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)){; $x=$i.FullName.Substring($root.Length).TrimStart('\','/'); [void]$all.Add($x); $leaf[(Split-Path $x -Leaf).ToLowerInvariant()]=1; }; foreach($q in $p){; if([string]::IsNullOrWhiteSpace($q)){continue}; $isPat=$q.IndexOf('*') -ge 0; $matched=@(); if($isPat){; foreach($x in $all){ if($x -like $q){ $matched+=$x } }; } elseif(Test-Path -LiteralPath (Join-Path $root $q) -PathType Leaf){; $matched=@($q); }; if($matched.Count -eq 0){; if(!$isPat){; $l=(Split-Path $q -Leaf).ToLowerInvariant(); if($leaf.ContainsKey($l)){ [void]$stale.Add($q) }; }; } else {; foreach($m in $matched){; [void]$hit.Add($m); $f=Get-Item -LiteralPath (Join-Path $root $m) -Force; if($f){ $b+=$f.Length; $n++ }; }; }; }; if($hit.Count -gt 0){ Set-Content -LiteralPath '__MATCHED__' -Encoding UTF8 -Value @($hit) }; if($stale.Count -gt 0){ Set-Content -LiteralPath '__STALE__' -Encoding UTF8 -Value @($stale) }; }; foreach($d in $r){; if([string]::IsNullOrWhiteSpace($d)){continue}; $dr=Join-Path '__DIR__' ('runtimes/'+$d); if(Test-Path -LiteralPath $dr){; foreach($i in @(Get-ChildItem -LiteralPath $dr -Recurse -File -Force)){ $b+=$i.Length; $n++ }; }; }; Set-Content -LiteralPath '__SUMMARY__' -Encoding UTF8 -Value ('' + $n + ' files, ' + $b + ' bytes (' + [math]::Round($b/1MB,2) + ' MiB)')</_TrimMatchScript>
+    </PropertyGroup>
+
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command &quot;$(_TrimMatchScript.Replace('__PATTERNS__', $(_TrimFileList)).Replace('__RIDS__', $(_TrimRidList)).Replace('__DIR__', $(TrimOutputDir)).Replace('__MATCHED__', $(_TrimMatchedFile)).Replace('__STALE__', $(_TrimStaleFile)).Replace('__SUMMARY__', $(_TrimSummaryFile)))&quot;"
+          ContinueOnError="WarnAndContinue" />
+
+    <ReadLinesFromFile File="$(_TrimMatchedFile)" Condition="Exists('$(_TrimMatchedFile)')">
+      <Output TaskParameter="Lines" ItemName="_TrimMatch" />
+    </ReadLinesFromFile>
+    <!-- The script reports paths relative to the output directory; Delete and the
+         survivor check below need them rooted. A transform is safe here precisely
+         because these are concrete files by the time they get here - unlike the
+         wildcard expansion that has to happen in PowerShell. -->
+    <ItemGroup>
+      <_TrimFile Include="@(_TrimMatch->'$(TrimOutputDir)%(Identity)')" />
+    </ItemGroup>
+    <ReadLinesFromFile File="$(_TrimStaleFile)" Condition="Exists('$(_TrimStaleFile)')">
+      <Output TaskParameter="Lines" ItemName="_TrimStale" />
+    </ReadLinesFromFile>
+    <ReadLinesFromFile File="$(_TrimSummaryFile)" Condition="Exists('$(_TrimSummaryFile)')">
+      <Output TaskParameter="Lines" ItemName="_TrimSummaryLine" />
+    </ReadLinesFromFile>
+
+    <Warning Condition=" '@(_TrimStale)' != '' "
+             Text="Simitone singleplayer trim: @(_TrimStale->Count()) allowlist path(s) matched nothing, but a file of that name is still in $(TrimOutputDir) somewhere else, so it was NOT trimmed: @(_TrimStale, '; '). The path on the SingleplayerTrimFile list is stale - a package moved or renamed the file. Update the path (a wildcard if the file moved between folders), or it ships." />
+
+    <Message Importance="high" Text="Simitone singleplayer trim: removing @(_TrimSummaryLine->'%(Identity)', '') from $(TrimOutputDir)" Condition=" '@(_TrimSummaryLine)' != '' " />
+    <Message Importance="high" Text="Simitone singleplayer trim: nothing on the allowlist was present in $(TrimOutputDir), so nothing was removed." Condition=" '@(_TrimSummaryLine)' == '' " />
+
+    <Delete Files="@(_TrimFile)" ContinueOnError="true" />
+    <ItemGroup>
+      <_TrimRidDir Include="$(TrimOutputDir)runtimes\%(SingleplayerTrimRid.Identity)" Condition="Exists('$(TrimOutputDir)runtimes\%(SingleplayerTrimRid.Identity)')" />
+    </ItemGroup>
+    <RemoveDir Directories="@(_TrimRidDir)" ContinueOnError="true" />
+
+    <!--
+      Verify the property the allowlist exists to establish, rather than trusting the
+      allowlist. The hand-maintained SingleplayerTrimFile list is the mechanism; this is
+      the invariant: nothing belonging to the TSO server stack, to the
+      database/AWS/GitHub/HTTP/JWT libraries only that stack uses, or to the
+      SSPI/GSSAPI/SQLite natives they P/Invoke may remain in the output.
+
+      Wildcards by family, not the exact 68 names, so a package bump that starts shipping
+      a new file (MySql.Data.MySqlClient.dll, an AWSSDK.Crt, a transitive RestSharp split)
+      is caught even though nobody thought to add it to the list.
+
+      Quiet in the steady state: on a rebuild these patterns match nothing, so a build
+      whose output has already been trimmed says nothing. That property is the whole
+      reason the check is shaped this way, and it is why the "an allowlist entry matched
+      nothing" warning above could not do this job - that one fires on every rebuild,
+      because after the first trim no entry matches anything.
+
+      Deliberately a separate Exec, after the Delete, rather than MSBuild ItemGroup
+      globs. Glob expansion inside a target is easy to get subtly wrong - a glob
+      evaluated before the Delete still sees the files, and a verification that can
+      report a stale answer is worse than none, because it teaches people to ignore it.
+      A fresh powershell.exe over a fresh directory enumeration has no such ambiguity.
+      __FORBID__ travels in a file rather than inline because PowerShell wildcards
+      contain characters cmd.exe and MSBuild both want to interpret, and the point of
+      this script is that nothing is interpreted on the way in. SilentlyContinue plus
+      the Test-Path guard make an absent or unreadable output directory a no-op rather
+      than a failed build, consistent with everything else in this target.
+    -->
+    <WriteLinesToFile File="$(_TrimScanFile)" Overwrite="true" />
+    <PropertyGroup>
+      <_TrimScanScript>$ErrorActionPreference='SilentlyContinue';$p=@(Get-Content -LiteralPath '__FORBID__' -Encoding UTF8);$hit=@();if($p.Count -gt 0 -and (Test-Path -LiteralPath '__DIR__')){$root=(Resolve-Path -LiteralPath '__DIR__').Path.TrimEnd('\','/');foreach($i in @(Get-ChildItem -LiteralPath $root -Recurse -File -Force)){$rel=$i.FullName.Substring($root.Length).TrimStart('\','/');foreach($g in $p){if($rel -like $g){$hit+=$rel;break}}};Set-Content -LiteralPath '__SCAN__' -Encoding UTF8 -Value $hit}</_TrimScanScript>
+    </PropertyGroup>
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command &quot;$(_TrimScanScript.Replace('__FORBID__', $(_TrimForbidList)).Replace('__DIR__', $(TrimOutputDir)).Replace('__SCAN__', $(_TrimScanFile)))&quot;"
+          ContinueOnError="WarnAndContinue" />
+
+    <ReadLinesFromFile File="$(_TrimScanFile)" Condition="Exists('$(_TrimScanFile)')">
+      <Output TaskParameter="Lines" ItemName="_TrimLeftover" />
+    </ReadLinesFromFile>
+    <Warning Condition=" '@(_TrimLeftover)' != '' "
+             Text="Simitone singleplayer trim: @(_TrimLeftover->Count()) file(s) belonging to the TSO server stack are still in $(TrimOutputDir) after the trim: @(_TrimLeftover, '; '). Either a package bump started shipping a new one (add it to SingleplayerTrimFile, and a pattern to _TrimForbidden) or something is holding a handle open - close the game and rebuild. The game never loads any of these, so this is a size and surface-area problem rather than a crash." />
+
+    <!-- Locked-file survivors, named individually so "close the game and rebuild" is the
+         obvious next step. Separate from the family scan above because the cause is
+         different: these files were on the allowlist and were matched, they just could
+         not be deleted. No glob involved, so evaluation order is not a concern. -->
+    <ItemGroup>
+      <_TrimSurvivor Include="@(_TrimFile)" Condition="Exists('%(_TrimFile.Identity)')" />
+    </ItemGroup>
+    <Warning Condition=" '@(_TrimSurvivor)' != '' "
+             Text="Simitone singleplayer trim: @(_TrimSurvivor->Count()) file(s) matched the allowlist but are still in $(TrimOutputDir) after Delete, so they were not removed: @(_TrimSurvivor->'%(Identity)', '; '). Almost always a running Simitone holding the file open. Close the game and rebuild." />
+  </Target>
+
+  <!--
+    ============================================================================
+    _SimitoneAssertNoIdeReferences - does the split hold, or is it just an omission?
+    ============================================================================
+    The B-12 split removes FSO.IDE and FSO.Client from this project's references. That is
+    a claim about the whole shipped graph, and a reference list cannot make it: the
+    danger is not a compile error, it is an assembly further down that still points at
+    FSO.Client and only fails when the game tries to load that assembly - which is a
+    first-launch TypeLoadException in front of a player, not a build failure.
+
+    TrimSingleplayerOutput has the same shape of claim about the same closure and deals
+    with it by verifying the invariant after the fact rather than trusting the list
+    (the _TrimForbidden family scan). This is the B-12 half of that: the trim proves the
+    TSO server stack is gone from the output, and this proves nothing in the output ever
+    needed it.
+    How it reads the answer
+    ======================
+    $(OutDir)Simitone.deps.json, not a scan of the DLLs. The deps file is written by the
+    SDK from the resolved runtime graph - every assembly the app can reach, transitively -
+    and it is the one artifact in the output that already knows the answer. Scanning
+    assembly bytes for the string "FSO.Client" would also work and is strictly weaker:
+    it cannot tell a real TypeRef from a string literal in a log message, so it either
+    misses things or fails builds for no reason.
+
+    What is looked for is the whole dropped set, not just FSO.Client, because the
+    interesting question is not "is the IDE host reachable" but "is any of the nineteen
+    projects the B-12 split removed reachable". FSO.Content.TSO is the one that earns
+    its place here: it was in the output before and is not now, and it ships content
+    rather than code, so "nothing has a reference to it" and "the game does not need
+    it" are not obviously the same statement. Its being absent from the resolved graph
+    is the evidence available without running the game.
+
+    Both of FSO.IDE's identities are in the list because the assembly is called
+    Volcanic, so a check for "FSO.IDE" alone would pass while the IDE host was still
+    in the graph.
+
+    Read-only, and it cannot make the build fail for an absent file: a missing or
+    unparseable deps.json is reported and skipped, because this is a guard rail, and a
+    guard rail that fires on an unrelated problem trains people to ignore it.
+  -->
+  <Target Name="_SimitoneAssertNoIdeReferences"
+          AfterTargets="Build"
+          Condition=" '$(BuildIde)' == 'false' ">
+    <PropertyGroup>
+      <_DepsJson>$(OutDir)Simitone.deps.json</_DepsJson>
+      <_DepsWantFile>$(IntermediateOutputPath)simitone-ide-deps-want.txt</_DepsWantFile>
+      <_DepsHitFile>$(IntermediateOutputPath)simitone-ide-deps-hits.txt</_DepsHitFile>
+    </PropertyGroup>
+
+    <!--
+      ';'-separated on one line rather than a multi-line attribute, because MSBuild
+      splits an ITaskItem[] parameter on ';' and a value containing newlines is one
+      item with newlines in it. It would still work - WriteLinesToFile writes the
+      embedded newlines and the PowerShell below trims each line - but "happens to work
+      because of what a newline means to a different part of MSBuild" is not the kind
+      of thing to leave in a file whose whole subject is being careful about this.
+
+      FSO.Patcher is in the list even though it was never in Simitone.sln: FSO.IDE
+      references it, so it is one of the projects -p:BuildIde=true drags back in, and
+      if it ever came back without FSO.IDE the split would be leaking.
+    -->
+    <WriteLinesToFile File="$(_DepsWantFile)" Overwrite="true" Lines="FSO.Client;FSO.IDE;Volcanic;FSO.Windows;FSO.SimAntics.JIT.Roslyn;FSO.Content.TSO;VoronoiLib;TargaImage;SimplePaletteQuantizer;FSO.Common.DatabaseService;FSO.Common.DataService;FSO.Common.Domain;FSO.Patcher;server;watchdog;FSO.Server.Clients;FSO.Server.Common;FSO.Server.Database;FSO.Server.Domain;FSO.Server.Protocol;FSO.Server.Api.Core;FSO.Server;FSO.Server.Watchdog" />
+    <WriteLinesToFile File="$(_DepsHitFile)" Overwrite="true" />
+
+    <PropertyGroup>
+      <!-- '=>' and not '->' inside the script: this string is spliced into a cmd.exe
+           command line, and a '>' is a redirection character. It would be quoted and
+           therefore harmless, but "harmless because it happens to be inside quotes" is
+           the same class of reasoning as the wildcard-in-an-Include trap documented
+           above, and there is no reason to depend on it. -->
+      <_IdeRefScript>$ErrorActionPreference='SilentlyContinue';$d=$null;try{$d=Get-Content -LiteralPath '__DEPS__' -Raw -Encoding UTF8 | ConvertFrom-Json}catch{$d=$null};if($null -eq $d){exit 0};$want=@(Get-Content -LiteralPath '__WANT__' -Encoding UTF8 | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' });$hit=@();foreach($p in $d.libraries.PSObject.Properties){$n=($p.Name -split '/')[0];if($want -contains $n){$hit+=$p.Name}};foreach($t in $d.targets.PSObject.Properties){foreach($lib in $t.Value.PSObject.Properties){foreach($dep in $lib.Value.dependencies.PSObject.Properties){$n=($dep.Name -split '/')[0];if($want -contains $n){$hit+=($t.Name + ' => ' + $dep.Name)}}}};if($hit.Count -gt 0){Set-Content -LiteralPath '__HIT__' -Encoding UTF8 -Value @($hit | Sort-Object -Unique)}</_IdeRefScript>
+    </PropertyGroup>
+
+    <Exec Condition="Exists('$(_DepsJson)')"
+          Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command &quot;$(_IdeRefScript.Replace('__DEPS__', $(_DepsJson)).Replace('__WANT__', $(_DepsWantFile)).Replace('__HIT__', $(_DepsHitFile)))&quot;"
+          ContinueOnError="WarnAndContinue" />
+
+    <ReadLinesFromFile File="$(_DepsHitFile)" Condition="Exists('$(_DepsHitFile)')">
+      <Output TaskParameter="Lines" ItemName="_IdeRefHit" />
+    </ReadLinesFromFile>
+
+    <Error Condition=" '@(_IdeRefHit)' != '' "
+           Text="The B-12 split does not hold: this build was made with -p:BuildIde=false, so Simitone.Windows does not reference FSO.IDE or FSO.Client, but the resolved runtime graph in $(_DepsJson) still contains @(_IdeRefHit). Something in the game closure needs the TSO online client, the IDE host, or a project behind them at run time, and dropping the references has turned that from a compile-time fact into a first-launch TypeLoadException (or, for FSO.Content.TSO, a missing content folder). Either add the missing ProjectReference back unconditionally, or build with -p:BuildIde=true and accept the cost. Do not paper over this by deleting the target." />
+
+    <!-- Importance="high", not "normal": `dotnet build` runs MSBuild's terminal
+         logger, which drops normal-importance messages entirely, and this is the one
+         line that says the split is in force and was then checked. A guard rail that
+         is invisible in the build log is a guard rail nobody learns to trust. -->
+    <Message Importance="high" Condition=" '@(_IdeRefHit)' == '' AND Exists('$(_DepsJson)') "
+             Text="Simitone B-12 split verified: the resolved runtime graph of $(OutDir)Simitone.deps.json contains none of the 22 assemblies the split removed, so the IDE host and the TSO server stack are genuinely unreferenced rather than merely unbuilt." />
+  </Target>
+
+  <!--
+    ============================================================================
+    The content contract of the B-12 split: FSO.Content.TSO
+    ============================================================================
+
+    THE THING THAT HAPPENED
+    =======================
+    The B-12 split dropped FSO.Content.TSO along with the rest of the TSO closure (see the
+    BuildIde comment block in ..\Directory.Build.props). Its *code* dropping was the whole
+    point and cost nothing. Its *content* dropping cost a first-launch crash: FSO.Content.TSO
+    ships 1,405 files and 284 MB of The Sims Online's own data, and one of those files was
+    still being read by the startup path. The crash was fixed in the runtime - a TSO-only
+    cursor asset that CursorManager.Init opened in TS1 mode - but "we fixed the one we found"
+    is not a contract, and the next file nobody thought about fails the same way: in front of
+    a player, on first launch, with a stack trace pointing at FreeSO rather than at a build
+    decision.
+
+    So the drop is written down here, and two of the three things that can be checked from a
+    build are checked from a build. There is no .xnb to speak of and no MGCB pass: this is
+    data the game either opens by path or does not, which is exactly the kind of dependency a
+    compiler cannot see.
+
+    THE THREE CHECKS
+    ================
+
+    1. CLASSIFICATION (an Error). Every top-level entry under
+       FreeSO/TSOClient/FSO.Content.TSO\Content has to appear in SimitoneDroppedContentRoots.
+       A FreeSO bump that adds a folder - Content\Pets, Content\Skills, anything - fails the
+       build until somebody writes down whether the game needs it. This is the check that
+       makes the split safe to keep making: the failure it catches is "upstream grew and
+       nobody decided", which is precisely how the cursor crash happened. Note it runs against
+       the *source* tree, not the output, so it fires even though FSO.Content.TSO is not
+       compiled, and it fires identically in Debug.
+
+       The list today, with the reason each is dropped:
+
+         Avatar      TSO avatar meshes, bindings, appearances and textures. Simitone has no
+                     avatar customisation: the Sims are The Sims 1's own body meshes, loaded
+                     from the player's install via FSO.Vitaboy.
+         Blueprints  TSO object blueprints.
+         Cities      TSO's city (city_0100 and its cell data).
+         Globals     TSO's globals tuning tables.
+         Objects     TSO's object table - 451 files, 273 MB of the 284. This is the bulk.
+         Patch       TSO's client patch folders (Event, NewEODs, Overfill, Pets, Pizza,
+                     PortalPerms, TSOPorts, Tuning).
+         Textures    Two TSO sky textures (skycol_alt1/alt2). Named here because FSO.Content
+                     also ships a Content\Textures tree and the two share a folder name - see
+                     the leak note in the comment inside _SimitoneContentContract below.
+         UI          TSO's UI strings and three uisetup scripts. Simitone ships its own
+                     string table (_f900_simitone.cst) and its own EOD layouts.
+         uigraphics  TSO's UI artwork. Note the capital U here against lower-case
+                     uigraphics: the game's own art lives in Content\uigraphics and the
+                     dropped TSO art in Content\uigraphics on a case-sensitive filesystem.
+                     Windows folds them together, which is a trap of its own.
+
+       Plus the four loose files at the top of that folder: banlist.txt,
+       FSODataDefinition.dat, setup.png and upgrades.json - TSO's installer and patch
+       metadata, none of it meaningful without the folders.
+
+       Escape hatch: -p:SimitoneAllowUnclassifiedDroppedContent=true, for the bump where you
+       genuinely do not want to write anything down. Prefer the one-line list edit.
+
+    2. REQUIRED OUTPUT (an Error). SimitoneRequiredContent is the set of files and folders the
+       startup path is known to open BY NAME, and they must be in $(OutDir). This is the trip
+       wire for the class of failure the split actually produced: a new startup dependency goes
+       on this list, and from that moment the build will not go green again until the asset
+       has a source that survives the split - which is a much better time to find out than a
+       player's first launch.
+
+       Every entry is here because a name in the code points at it, not because someone liked
+       it:
+
+         Content\Textures\terrain\road01.png   NeighbourhoodContent.RootMarkerFile - the file
+                                               that decides whether a candidate directory is
+                                               the game root at all. Index 1 rather than 0
+                                               because road00.png is a blank placeholder.
+         Content\3D                            NeighbourhoodContent.ModelFolder, the shipped
+                                               tree models.
+         Content\Fonts\simdialogue.xnb         the three pre-built fonts FSO.Content ships;
+                                               the UI measures text before the first panel.
+         Content\UI\uitext\english.dir\_f900_simitone.cst
+                                               Simitone's own string table. Every lookup falls
+                                               back to English when this is missing, so the
+                                               failure is silent in an English locale, which
+                                               is the worst kind.
+         Content\UI\uiscripts\signseod.uis    two entries from the EODLayouts catalogue, to
+         Content\UI\uiscripts\dooreod.uis     make the point that it is a set of 18. Each one
+                                               builds its panel out of a .uis by name, and the
+                                               layouts are TSO artwork Simitone ships its
+                                               own copy of.
+         Content\Sounds\rain_loop.wav         the two CC0 weather clips WeatherSounds decodes
+         Content\Sounds\thunder.wav           at startup.
+         Content\Cursors\eyedropper.png       SimitoneCursors.Init, from SimitoneGame.
+                                               Initialize. This is the nearest neighbour of
+                                               the cursor crash: a cursor asset that the
+                                               runtime reaches for by path.
+         Content\uigraphics\cas\btn_createfam.png   named by UIFamiliesCASPanel and
+         Content\uigraphics\cas\cas_adult.png       UISimCASPanel at construction time.
+         Content\uigraphics\eod\eod_placeholder.png EODLayoutSpec.PlaceholderImage.
+         Content\MeshReplace                  FSO.Content.RCMeshProvider's fallback pack,
+                                               without which every hand-authored mesh
+                                               resolution silently misses.
+         LICENSE / NOTICE                     H-01. MPL-2.0 requires the licence to travel
+                                               with any distribution of the software, and a
+                                               release zip is a distribution.
+
+       What this list is NOT: a proof that nothing else is missing. It cannot be - the runtime
+       reaches content through string paths that no build-time analysis follows, which is the
+       whole reason the cursor crash was possible. It is the set of dependencies somebody has
+       written down, and the value is that writing one down is now what the build demands.
+
+    3. NO OUTPUT SCAN, DELIBERATELY
+       It is tempting to also scan $(OutDir) for files that came from the dropped tree. That
+       check would be wrong here, and the reason is worth stating so nobody adds it later:
+       `dotnet build -p:BuildIde=true` writes into the SAME bin\Release\net10.0-windows as the
+       game build, because OutDir does not depend on BuildIde. So a -p:BuildIde=true Release
+       build leaves FSO.Content.TSO's 284 MB sitting in the output folder, and the next game
+       build cannot tell that apart from having shipped them itself - the files are already
+       there, and nothing copies or deletes content on the game path. A check that cannot
+       distinguish those two cases fires on a legitimate sequence of builds, and a warning
+       that fires on a legitimate sequence is a warning people learn to ignore, which is the
+       exact failure mode the audit named for B-01.
+
+       What already covers the case this one would have covered:
+       _SimitoneAssertNoIdeReferences reads FSO.Content.TSO out of $(OutDir)Simitone.deps.json
+       and fails the build. That file is rewritten by every build, so it is authoritative
+       about the graph THIS build resolved, and a re-opened FSO.Content.TSO ProjectReference
+       cannot slip past it. If you build -ide in Release and then build the game in Release,
+       delete bin\Release\net10.0-windows\Content before you ship, or the leftover is in your
+       zip - which is a fact about your bin folder, not something the build can see.
+
+    WHERE THE CONTENT THE GAME DOES NEED COMES FROM
+    ================================================
+    FSO.Content (tso.content) is still in the game closure and supplies Content\3D (42
+    files), Content\Textures (the road/tree atlases the generated neighbourhood draws with,
+    the EOD art, the roof textures), Content\Fonts, Content\MeshReplace's samples and
+    Content\UI. Simitone.Client supplies its own Content\uigraphics (233 files, the CAS and
+    EOD artwork), Content\Sounds, Content\Cursors, Content\TS1Patch, Content\UI\uitext and
+    Content\UI\uiscripts. So the two dropped names above - Content\Textures and Content\UI -
+    are dropped *as TSO content*, not as folder names: FreeSO's and Simitone's copies of both
+    folders still ship, from those two projects.
+
+    WHAT THIS TARGET DOES NOT DO
+    ============================
+    It does not verify anything about the *runtime* graph - that is _SimitoneAssertNoIdeReferences
+    above, and the two are deliberately independent, because they fail for different reasons:
+    that one proves nothing points at the TSO assemblies, this one proves the data the game
+    reads is actually there and that upstream's data is accounted for.
+
+    It runs only when BuildIde=false. A -p:BuildIde=true build is supposed to ship FSO.Content.TSO,
+    so checks 1 and 3 are meaningless there and check 2 still holds but is not worth a
+    separate code path.
+  -->
+
+  <PropertyGroup>
+    <!-- Source tree whose content the split stops shipping. Deliberately a path into the
+         submodule rather than something derived from a reference: FSO.Content.TSO is not
+         built in the game closure, so this is the only place the dropped data exists. It is
+         a stable, tracked location inside a pinned submodule, so a missing directory means a
+         partial checkout rather than an upstream change. -->
+    <SimitoneDroppedContentSource>$(MSBuildThisFileDirectory)..\..\..\FreeSO\TSOClient\FSO.Content.TSO\Content</SimitoneDroppedContentSource>
+
+    <!-- See check 1 above for what each entry is and why it is dropped. New FreeSO content
+         goes here or the build fails. -->
+    <SimitoneDroppedContentRoots>banlist.txt;FSODataDefinition.dat;setup.png;upgrades.json;Avatar;Blueprints;Cities;Globals;Objects;Patch;Textures;UI;uigraphics</SimitoneDroppedContentRoots>
+
+    <!-- See check 2 above. Output-relative, under $(OutDir). -->
+    <SimitoneRequiredContent>LICENSE;NOTICE;Content\3D;Content\Textures\terrain\road01.png;Content\Fonts\simdialogue.xnb;Content\UI\uitext\english.dir\_f900_simitone.cst;Content\UI\uiscripts\signseod.uis;Content\UI\uiscripts\dooreod.uis;Content\Sounds\rain_loop.wav;Content\Sounds\thunder.wav;Content\Cursors\eyedropper.png;Content\uigraphics\cas\btn_createfam.png;Content\uigraphics\cas\cas_adult.png;Content\uigraphics\eod\eod_placeholder.png;Content\MeshReplace</SimitoneRequiredContent>
+  </PropertyGroup>
+
+  <Target Name="_SimitoneContentContract"
+          AfterTargets="Build"
+          Condition=" '$(BuildIde)' == 'false' ">
+    <PropertyGroup>
+      <_ContentWantFile>$(IntermediateOutputPath)simitone-content-required.txt</_ContentWantFile>
+      <_ContentRootsFile>$(IntermediateOutputPath)simitone-content-dropped.txt</_ContentRootsFile>
+      <_ContentMissFile>$(IntermediateOutputPath)simitone-content-missing.txt</_ContentMissFile>
+      <_ContentUnkFile>$(IntermediateOutputPath)simitone-content-unclassified.txt</_ContentUnkFile>
+      <_ContentSourceFound Condition="Exists('$(SimitoneDroppedContentSource)')">true</_ContentSourceFound>
+    </PropertyGroup>
+
+    <!-- ';' -separated properties written one per line, for the same reason the trim target
+         writes its item lists out: this PowerShell is spliced into a cmd.exe command line, and
+         a value containing newlines or wildcards would be interpreted on the way in. The
+         point of the script is that nothing is interpreted on the way in. -->
+    <WriteLinesToFile File="$(_ContentWantFile)" Overwrite="true" Lines="$(SimitoneRequiredContent)" />
+    <WriteLinesToFile File="$(_ContentRootsFile)" Overwrite="true" Lines="$(SimitoneDroppedContentRoots)" />
+
+    <!-- Emptied here rather than by the script, because a leftover result file is worse than
+         no result file: the reads below are guarded by Exists(), so a stale file from a
+         previous run would be reported as this run's answer. -->
+    <WriteLinesToFile File="$(_ContentMissFile)" Overwrite="true" />
+    <WriteLinesToFile File="$(_ContentUnkFile)" Overwrite="true" />
+
+    <PropertyGroup>
+      <!-- No PS subexpressions, no cmd metacharacters, no '!' - this string is spliced into
+           a cmd.exe command line verbatim and delayed expansion is not something to rely on
+           here. Read-only throughout: Test-Path, Get-ChildItem, Set-Content on the three
+           result files under obj\. -->
+
+      <!-- The membership test is an explicit nested loop rather than -notcontains. Both are
+           case-insensitive on a PowerShell string array, so this is not about correctness -
+           -notcontains is O(n) per call over a 13-element list, this breaks on the first
+           match, and the list is consulted once per top-level entry of the dropped content
+           folder. The explicit ToLowerInvariant comparison says out loud what Windows would
+           have done for free. -->
+      <_ContentScript>$ErrorActionPreference='SilentlyContinue';$out=$null;if(Test-Path -LiteralPath '__DIR__'){$out=(Resolve-Path -LiteralPath '__DIR__').Path.TrimEnd('\','/')};$src=$null;if(Test-Path -LiteralPath '__SRC__'){$src=(Resolve-Path -LiteralPath '__SRC__').Path.TrimEnd('\','/')};$want=@(Get-Content -LiteralPath '__WANT__' -Encoding UTF8|ForEach-Object{$_.Trim()}|Where-Object{$_ -ne ''});$roots=@(Get-Content -LiteralPath '__ROOTS__' -Encoding UTF8|ForEach-Object{$_.Trim()}|Where-Object{$_ -ne ''});$miss=@();if($null -ne $out){foreach($w in $want){if(-not(Test-Path -LiteralPath (Join-Path $out $w))){$miss+=$w}}};$unk=@();if($null -ne $src){foreach($e in @(Get-ChildItem -LiteralPath $src -Force)){$n=$e.Name.ToLowerInvariant();$hit=$false;foreach($r in $roots){if($r.ToLowerInvariant() -eq $n){$hit=$true;break}};if(-not $hit){$unk+=$e.Name}}};if($miss.Count -gt 0){Set-Content -LiteralPath '__MISS__' -Encoding UTF8 -Value @($miss)};if($unk.Count -gt 0){Set-Content -LiteralPath '__UNK__' -Encoding UTF8 -Value @($unk)}</_ContentScript>
+    </PropertyGroup>
+
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command &quot;$(_ContentScript.Replace('__DIR__', $(OutDir)).Replace('__SRC__', $(SimitoneDroppedContentSource)).Replace('__WANT__', $(_ContentWantFile)).Replace('__ROOTS__', $(_ContentRootsFile)).Replace('__MISS__', $(_ContentMissFile)).Replace('__UNK__', $(_ContentUnkFile)))&quot;"
+          ContinueOnError="WarnAndContinue" />
+
+    <ReadLinesFromFile File="$(_ContentMissFile)" Condition="Exists('$(_ContentMissFile)')">
+      <Output TaskParameter="Lines" ItemName="_ContentMissing" />
+    </ReadLinesFromFile>
+    <ReadLinesFromFile File="$(_ContentUnkFile)" Condition="Exists('$(_ContentUnkFile)')">
+      <Output TaskParameter="Lines" ItemName="_ContentUnclassified" />
+    </ReadLinesFromFile>
+
+    <!-- Error, not Warning, and the reasoning is the same as _SimitoneAssertNoIdeReferences:
+         this is a build configuration someone chose, and the state that is unbuildable is the
+         one where a FreeSO bump added content nobody classified. A warning here would be the
+         third distinct warning family in this file that says 'the split may not be what you
+         think it is', and three of those read as background noise. The escape hatch above
+         means this is a gate with a documented way out, not a dead end. -->
+    <Error Condition=" '@(_ContentUnclassified)' != '' AND '$(SimitoneAllowUnclassifiedDroppedContent)' != 'true' "
+           Text="FSO.Content.TSO\Content now holds @(_ContentUnclassified->Count()) entry/entries this repository has no statement about: @(_ContentUnclassified, '; '). The B-12 build split stops shipping that project's content, so a FreeSO bump that adds a folder makes the game's content contract incomplete - which is how the first split shipped a TSO-only cursor asset that crashed at startup. Either add the entry to SimitoneDroppedContentRoots in Simitone.Windows.csproj with the reason the game does not need it, or, if the game DOES now need it, give it a source inside the game closure and take it off the dropped list. -p:SimitoneAllowUnclassifiedDroppedContent=true skips this check for a one-off bump." />
+
+    <Error Condition=" '@(_ContentMissing)' != '' "
+           Text="The game build is missing content the startup path opens by name: @(_ContentMissing, '; '), not found under $(OutDir). The -ide build split (B-12) drops FreeSO's TSO content and half the TSO client, and this is the check that a split did not take something the game needed. Each entry is named in code - see the SimitoneRequiredContent comment in Simitone.Windows.csproj for which, and for the project that supplies it. Give the file a source in Simitone.Client\Content (or FSO.Content), or remove it from the required list if the code stopped reading it." />
+
+    <!-- A missing submodule content folder is reported and stepped over, rather than being
+         silently treated as "nothing is unclassified". It is the one state where this check
+         did not run, and a check that silently did not run is a check nobody can trust. -->
+    <Warning Condition=" '$(_ContentSourceFound)' != 'true' "
+             Text="Could not find $(SimitoneDroppedContentSource), so the FSO.Content.TSO content classification check did not run. The submodule looks incomplete (CI checks out submodules recursively); the required-output check still ran." />
+
+    <!-- Saying out loud when the escape hatch was used, for the same reason
+         _SimitoneReportTrimSkipped says out loud when the trim was deliberately skipped: a
+         deliberate exception that leaves no trace is one that becomes the default. -->
+    <Message Importance="high"
+             Condition=" '@(_ContentUnclassified)' != '' AND '$(SimitoneAllowUnclassifiedDroppedContent)' == 'true' "
+             Text="Simitone content contract: the FSO.Content.TSO classification check was SKIPPED by -p:SimitoneAllowUnclassifiedDroppedContent=true, so @(_ContentUnclassified->Count()) unclassified entry/entries went unchecked: @(_ContentUnclassified, '; '). Use the hatch only alongside the FreeSO bump that needs it." />
+
+    <Message Importance="high"
+             Condition=" '@(_ContentMissing)' == '' AND '@(_ContentUnclassified)' == '' "
+             Text="Simitone content contract verified: every path in SimitoneRequiredContent is present in $(OutDir), and every top-level entry under FSO.Content.TSO\Content is classified in SimitoneDroppedContentRoots. The -ide split's content drop is deliberate, accounted for, and still true." />
+  </Target>
+
+  <!--
+    Copies both MonoGame backends side by side under $(OutputPath)Monogame\... so that
+    MonogameLinker.Link can pick one at runtime.
+
+    Which version gets copied
+    ==========================
+    The version is the one *restore resolved*, read back out of @(ReferencePath) as
+    NuGetPackageVersion - not the one this project declares. Those are two different
+    computations that happen to agree today: the 15 FreeSO projects declare
+    MonoGame.Framework.* 3.8.4 while this project declares 3.8.5.1, and NuGet
+    unifies upward to 3.8.5.1, which is what everything is actually compiled against.
+    The old version of this target globbed the *declared* version, so the two
+    agreeing was luck, not construction. If they ever diverge, copying the declared
+    version puts a MonoGame.Framework.dll next to assemblies compiled against a
+    different one: a TypeLoadException at first launch, and nothing in the build
+    notices. So the resolved version is what gets copied, and a divergence between the
+    two is a hard error naming both numbers rather than a silent mismatch.
+
+    There is no "any version in the cache" fallback. It read as a safety net but was
+    the opposite: a developer with a stale cache got a hard error, and a developer
+    with a clean cache got the wrong-but-single version copied. A loud failure beats
+    a silent wrong-version copy, and restore is one command away.
+
+    Locked files
+    ============
+    Both Copy tasks carry Retries/RetryDelayMilliseconds and ContinueOnError, like
+    every other filesystem-mutating task in this project. A running Simitone has
+    Monogame\Windows\MonoGame.Framework.dll mapped, which is MSB3021/MSB3025 and a
+    failed build with a message that points at MSBuild rather than at the game. The
+    build now warns and carries on; the game keeps the backend DLL it already had,
+    which is only stale if MonoGame itself changed.
+  -->
+  <Target Name="CopyMonoGameDLLs" AfterTargets="Build">
+
+    <PropertyGroup>
+      <!-- NuGetPackageRoot is set by restore, and the second line is now the
+           only fallback: the NuGetGlobalPackages override that used to sit in this
+           project was removed as the C-10 fix, so there is nothing left to fall
+           back *to* other than whatever NuGet itself reports. Kept because
+           $(NuGetPackageRoot) is a restore-time property and this target runs
+           AfterTargets="Build"; if it is ever empty the errors below say so by
+           name rather than globbing an empty path and reporting "no MonoGame". -->
+      <_MGPackageRoot Condition=" '$(NuGetPackageRoot)' != '' ">$(NuGetPackageRoot)</_MGPackageRoot>
+      <_MGPackageRoot Condition=" '$(_MGPackageRoot)' == '' ">$(NuGetGlobalPackages)</_MGPackageRoot>
+      <_MGPackageRoot>$([MSBuild]::EnsureTrailingSlash('$(_MGPackageRoot)'))</_MGPackageRoot>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_MGWindowsDXRef Include="@(PackageReference)" Condition=" '%(Identity)' == 'MonoGame.Framework.WindowsDX' " />
+      <_MGDesktopGLRef Include="@(PackageReference)" Condition=" '%(Identity)' == 'MonoGame.Framework.DesktopGL' " />
+      <!-- Both packages ship a file called MonoGame.Framework.dll, so RAR keeps one of
+           them in @(ReferencePath). That is fine: NuGet resolves one version for the whole
+           graph, and a genuine two-version split is an NU1608/NU1605 restore error, not
+           something this target has to arbitrate.
+
+           WithMetadataValue, not a %(NuGetPackageId) condition: most @(ReferencePath) items
+           are project outputs and framework assemblies with no NuGet metadata at all, and
+           MSB4096 rejects a bare undeclared-metadata reference. -->
+      <_MGResolvedRef Include="@(ReferencePath->WithMetadataValue('NuGetPackageId', 'MonoGame.Framework.WindowsDX'))" />
+      <_MGResolvedRef Include="@(ReferencePath->WithMetadataValue('NuGetPackageId', 'MonoGame.Framework.DesktopGL'))" />
+    </ItemGroup>
+
+    <PropertyGroup>
+      <_MGWindowsDXDeclared Condition=" '@(_MGWindowsDXRef)' != '' ">@(_MGWindowsDXRef->'%(Version)')</_MGWindowsDXDeclared>
+      <_MGDesktopGLDeclared Condition=" '@(_MGDesktopGLRef)' != '' ">@(_MGDesktopGLRef->'%(Version)')</_MGDesktopGLDeclared>
+      <_MGResolved Condition=" '@(_MGResolvedRef)' != '' ">@(_MGResolvedRef->'%(NuGetPackageVersion)', ' ')</_MGResolved>
+    </PropertyGroup>
+
+    <!-- Resolved and declared must agree. Failing here is the point of the whole
+         exercise: this is the one state in which a copied DLL could disagree with the
+         compiled assemblies, and it must never be reached silently. -->
+    <Error Condition=" '@(_MGResolvedRef)' == '' "
+           Text="Could not determine the MonoGame version restore resolved for this project. CopyMonoGameDLLs refuses to guess: run a restore (dotnet restore Client/Simitone/Simitone.sln) and rebuild." />
+    <Error Condition=" '$(_MGWindowsDXDeclared)' != '' AND '$(_MGWindowsDXDeclared)' != '$(_MGResolved)' "
+           Text="MonoGame version split: Simitone.Windows declares MonoGame.Framework.WindowsDX '$(_MGWindowsDXDeclared)' but restore resolved '$_MGResolved', so the FreeSO projects in this solution pulled the graph somewhere else. Align the MonoGame PackageReference versions (this project and FreeSO/TSOClient/*.csproj) on one version; otherwise the MonoGame.Framework.dll copied into Monogame\ is not the one everything was compiled against." />
+    <Error Condition=" '$(_MGDesktopGLDeclared)' != '' AND '$(_MGDesktopGLDeclared)' != '$(_MGResolved)' "
+           Text="MonoGame version split: Simitone.Windows declares MonoGame.Framework.DesktopGL '$(_MGDesktopGLDeclared)' but restore resolved '$_MGResolved', so the FreeSO projects in this solution pulled the graph somewhere else. Align the MonoGame PackageReference versions (this project and FreeSO/TSOClient/*.csproj) on one version; otherwise the MonoGame.Framework.dll copied into Monogame\ is not the one everything was compiled against." />
+
+    <ItemGroup>
+      <MGWindowsDX Include="$(_MGPackageRoot)monogame.framework.windowsdx/$(_MGResolved)/lib/**/MonoGame.Framework.dll" />
+      <MGDesktopGL Include="$(_MGPackageRoot)monogame.framework.desktopgl/$(_MGResolved)/lib/**/MonoGame.Framework.dll" />
+    </ItemGroup>
+
+    <Error Condition=" '@(MGWindowsDX)' == '' "
+           Text="Could not find MonoGame.Framework.dll for MonoGame.Framework.WindowsDX $_MGResolved in the NuGet cache at '$(_MGPackageRoot)monogame.framework.windowsdx'. Run a restore and rebuild; if the package really is not there, do not substitute another version." />
+    <Error Condition=" '@(MGDesktopGL)' == '' "
+           Text="Could not find MonoGame.Framework.dll for MonoGame.Framework.DesktopGL $_MGResolved in the NuGet cache at '$(_MGPackageRoot)monogame.framework.desktopgl'. Run a restore and rebuild; if the package really is not there, do not substitute another version." />
+
+    <Message Importance="normal" Text="MonoGame backends: copying the $(_MGResolved) payload restore resolved into $(OutputPath)Monogame\Windows and $(OutputPath)Monogame\WindowsGL." />
+
+    <!-- Remove root MonoGame.Framework.dll if it exists: only the Monogame\* copies may resolve.
+         ContinueOnError because the file being open is not a build failure, but a failed
+         delete used to be entirely silent - and a leftover root copy is the outcome this
+         Delete-and-copy dance exists to avoid. Exists() after the fact is the check; the
+         Delete task has no RemovedFiles output to use. -->
+    <Delete Files="$(OutputPath)MonoGame.Framework.dll" ContinueOnError="true" />
+    <Warning Condition="Exists('$(OutputPath)MonoGame.Framework.dll')"
+             Text="Could not remove $(OutputPath)MonoGame.Framework.dll (it is probably open). Not fatal - MonogameLinker loads from Monogame\Windows and Monogame\WindowsGL - but a stray root copy can be resolved by an assembly load that happens before MonogameLinker.Link runs. Close Simitone and rebuild." />
+
+    <MakeDir Directories="$(OutputPath)Monogame\Windows" />
+    <Copy SourceFiles="@(MGWindowsDX)" DestinationFolder="$(OutputPath)Monogame\Windows" SkipUnchangedFiles="true"
+          Retries="4" RetryDelayMilliseconds="750" ContinueOnError="WarnAndContinue" />
+
+    <MakeDir Directories="$(OutputPath)Monogame\WindowsGL" />
+    <Copy SourceFiles="@(MGDesktopGL)" DestinationFolder="$(OutputPath)Monogame\WindowsGL" SkipUnchangedFiles="true"
+          Retries="4" RetryDelayMilliseconds="750" ContinueOnError="WarnAndContinue" />
+  </Target>
+
+</Project>

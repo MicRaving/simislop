@@ -1,0 +1,169 @@
+using FSO.Client;
+using FSO.SimAntics;
+using Simitone.Client.Utils;
+
+namespace Simitone.Client.UI.Panels.Options
+{
+    /// <summary>
+    /// Simitone's half of the "Accurate Free Will" option: the one place that knows how the
+    /// choice is stored and how it reaches the engine.
+    ///
+    /// <para>
+    /// The engine half is FreeSO PR #290 and it is deliberately tiny: a single
+    /// <see cref="VM.FreeWillEnabled"/> static flag, consulted by
+    /// <c>FSO.SimAntics.VMFindBestAction</c> before a Sim is allowed to pick an action for
+    /// itself. With it off, a Sim in the player's family gets no autonomous action at all - it
+    /// stands there until the player directs it. Visitors (<c>PersonType == 1</c>) and pets are
+    /// explicitly excluded from that gate and keep acting on their own either way, so "off" is a
+    /// pause button for your own household, not a freeze on the lot.
+    /// </para>
+    ///
+    /// <para>
+    /// That flag is process-global rather than per-VM, and FreeSO does not persist it. FreeSO
+    /// does ship the matching <see cref="GlobalSettings.TS1FreeWill"/> property (ini key
+    /// <c>TS1FreeWill</c>, default on) and nothing in FreeSO reads it, so Simitone owns it: this
+    /// type seeds the flag from the setting at startup and writes back to it when the player
+    /// changes the setting. Every path goes through here rather than assigning
+    /// <see cref="VM.FreeWillEnabled"/> directly, so the live flag and the ini cannot drift
+    /// apart - a change saved to config but not to the flag (or the reverse) would be a setting
+    /// that silently reverts or silently does nothing.
+    /// </para>
+    /// </summary>
+    public static class FreeWillSetting
+    {
+        /// <summary>
+        /// Name of the <see cref="GlobalSettings"/> property that persists the choice. Used as
+        /// the reflection key for the Options page descriptor, and to recognise the setting
+        /// when it comes back out of a change notification.
+        /// </summary>
+        public const string SettingsKey = "TS1FreeWill";
+
+        /// <summary>
+        /// CustomUI name of the option's glyph, for the one-tap button on the Options strip.
+        /// </summary>
+        public const string IconName = "opt_freewill.png";
+
+        /// <summary>
+        /// Whether Sims in the player's family are currently choosing their own actions. Read
+        /// live off the engine flag rather than off the settings object, so the UI reflects
+        /// what the lot is actually doing.
+        /// </summary>
+        public static bool Enabled => VM.FreeWillEnabled;
+
+        /// <summary>
+        /// Seeds the engine flag from the saved setting. Called once at startup, before any lot
+        /// is loaded, because <see cref="VM.FreeWillEnabled"/> is a process-global that would
+        /// otherwise sit at its own default for the whole session regardless of the ini.
+        /// </summary>
+        /// <param name="settings">The settings to read; ignored when null.</param>
+        public static void InitializeFromSettings(GlobalSettings settings)
+        {
+            if (settings == null) return;
+            SetEnabled(settings.TS1FreeWill, settings);
+        }
+
+        /// <summary>
+        /// Applies <paramref name="enabled"/> to the engine flag and records it on
+        /// <paramref name="settings"/>, without saving.
+        /// </summary>
+        /// <remarks>
+        /// Saving is left to the caller because the Options page already saves the whole
+        /// settings object on every change (see
+        /// <c>UIOptionsSubpanelBase.OnSettingsChanged</c>). Use <see cref="Toggle"/> from a
+        /// path that has no page around to do it.
+        /// </remarks>
+        /// <param name="enabled">The state to leave the game in.</param>
+        /// <param name="settings">Settings to record the choice on; ignored when null.</param>
+        public static void SetEnabled(bool enabled, GlobalSettings settings)
+        {
+            if (VM.FreeWillEnabled != enabled)
+                SimitoneLog.Info(enabled
+                    ? "Free will enabled: family Sims choose their own actions."
+                    : "Free will disabled: family Sims wait to be directed (visitors and pets are unaffected).");
+
+            VM.FreeWillEnabled = enabled;
+            if (settings != null) settings.TS1FreeWill = enabled;
+        }
+
+        /// <summary>
+        /// Flips the setting, applies it and saves it. This is the path the one-tap Options
+        /// strip button takes, where there is no Options page to do the saving.
+        /// </summary>
+        /// <param name="settings">Settings to record and persist the choice on.</param>
+        /// <returns>The state the game was left in.</returns>
+        public static bool Toggle(GlobalSettings settings)
+        {
+            var enabled = !VM.FreeWillEnabled;
+            SetEnabled(enabled, settings);
+            settings?.Save();
+            return enabled;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="descriptor"/> is the Options row for this setting.
+        /// </summary>
+        /// <remarks>
+        /// The Gameplay page is handed a list of the descriptors that changed and has to pick
+        /// out the one that needs the extra engine step. Matching on the property name rather
+        /// than on instance identity is what the page's reflection is built on - the descriptor
+        /// is rebuilt every time the page re-lays itself out, so there is no stable object to
+        /// compare against. Kept here rather than inlined so the match is testable: a mismatch
+        /// would not throw, it would leave the checkbox saving a preference the VM never reads.
+        /// </remarks>
+        public static bool Describes(UIOptionsSubpanelBase.UIOptionDescriprion descriptor)
+        {
+            return descriptor?.AttachedProperty?.Name == SettingsKey;
+        }
+
+        /// <summary>Short "On"/"Off" wording for the setting's state.</summary>
+        /// <remarks>
+        /// Read out of Simitone's own string table rather than TS1's. The Options page's row for
+        /// this setting does use a TS1 id, but the one-tap strip button's caption is Simitone's
+        /// own and the game never put these two words in front of a player on their own, so there
+        /// is nothing there to point at.
+        /// </remarks>
+        public static string DescribeState(bool enabled)
+        {
+            return enabled
+                ? SimitoneStrings.Get("190", "On")
+                : SimitoneStrings.Get("191", "Off");
+        }
+
+        /// <summary>
+        /// Caption for the one-tap Options strip button, which has no checkbox to read state
+        /// from, so the state is in the label.
+        /// </summary>
+        /// <remarks>
+        /// The table entry is "Free Will: %s" and the state is substituted into it, so the two
+        /// words can be put in whatever order the language wants. The English is written already
+        /// composed, which is deliberate: a fallback that carried a %s of its own would be
+        /// substituted a second time.
+        /// </remarks>
+        public static string DescribeToggle(bool enabled)
+        {
+            var state = DescribeState(enabled);
+            return SimitoneStrings.Format("192", "Free Will: " + state, state);
+        }
+
+        /// <summary>
+        /// Explanation of what the setting does, used as the quick toggle's tooltip.
+        /// The Gameplay page's own row does not need this: its caption and tooltip come from
+        /// TS1's string table (145:59-61), which turns out to describe the setting - and the
+        /// visitor exemption - in more detail than this does.
+        ///
+        /// <para>
+        /// The "visitors and pets are unaffected" half is not decoration: it is the part of the
+        /// rule players get wrong, and the part that makes the setting safe to offer at all.
+        /// Turning it off does not stop the lot, it stops the player's own household acting on
+        /// its own.
+        /// </para>
+        /// </summary>
+        public static string DescribeEffect(bool enabled)
+        {
+            return enabled
+                ? SimitoneStrings.Get("193", "Sims in your family choose their own actions.")
+                : SimitoneStrings.Get("194",
+                    "Sims in your family wait for you to direct them. Visitors and pets still act on their own.");
+        }
+    }
+}

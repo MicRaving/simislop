@@ -1,0 +1,114 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- TargetFramework and the ImageSharp version come from
+         Client/Simitone/Directory.Build.props, which is where they are single-sourced. -->
+    <TargetFramework>$(SimitoneTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!--
+      B-03. The whole tree is <Nullable>disable</Nullable>, including every FreeSO
+      project, and flipping that wholesale across ~600 files is not a build-hygiene
+      change - it is a rewrite. What the audit asked for instead is an incremental
+      opt-in that costs nothing and gives new code somewhere to go, and that is
+      'annotations': the '?' on a reference type is honoured, the CS86xx analysis
+      warnings stay off. So a file can say
+
+          #nullable enable
+
+      and get real nullable diagnostics in that one file, while the other 599 keep
+      compiling exactly as they do today. Verified against a clean, non-incremental
+      -t:Compile of both closures: the warning count and the warning set are
+      unchanged, so this is a door being unlocked and not a behaviour change.
+
+      'annotations' rather than 'enable' on purpose. 'enable' here would light up
+      thousands of CS86xx warnings in existing code and bury the 200 that are
+      already there, which is the failure mode the audit is trying to avoid.
+
+      Simitone.Client is the project that gets this because it is the largest body
+      of Simitone's own new code; Simitone.Windows is a thin shell over it and
+      FreeSO is upstream. Raising this to 'warnings' later, per project, is a
+      one-word change once the CS86xx backlog is worth having.
+    -->
+    <Nullable>annotations</Nullable>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Simitone.Client</RootNamespace>
+    <AssemblyName>Simitone.Client</AssemblyName>
+    <FileAlignment>512</FileAlignment>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <Content Include="Content\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Content\**\*.piff" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Content\**\*.fsom" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Content\**\*.fsov" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Simitone's own UI string tables, not game data. ContentStrings reads
+         Content/UI/uitext/<lang>.dir/*.cst relative to the game's working directory (in TS1 mode
+         as well as TSO mode), so the table only has to sit in the output folder; the loader takes
+         its table id from the file name, which is why the file is called _f900_simitone.cst.
+         Scoped to the uitext folder rather than the whole Content tree so a stray .cst in a
+         game-data folder is not copied. Without this glob the strings stay English whatever the
+         player's language is, because every lookup falls back - see SimitoneStrings. -->
+    <Content Include="Content\UI\**\*.cst" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Simitone's own audio, not game data: the two CC0 weather clips WeatherSounds decodes at
+         startup. Scoped to the Sounds folder rather than the whole Content tree, so a stray wav
+         dropped into a game-data folder is not copied (and so the glob cannot start duplicating
+         whatever else ends up under Content later). -->
+    <Content Include="Content\Sounds\**\*.wav" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Simitone's own EOD (minigame) panel layouts. Every FSO.Client EOD panel builds itself
+         from a ".uis" it opens by name out of Content/UI/uiscripts, and the ones it asks for are
+         The Sims Online's artwork layouts, which a The Sims 1 install does not have and which
+         this port may not ship. These are ours instead - see EODLayouts.cs for why, and for the
+         builder that generated them. Generated, then committed: the game never writes a file at
+         run time, and EODLayoutBuilderTests fails if these stop matching the catalogue. -->
+    <Content Include="Content\UI\uiscripts\**\*.uis" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Declared explicitly rather than inherited: BitmapDecoder is Simitone's own code, and
+         relying on the version that FreeSO's server stack happens to pull in would make a
+         submodule update able to change our decoder's behaviour or break the build outright. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="$(SimitoneImageSharpVersion)" />
+  </ItemGroup>
+
+  <!-- FSO.Client (tso.client) is deliberately NOT referenced here, although Simitone.Windows does
+       reference it and already ships FSO.Client.dll in its output.
+
+       docs/NEIGHBOURHOOD_SCOPE_A_PLAN.md §7 and §12's M0 spike asked for
+       FSO.Client.Rendering.City.CityGeometry to be reused to build the generated neighbourhood's
+       terrain mesh, and the reuse is blocked by the two assemblies colliding. FSO.UI and
+       FSO.Client both declare FSO.Client.UI.Panels.LotControls.UICustomLotControl - an abstract
+       class in FSO.UI, an interface in FSO.Client - and FSO.Client adds
+       FSO.Client.UI.Controls.Catalog.UICatalogElement. Adding the reference therefore makes
+       every bare use of those two names ambiguous, including in UI/Panels/UILotControl.cs, which
+       this project does not own and which needs the FSO.UI abstract class because it sets
+       CustomControl.Modifiers and .MousePosition, members the FSO.Client interface does not
+       have. The obvious workaround, Aliases="tso", is worse rather than better: Simitone.Client
+       legitimately uses a lot of other FSO.Client types (UI/Panels/EODs,
+       FSO.Client.UI.Framework.UILabel, UIMouseEventType), and an aliased assembly is invisible
+       to every one of them.
+
+       So Scope A takes the fallback the plan names for exactly this case - a Simitone-native
+       mesh writer fed by the same generated arrays, in
+       Neighbourhood/NeighbourhoodCityMeshBuilder.cs. The road and corner cell tables it needs
+       are copied from CityContent in NeighbourhoodContent, and a test asserts that the copy
+       still indexes cells the 8x4 atlas has. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\FSO.UI\FSO.UI.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.common\FSO.Common.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.files\FSO.Files.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.simantics\FSO.SimAntics.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.vitaboy.engine\FSO.Vitaboy.Engine.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.vitaboy.model\FSO.Vitaboy.csproj" />
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.world\FSO.LotView.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Narrow, and for one reason: a handful of production members are internal because nothing
+         outside this assembly should call them, and the headless suite has to be able to assert on
+         them. Currently that is the speed map the two UI panels derive their button tables from
+         (GameplaySpeed), the two sidecar-ini headings, and the test seam AtomicFileCommit uses to
+         make its commit step fail. Everything else stays private, and a member that becomes
+         interesting to a test should be re-examined rather than a growing list added to. -->
+    <InternalsVisibleTo Include="Simitone.Tests" />
+  </ItemGroup>
+
+</Project>

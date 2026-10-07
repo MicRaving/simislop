@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- TargetFramework and LangVersion come from Client/Simitone/Directory.Build.props.
+         LangVersion is stated there rather than relying on the net10.0 default for the
+         same reason this project always set it: a test that compiles differently from
+         the code it tests is a test that proves nothing. -->
+    <TargetFramework>$(SimitoneTargetFramework)</TargetFramework>
+    <LangVersion>$(SimitoneLangVersion)</LangVersion>
+    <!-- matches the rest of the repo: explicit usings, no nullable annotations -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Simitone.Tests</RootNamespace>
+    <AssemblyName>Simitone.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Simitone.Client\Simitone.Client.csproj" />
+    <!-- The offline mesh generator, for DegenerateNormalRepair. That is pure geometry logic with
+         no graphics device, no content and no IO, and it is the only thing the tests need from
+         here - but it lives in the tool rather than beside the game because it is an authoring
+         utility, and the alternative (duplicating the rule into the test) would test the copy. -->
+    <ProjectReference Include="..\Simitone.GenerateMeshes\Simitone.GenerateMeshes.csproj" />
+  </ItemGroup>
+
+</Project>

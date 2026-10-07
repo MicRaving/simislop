@@ -1,0 +1,657 @@
+/*
+This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+If a copy of the MPL was not distributed with this file, You can obtain one at
+http://mozilla.org/MPL/2.0/.
+*/
+
+using System;
+using FSO.SimAntics.Marshals;
+using Simitone.Client.Utils;
+
+namespace Simitone.Client.Neighbourhood
+{
+    /// <summary>
+    /// Why a lot is being switched to. The callers named in the Part B handoff (§B3 task 1, and
+    /// §B4 task 4) all end up on the one switch path, and the reason is carried through so the
+    /// world can record which of them it was - and so a log line can say so without a second
+    /// source.
+    /// </summary>
+    public enum TransitionReason
+    {
+        /// <summary>
+        /// The lot's own <c>VM</c> asked for the switch: the controlled sim walked onto a
+        /// neighbour's door, took a bus, entered downtown. The in-VM request path
+        /// (<c>VMLotSwitch</c>, §11 item 5) which only records the request and lets the frame
+        /// <c>Update</c> act on it.
+        /// </summary>
+        VmRequest = 0,
+
+        /// <summary>
+        /// The lot picker: the player chose a house from the neighbourhood view and the world
+        /// loaded it, with no sim having asked to travel there.
+        /// </summary>
+        Picker = 1,
+
+        /// <summary>
+        /// A family is moving house - the lot being left is a home lot and the one being entered
+        /// is the family's new one. Separate from <see cref="Picker"/> because it is the only one
+        /// of the three that changes family authority (§5.5) rather than only which lot is live.
+        /// </summary>
+        MoveIn = 2,
+
+        /// <summary>
+        /// A walk between two doors arrived: B4's arrival, which is still <em>this</em> switch, in
+        /// the same order and through the same host, and carries the travelling sim's own state so
+        /// the destination lot adopts the sim that walked rather than spawning its own.
+        /// </summary>
+        /// <remarks>
+        /// A reason rather than a flag on the request, because the two facts travel together: a
+        /// request carrying an <see cref="VMAvatarMarshal"/> <em>is</em> a walk arrival, and a
+        /// reason the world's transit table can be written against is worth more than a boolean
+        /// only the switch itself can see. The <em>decision</em> - whether a travel request
+        /// becomes a walk or a switch - is still made by
+        /// <c>TS1GameScreen.TryBeginWalkIfAsked</c>; this only says what the switch that happens
+        /// at the end of one was.
+        /// </remarks>
+        Walk = 3,
+    }
+
+    /// <summary>
+    /// One lot switch, as data: which lot, why, and - once B3's arrival placement lands - which
+    /// door.
+    /// </summary>
+    /// <remarks>
+    /// A struct rather than three method arguments because the switch is now asked for from two
+    /// call sites that will both want to log it, and a positional
+    /// <c>(26, reason, arrival)</c> is easy to get subtly wrong at both of them. It is readonly
+    /// because a request is a statement of intent made once, and a half-edited one that
+    /// disagreed with the world would be indistinguishable from a bug in the world.
+    /// </remarks>
+    public readonly struct LotTransitionRequest
+    {
+        /// <summary>
+        /// The lot number to load, in the same numbering as
+        /// <see cref="ILotEntrance.LotNumber"/> - never 0, never 99. See
+        /// <see cref="LotTravelService.IsLotNumber"/> for the range and why it is checked before
+        /// anything is torn down.
+        /// </summary>
+        public int HouseId { get; }
+
+        /// <summary>Which of the three callers is asking.</summary>
+        public TransitionReason Reason { get; }
+
+        /// <summary>
+        /// The destination's door, when the caller has one, so the arriving sim can be placed at
+        /// the mailbox side instead of the lot centre (§B3 task 2). Optional: not every caller has
+        /// an entrance, and not every lot has one recorded.
+        /// </summary>
+        /// <remarks>
+        /// Set means the switch places the arriving sim at this door; null means the host is never
+        /// asked to place anything and the lot is centred the way it always has been. The door is
+        /// in <b>neighbourhood map-tile space</b>, not the destination lot's own grid - see
+        /// <see cref="ILotTravelHost.PlaceArrival"/> for why that translation is the host's.
+        /// </remarks>
+        public LotEntrance? Arrival { get; }
+
+        /// <summary>
+        /// The sim that walked here, as its own state, or <c>null</c> when nobody walked and the
+        /// destination is to spawn its controlled sim from the net driver as it always has.
+        ///
+        /// <para>
+        /// <b>This is the seam B4's hand-over was missing, and it is deliberately optional.</b>
+        /// B4 task 2 is "the arriving sim keeps its identity and inventory across the
+        /// switch", and until this existed the walk's handover produced a
+        /// <see cref="VMAvatarMarshal"/> that the destination lot had no way to be handed: the
+        /// only in-VM way for a sim to arrive is the net driver's join command, and the walk has
+        /// no net driver to send one from. A request with a null here is byte-for-byte the request
+        /// it was before this field existed - the same five host calls in the same order, the same
+        /// hop, the same log line - so a picker switch, a move-in and a VM's own lot-switch
+        /// request are all unaffected by the field existing.
+        /// </para>
+        ///
+        /// <para>
+        /// A marshal rather than a persist id on purpose. A persist id names a sim in a
+        /// <em>database</em>; the thing that actually crosses here is the entity's own state, and
+        /// reconstructing state from an id would mean a content and database dependency on the
+        /// switch path, which is exactly the dependency
+        /// <see cref="LotTravelService"/>'s remarks exist to keep out of it.
+        /// </para>
+        /// </summary>
+        public VMAvatarMarshal IncomingAvatar { get; }
+
+        /// <summary>A request with no door and no arriving sim.</summary>
+        /// <param name="houseId">The lot to load.</param>
+        /// <param name="reason">Which caller is asking.</param>
+        public LotTransitionRequest(int houseId, TransitionReason reason)
+            : this(houseId, reason, null, null)
+        {
+        }
+
+        /// <summary>A request with a door.</summary>
+        /// <param name="houseId">The lot to load.</param>
+        /// <param name="reason">Which caller is asking.</param>
+        /// <param name="arrival">The destination's entrance, or null.</param>
+        public LotTransitionRequest(int houseId, TransitionReason reason, LotEntrance? arrival)
+            : this(houseId, reason, arrival, null)
+        {
+        }
+
+        /// <summary>A request with a door and an arriving sim.</summary>
+        /// <param name="houseId">The lot to load.</param>
+        /// <param name="reason">Which caller is asking.</param>
+        /// <param name="arrival">The destination's entrance, or null.</param>
+        /// <param name="incomingAvatar">
+        /// The travelling sim's own state, or null for an arrival nobody walked here.
+        /// </param>
+        public LotTransitionRequest(int houseId, TransitionReason reason, LotEntrance? arrival,
+            VMAvatarMarshal incomingAvatar)
+        {
+            HouseId = houseId;
+            Reason = reason;
+            Arrival = arrival;
+            IncomingAvatar = incomingAvatar;
+        }
+
+        /// <summary>One line, in the wording the reason strings below use.</summary>
+        public override string ToString()
+        {
+            return HouseId + " via " + LotTravelService.ReasonName(Reason)
+                + (Arrival.HasValue ? " at " + Arrival.Value : ", no arrival door")
+                + (IncomingAvatar != null
+                    ? ", arriving as the walked sim (persist " + IncomingAvatar.PersistID + ")"
+                    : string.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Everything <see cref="LotTravelService"/> needs from the screen that owns the live
+    /// <c>VM</c>, and nothing it does not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why a seam at all.</b> The switch this type owns is today a block inside
+    /// <c>TS1GameScreen.Update</c>, sitting between <c>vm.Save()</c> and
+    /// <c>InitializeLot</c> and therefore unrunnable without a <c>VM</c>, a content manager and a
+    /// graphics device. B3 needs the ordering in that block to be testable, because the two
+    /// properties that make travel reversible - stash exactly once, resume memory before disk -
+    /// are only observable in the order the calls happen in. Pulling the decision out behind
+    /// this interface leaves the screen holding what it always held (the VM, the store, the
+    /// content) and gives the ordering somewhere it can be asserted without any of it.
+    /// </para>
+    /// <para>
+    /// <b>It is deliberately thin, and deliberately has no <c>VM</c> on it.</b> Every member is
+    /// a decision the screen has to make anyway; nothing here can be answered by a service that
+    /// is not the screen. In particular there is no "teardown" member: the screen's own teardown
+    /// happens inside <see cref="LoadLot(VMMarshal, int)"/>, which is why the stash below has to
+    /// come first and why the service cannot be reordered to suit itself.
+    /// </para>
+    /// <para>
+    /// <b>The one member that reaches into the loaded lot is
+    /// <see cref="PlaceArrival"/>.</b> It is the only place the seam touches a sim rather than
+    /// the lot's lifecycle, and it is last of the calls that need the lot to exist - a door that
+    /// could only be honoured with a live <c>VM</c> is exactly the kind of thing this interface
+    /// exists to keep on the screen's side of the line.
+    /// </para>
+    /// <para>
+    /// <b>Thread affinity: the game thread, only.</b> Same rule as <see cref="LotStore"/> and the
+    /// rest of the world (§7): the VM is not thread-safe and a lot is switched once per frame from
+    /// the thread that owns it.
+    /// </para>
+    /// </remarks>
+    public interface ILotTravelHost
+    {
+        /// <summary>
+        /// The lot the player is standing on, as the screen reads it out of the VM's global 10.
+        /// 0 when no lot is loaded, which is not a lot number and is why the service refuses to
+        /// stash it.
+        /// </summary>
+        int CurrentHouseId { get; }
+
+        /// <summary>
+        /// The active family's own house number, or null when there is no family (a simless lot
+        /// load). Needed to compute whether the destination is "downtown" - see
+        /// <see cref="LotTravelService.IsDowntownLot"/> for why that is a decision and not a
+        /// lookup.
+        /// </summary>
+        int? ActiveFamilyHouseNumber { get; }
+
+        /// <summary>
+        /// The path to a lot's own house file, i.e. the screen's
+        /// <c>Content.Get().Neighborhood.GetHousePath</c>. On the seam because the root of a
+        /// neighbourhood is content, and a service that built the path itself would need the
+        /// content manager - which is exactly the dependency that makes a switch untestable.
+        /// </summary>
+        /// <param name="houseId">The lot number.</param>
+        /// <returns>The path, or null/empty when the lot has no house file on disk.</returns>
+        string GetHousePath(int houseId);
+
+        /// <summary>
+        /// Marshal the live lot out and keep it in the per-lot store, keyed by
+        /// <see cref="CurrentHouseId"/>. Returns the marshal for the host's own bookkeeping; the
+        /// service does not use it, because the lot being loaded is a different lot's state (and
+        /// the same lot is never stashed at all).
+        /// </summary>
+        VMMarshal SaveCurrentLot();
+
+        /// <summary>
+        /// Whether the per-lot store holds state for a lot, and that state. This is the in-memory
+        /// <c>SavedLots</c> lookup - the source that outranks the on-disk travel slot, because
+        /// travel save persistence (§5.6) and the screen's own
+        /// <c>InitializeLot(path, false)</c> both fall back to it rather than overriding it.
+        /// </summary>
+        /// <param name="lot">The lot number, as a <c>short</c> because the store is keyed by one.</param>
+        /// <param name="marshal">The held state, when there is one. Must not be null when it
+        /// returns true; a null with true is treated as "nothing held" by the service, because a
+        /// null marshal handed to a VM load fails deep inside the lot with no useful cause.</param>
+        bool TryRestoreSaved(short lot, out VMMarshal marshal);
+
+        /// <summary>Drop a lot's entry from the store - consume it, exactly once.</summary>
+        /// <param name="lot">The lot number.</param>
+        void RemoveSaved(short lot);
+
+        /// <summary>
+        /// Record whether the lot now loading is a travel lot rather than a home lot. The screen
+        /// reads this to decide family selection and downtown time, so it must be set before the
+        /// load and not after.
+        /// </summary>
+        /// <param name="downtown">Whether the destination is downtown.</param>
+        void SetDowntown(bool downtown);
+
+        /// <summary>Load a lot from its house file, or from a travel slot, by path.</summary>
+        /// <param name="path">The lot's own path, as <see cref="GetHousePath"/> returned it.</param>
+        /// <param name="houseId">The lot number, which the generated surroundings need and which
+        /// a path alone does not reliably carry.</param>
+        void LoadLot(string path, int houseId);
+
+        /// <summary>Resume a lot from preserved state instead of reading it from disk.</summary>
+        /// <param name="marshal">The state handed back by <see cref="TryRestoreSaved"/>.</param>
+        /// <param name="houseId">The lot number that state belongs to.</param>
+        void LoadLot(VMMarshal marshal, int houseId);
+
+        /// <summary>
+        /// Put the arriving sim - the controlled one, on a request that came from a sim in the
+        /// world - at the destination's door, so a traveller arrives on the mailbox side rather
+        /// than in the middle of an empty lot (§B3 task 2).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Called only when the request carried a door.</b> A
+        /// <see cref="LotTransitionRequest.Arrival"/> of null is not a placement request for the
+        /// lot centre: the host is not called at all, and the placement the load already does for
+        /// itself stands. That is the whole reason this is a member rather than a null the service
+        /// passes through - a host that had to be told "no door, use the centre" could only obey
+        /// by re-deriving the centre itself, and would be a second, worse centre.
+        /// </para>
+        /// <para>
+        /// <b>After the load, and before the hop is recorded.</b> Neither half is negotiable. The
+        /// lot and the sims standing in it do not exist before the load, so placement before it
+        /// would be placed into a world that is about to be destroyed; and the transit record
+        /// written here claims arrival (§5.4), so it may not claim it ahead of the sim actually
+        /// being at the door.
+        /// </para>
+        /// <para>
+        /// <b>The coordinates are the host's problem, deliberately.</b> An
+        /// <see cref="ILotEntrance"/> is in neighbourhood map-tile space; a lot's own
+        /// <c>VM</c> works in the lot's grid, and where the two meet is a fact about the lot's
+        /// position in the world - which only the host knows. The service therefore hands over the
+        /// five facts and the direction the driveway leaves in, and does no arithmetic on them: a
+        /// conversion here would need the layout, and with it the content dependency that makes a
+        /// switch unrunnable without a game. A host whose door lands in solid ground, or that has
+        /// no neighbourhood context at all, is expected to leave the sim where the load put it.
+        /// The switch has already happened when this is called, and a traveller who arrived in a
+        /// slightly wrong tile is in a far better state than one who did not arrive.
+        /// </para>
+        /// </remarks>
+        /// <param name="entrance">
+        /// The destination's door, in map-tile space. Its <see cref="LotEntrance.LotNumber"/> is
+        /// what the caller claimed it belongs to; whether that matches the lot being loaded is the
+        /// host's to notice, because the host is what knows.
+        /// </param>
+        void PlaceArrival(LotEntrance entrance);
+
+        /// <summary>
+        /// Adopt the sim that walked here, rather than letting the destination lot spawn one of
+        /// its own (§B4 task 2).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Called only when the request carried an arriving sim</b> -
+        /// <see cref="LotTransitionRequest.IncomingAvatar"/> non-null. A request without one is
+        /// not an instruction to spawn or not to spawn: the host is not called at all, and the
+        /// load's own net-driver join stands. That is the same shape as
+        /// <see cref="PlaceArrival"/> and for the same reason - a host that had to be told "there
+        /// is no arriving sim" would have to re-derive the default spawn itself, and would then be
+        /// a second place a controlled sim comes into being.
+        /// </para>
+        /// <para>
+        /// <b>After the load, and before <see cref="PlaceArrival"/>.</b> The lot and the sims
+        /// standing in it do not exist before the load, so an adoption before it would be into a
+        /// world that is about to be destroyed; and the arrival is about to be placed at the
+        /// destination's door, which must be the sim that was adopted rather than whatever the
+        /// load happened to spawn. Those two constraints are the whole of this member's position
+        /// in the sequence.
+        /// </para>
+        /// <para>
+        /// <b>What it may not be.</b> It may not veto the switch. A walk whose arrival cannot be
+        /// adopted still has to end in a lot - the traveller is standing on that lot's doorstep -
+        /// so a host that cannot adopt reports it and returns, and the destination spawns its
+        /// own controlled sim exactly as it does for any other arrival. That is strictly better
+        /// than a refused switch, which would leave the player on a pavement that belongs to no
+        /// lot at all.
+        /// </para>
+        /// <para>
+        /// <b>The state is the host's problem, exactly as the door's coordinates are.</b> Loading
+        /// an avatar marshal into a live <c>VM</c> needs a context, a blueprint and a content
+        /// manager; the service does none of that and could not be run without a game if it did.
+        /// So the five facts are handed over and the arithmetic stays on the screen's side of the
+        /// seam.
+        /// </para>
+        /// </remarks>
+        /// <param name="avatar">
+        /// The travelling sim's own state, which the host adopts as the lot's controlled sim.
+        /// Never null: the service only calls this for a request that carried one.
+        /// </param>
+        void AdoptArrivalAvatar(VMAvatarMarshal avatar);
+
+        /// <summary>
+        /// Where a completed hop is reported (§B3 task 3, §5.4). A property rather than a method
+        /// so the screen can wire it straight to the world's <c>Transit</c> list plus the mirror
+        /// into <c>TS1GameState.LotTransitInfo</c> (§11 item 6), which is two writes in one place
+        /// rather than two callers remembering them.
+        /// </summary>
+        Action<NeighbourhoodTransitRecord> RecordTransit { get; }
+    }
+
+    /// <summary>
+    /// The lot switch B3 asked for, as a type: one path for
+    /// <c>NeighborhoodService.PlayHouse</c> (the picker) and <c>VMLotSwitch</c> (the in-VM
+    /// request) to share, so the two cannot drift into subtly different lot-preservation
+    /// behaviour.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The ordering is the whole point.</b> There is one live VM, so leaving a lot means
+    /// marshalling it out, and a switch that loaded the destination before stashing the origin
+    /// would overwrite the state it was supposed to keep. The sequence is therefore fixed and
+    /// asserted, in this order and no other:
+    /// </para>
+    /// <list type="number">
+    /// <item>reject an impossible request (no host, or a house number that is not a lot) before
+    /// touching anything;</item>
+    /// <item><b>stash the current lot</b>, if and only if
+    /// <see cref="LotTravel.ShouldStashCurrentLot"/> says the destination is a different lot -
+    /// before any teardown, because the teardown is inside the load;</item>
+    /// <item>set downtown, before the load, because the load reads it to choose the family and
+    /// the downtown time;</item>
+    /// <item>resume preserved state if the store holds it, <b>consuming the entry first</b> so a
+    /// later visit reloads from disk rather than replaying a stale snapshot, and only then
+    /// falling back to the lot's own <c>House{NN}.iff</c>;</item>
+    /// <item>adopt the sim that walked here <b>if the request carried one</b> (§B4 task 2) - after
+/// the load, because the lot and its sims do not exist before it, and before the placement,
+/// because the placement is about the sim that was adopted; and not at all when nobody walked,
+/// so the load's own net-driver spawn stands;</item>
+    /// <item>place the arriving sim at the destination's door <b>if the request carried one</b>
+    /// (§B3 task 2) - after the load, because the lot and its sims do not exist before it, and
+    /// not at all when there is no door, so the lot centre the load chooses stands;</item>
+    /// <item>record the hop <b>last</b>, and only for a hop that is actually a hop - see
+    /// <see cref="TransitionReason"/> and the remarks on <see cref="TryTransition"/>.</item>
+    /// </list>
+    /// <para>
+    /// That is the block that was inline in <c>TS1GameScreen.Update</c>, in the same order
+    /// (§11 item 5, "keep the stash-before-load order"), with two things stated explicitly that
+    /// the inline version left to its own context: what a failure does, and when the hop is
+    /// written.
+    /// </para>
+    /// <para>
+    /// <b>Pure.</b> No VM, no content, no filesystem, no clock and no world - the service asks
+    /// the host for everything it does not know and makes no decisions of its own beyond the two
+    /// comparisons it exists to make. It is stateless and holds nothing, so one instance serves a
+    /// whole session and two tests cannot see each other.
+    /// </para>
+    /// </remarks>
+    public sealed class LotTravelService
+    {
+        /// <summary>Lowest lot number the service will accept. 0 means "no lot".</summary>
+        public const int MinLotNumber = 1;
+
+        /// <summary>
+        /// Highest lot number the service will accept. 99 is excluded because the lot-location
+        /// parser uses it as its sentinel and <see cref="INeighbourhoodWorld.ActiveLotNumber"/>
+        /// uses 0 for the same purpose - a lot numbered either could be a lie, and the failure
+        /// would be loading the wrong lot's contents.
+        /// </summary>
+        public const int MaxLotNumber = 98;
+
+        /// <summary>
+        /// The crossing's mode code for a discrete switch (§5.4). The record deliberately does
+        /// not define the vocabulary - it stores an int and a reader asks the type that owns the
+        /// meaning - so this is the one place that says which mode B3's travel is.
+        /// </summary>
+        public const int DiscreteTravelMode = 0;
+
+        /// <summary>
+        /// The crossing's mode code for a walk between two doors that arrived (§5.4), which is
+        /// what the <see cref="TransitionReason.Walk"/> request records.
+        ///
+        /// <para>
+        /// A second code rather than a flag on the record, for the same reason the first one is an
+        /// int: the vocabulary belongs to the reader, and a hop that was walked to and a hop that
+        /// was teleported to are different facts about the same pair of doors. Nothing reads it
+        /// yet - B7's resume path only distinguishes complete from in-flight - but it is written
+        /// on the switch itself so that the table is complete from the first walk rather than
+        /// gaining a meaning later by rewriting history.
+        /// </para>
+        /// </summary>
+        public const int WalkTravelMode = 1;
+
+        /// <summary>Is this number a lot a switch may target?</summary>
+        /// <param name="houseId">The number to test.</param>
+        /// <returns>
+        /// True for <see cref="MinLotNumber"/>..<see cref="MaxLotNumber"/>, which is also the
+        /// range that cannot overflow the <c>short</c> the per-lot store is keyed by.
+        /// </returns>
+        public static bool IsLotNumber(int houseId)
+        {
+            return houseId >= MinLotNumber && houseId <= MaxLotNumber;
+        }
+
+        /// <summary>
+        /// Whether loading a lot means loading a travel lot rather than a home lot.
+        /// </summary>
+        /// <remarks>
+        /// The screen computes this as
+        /// <c>target != (ActiveFamily?.HouseNumber ?? target)</c>, i.e. "this is not the active
+        /// family's own house", and that is reproduced here exactly - including the no-family
+        /// case, where the original expression's <c>?? target</c> makes the answer false for
+        /// <em>every</em> lot. That last half is not a detail: with no family there is no home to
+        /// be downtown about, and it is also what keeps a simless load off the travel-slot path
+        /// (<see cref="TravelSave.ShouldRestoreSlot"/> refuses a slot without a family too).
+        /// </remarks>
+        /// <param name="houseId">The lot being loaded.</param>
+        /// <param name="activeFamilyHouseNumber">The active family's house number, or null.</param>
+        /// <returns>True when the lot is not the active family's own house.</returns>
+        public static bool IsDowntownLot(int houseId, int? activeFamilyHouseNumber)
+        {
+            return activeFamilyHouseNumber.HasValue && houseId != activeFamilyHouseNumber.Value;
+        }
+
+        /// <summary>One switch, performed on the host.</summary>
+        /// <param name="host">The screen that owns the live lot and the per-lot store.</param>
+        /// <param name="request">Which lot, why, and which door if one is known.</param>
+        /// <param name="reason">
+        /// A one-line account of what was decided and done, suitable for the switch log. Always
+        /// set, including on refusal, because "the switch did nothing" is the case most worth
+        /// reading in a log.
+        /// </param>
+        /// <returns>
+        /// <c>true</c> when the destination lot was loaded; <c>false</c> when the request was
+        /// refused or the destination had no house file to read.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// <b>What a refusal guarantees.</b> A request for a number that is not a lot, or a null
+        /// host, is refused before the first call on the host: nothing is stashed, torn down or
+        /// recorded, and the player stays where they were. The one failure that can happen after
+        /// the stash - the destination having no house file - leaves the player on the current
+        /// lot with that lot's state safely in the store, so a later attempt resumes it rather
+        /// than losing it.
+        /// </para>
+        /// <para>
+        /// <b>Why the hop is written last, and only when it is a hop.</b> A record is a claim
+        /// about where a sim is, and at <see cref="NeighbourhoodTransitRecord.MaxProgress"/>
+        /// percent it claims they arrived - which B7's resume path is entitled to act on. Writing
+        /// it before the load would leave a hop that says "arrived" for a lot that never came up.
+        /// And a switch whose origin and destination are the same lot is not a hop by the
+        /// record's own <see cref="NeighbourhoodTransitRecord.IsHop"/> test, so no record is
+        /// written for it; a same-lot switch is a reload, and the world already has a lot active.
+        /// </para>
+        /// <para>
+        /// <b>Where the door is placed, and what it may not do.</b> A request that carries one has
+        /// it handed to <see cref="ILotTravelHost.PlaceArrival"/> after the load and before the
+        /// hop, so the arriving sim stands at the mailbox side rather than in the middle of the
+        /// lot (§B3 task 2). A request without one never calls it, and the centre placement the
+        /// load does for itself stands untouched.
+        /// </para>
+        /// <para>
+        /// A door that names a <em>different</em> lot is still handed over and still does not veto
+        /// a switch that is otherwise valid. Travel is not conditional on a tile the caller
+        /// happens to know, a placement the host cannot honour is a sim a tile or two out rather
+        /// than a player who did not arrive, and only the host knows enough - it holds the
+        /// destination's number and the lot's own grid - to tell that the door belongs somewhere
+        /// else at all. The log line names the door either way, so the disagreement is visible
+        /// where it already was.
+        /// </para>
+        /// </remarks>
+        public bool TryTransition(ILotTravelHost host, LotTransitionRequest request, out string reason)
+        {
+            reason = null;
+
+            if (host == null)
+            {
+                reason = "refused: no lot travel host, so the current lot cannot be put anywhere";
+                return false;
+            }
+
+            if (!IsLotNumber(request.HouseId))
+            {
+                reason = "refused: " + request.HouseId + " is not a lot number ("
+                    + MinLotNumber + ".." + MaxLotNumber + ")";
+                return false;
+            }
+
+            var target = request.HouseId;
+            var current = host.CurrentHouseId;
+            //the store is keyed by short, and the range check above is what makes this cast safe
+            var lot = (short)target;
+
+            //(1)stash. Before everything, because the teardown that destroys the live VM is inside
+            //the load below. Only for a real current lot: 0 means "no lot is loaded", and there
+            //is no state to keep and no lot number to key it under.
+            var stashed = false;
+            if (IsLotNumber(current) && LotTravel.ShouldStashCurrentLot(current, target))
+            {
+                host.SaveCurrentLot();
+                stashed = true;
+            }
+
+            //(2)downtown. Before the load, which reads it to pick the family and the downtown time.
+            var downtown = IsDowntownLot(target, host.ActiveFamilyHouseNumber);
+            host.SetDowntown(downtown);
+
+            //(3)source of lot state. Memory first: an in-session snapshot outranks the on-disk
+            //travel slot, and both outrank the shipped template the fallback path reads.
+            VMMarshal preserved;
+            string path = null;
+            var resumed = host.TryRestoreSaved(lot, out preserved) && preserved != null;
+            if (resumed)
+            {
+                //consume the entry before loading, so the snapshot is played exactly once and a
+                //later visit reloads this lot from disk. A store that returned true with a null
+                //marshal has nothing to play, so it is not consumed and falls through to the
+                //file - a null would otherwise reach the load and fail inside the lot.
+                host.RemoveSaved(lot);
+                host.LoadLot(preserved, target);
+            }
+            else
+            {
+                path = host.GetHousePath(target);
+                if (string.IsNullOrEmpty(path))
+                {
+                    reason = (stashed ? "stashed " + current : "no stash")
+                        + ", then stopped: lot " + target + " has no house file to load";
+                    return false;
+                }
+                host.LoadLot(path, target);
+            }
+
+            //(4)adoption, after the load and before the placement - the lot and its sims do not
+            //exist before it, and the placement below is about the sim that was adopted rather
+            //than about whatever the load spawned. Only for a request that carried one: a
+            //request without an arriving sim is not an instruction to spawn, and the host is not
+            //called at all.
+            var adopted = false;
+            if (request.IncomingAvatar != null)
+            {
+                host.AdoptArrivalAvatar(request.IncomingAvatar);
+                adopted = true;
+            }
+
+            //(5)arrival placement, after the load - the lot and the sims standing in it do not
+            //exist before it - and only for a request that carried a door. With no door the host
+            //is not called at all, so the centre the load picks stands; and the door goes over
+            //as given, because spotting one that belongs to another lot needs the lot's own grid
+            //and only the host has that.
+            var placed = false;
+            if (request.Arrival.HasValue)
+            {
+                host.PlaceArrival(request.Arrival.Value);
+                placed = true;
+            }
+
+            //(6)the hop, last and only if it is one.
+            var hop = current != target;
+            if (hop && host.RecordTransit != null)
+            {
+                //sim 0 is the record's own "belongs to nobody", and the mode is this class's
+                //discrete crossing - or the walking one, for a request that carried the traveller.
+                //origin 0 is the same sentinel, for a move in from no lot.
+                host.RecordTransit(new NeighbourhoodTransitRecord(
+                    /*sim*/ 0, current, target,
+                    adopted ? WalkTravelMode : DiscreteTravelMode,
+                    NeighbourhoodTransitRecord.MaxProgress));
+            }
+
+            reason = current + " -> " + target + " (" + ReasonName(request.Reason) + "): "
+                + (stashed ? "stashed " + current : "nothing to stash")
+                + ", downtown=" + (downtown ? "on" : "off")
+                + ", " + (resumed ? "resumed preserved state" : "loaded " + path)
+                + (adopted
+                    ? ", adopted the walked sim (persist " + request.IncomingAvatar.PersistID + ")"
+                    : string.Empty)
+                + ", " + (placed
+                    ? "placed at the entrance: " + request.Arrival.Value
+                    : "no arrival door, lot centre")
+                + (hop ? ", hop recorded" : ", no hop (same lot)");
+            return true;
+        }
+
+        /// <summary>
+        /// The three reasons in the words a log line uses, rather than
+        /// <see cref="TransitionReason.ToString"/> - which would follow the enum's member names
+        /// and change with them, and which renders an unrecognised cast as a number.
+        /// </summary>
+        /// <param name="reason">The reason to name.</param>
+        /// <returns>A short stable label, or the number for a reason this build does not have.</returns>
+        public static string ReasonName(TransitionReason reason)
+        {
+            switch (reason)
+            {
+                case TransitionReason.VmRequest: return "vm request";
+                case TransitionReason.Picker: return "picker";
+                case TransitionReason.MoveIn: return "move in";
+                case TransitionReason.Walk: return "walk";
+                default: return "unknown (" + (int)reason + ")";
+            }
+        }
+    }
+}

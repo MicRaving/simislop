@@ -1,0 +1,329 @@
+name: Build Simitone
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: 'Build configuration'
+        required: false
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+
+# One place decides the configuration, instead of repeating ${{ inputs.configuration ||
+# 'Release' }} in five places. It has to be a job-level env: `inputs` is only populated
+# for workflow_dispatch, so on a push it evaluates to empty and the `||` fallback is what
+# silently picks Release. That works, but it is repeated often enough to be a typo away
+# from a job that builds one configuration and tests another.
+env:
+  CONFIGURATION: ${{ inputs.configuration || 'Release' }}
+  # Ceiling on unique warning lines the game build may produce.
+  #
+  # MEASURED, AND MEASURED CORRECTLY. The previous version of this comment and of
+  # the "Check the warning budget" step below were built on a measurement bug: the
+  # step counted distinct warning *codes* (it used $_.Matches[0].Value, the whole
+  # match, instead of the capture group), so the "28 MSB3026 copy-lock warnings"
+  # recorded here was 28 - the total number of distinct codes in the whole build,
+  # not the number of lock warnings. The budget of 250 was therefore being
+  # compared against a number that is currently 28 and cannot plausibly exceed
+  # about 60, i.e. the gate could never fire. See the step for the corrected
+  # metric.
+  #
+  # The real figure, from a `dotnet build Client/Simitone/Simitone.sln -c Release
+  # -t:Compile --no-incremental` of the post-B-12 game closure on a busy machine:
+  # 247 unique warning lines, of which 124 are NU1701 (5 distinct packages, each
+  # reported once per consuming project and once more by the solution-level
+  # restore) and 2 are MSB3061 copy-lock warnings caused by another process
+  # holding the test output open. So a quiet machine is about 245. 300 leaves room
+  # for a stray lock warning or two without being so loose that a real regression -
+  # which arrives in families of tens - slips under it. Tighten it whenever the
+  # count comes down, in the same commit as the fix.
+  WARNING_BUDGET: 300
+  # Distinct packages the game build may restore for the wrong target framework
+  # (NU1701 / B-02). Every one of them is deliberate and unmaintained upstream, so
+  # the number cannot go to zero from this repository; what it can do is stop going
+  # up. Five is the post-B-12 set: Mina, xxHashSharp, FreeSO.HandEvaluator and the
+  # Common.Logging pair it drags in. Bump it down as packages are replaced, never up.
+  NU1701_BUDGET: 5
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # FreeSO is a real git submodule (.gitmodules declares it, pinned to
+        # 7e76c1960252ddd033d8937d5edb47d326f5b69c at the time of writing) AND its projects
+        # are referenced directly by Simitone.sln, so the checkout has to populate it.
+        #
+        # The audit flagged the previous comment here for claiming FreeSO was "vendored in
+        # this tree" while also passing `submodules: recursive`. Those cannot both be true:
+        # if the directory were tracked as ordinary files, `submodules: recursive` would run
+        # `git submodule update` and replace it with the pinned commit, discarding the local
+        # state; if it is a submodule, "vendored" was the wrong word. It is a submodule, so
+        # `submodules: recursive` is correct and the comment was wrong.
+        #
+        # The step below now records the commit that was actually built, so a FreeSO bump
+        # that changes what Simitone compiles against is visible in the run log instead of
+        # being something you find out about from a bug report.
+        submodules: recursive
+
+    - name: Record the FreeSO submodule commit
+      shell: pwsh
+      run: |
+        # A FreeSO bump changes what Simitone compiles against with no diff in the Simitone
+        # tree, so the commit that was built goes in the run summary. That is the cheapest
+        # possible way to answer "which FreeSO produced this failure?".
+        $sha = (git -C FreeSO rev-parse HEAD).Trim()
+        "FreeSO submodule: $sha" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+        "FREE_SO_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@v4
+      with:
+        # Satisfies global.json's 10.0.100 with rollForward latestFeature.
+        dotnet-version: '10.0.x'
+
+    # Restore was most of the 10m39s the audit measured on the full 24-project graph,
+    # and it re-ran identically on every push because nothing about it changed. The
+    # cache is keyed on the inputs that actually change the graph rather than on a
+    # lock file, because this repository has none: there is no packages.lock.json
+    # anywhere in the tree, and the audit's H-08 table records no central package
+    # management either. So the key is the csproj files that carry PackageReference,
+    # plus the props/targets and NuGet.config that steer restore.
+    #
+    # ~/.nuget/packages, not a project-local packages folder, because that is where
+    # NuGet actually keeps the global cache and it is the same folder
+    # CopyMonoGameDLLs reads $(NuGetPackageRoot) out of - the fallback in
+    # Simitone.Windows.csproj globs the declared MonoGame version out of it, so a
+    # partial cache turns into a hard MSB error in Build rather than a slow restore.
+    #
+    # NuGet.config is in the key because it is what pins the only package source. A
+    # source change is the one thing that can make a cached graph resolve differently,
+    # and that is exactly when you want the full restore.
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', '**/Directory.Build.targets', 'NuGet.config') }}
+        restore-keys: |
+          nuget-${{ runner.os }}-
+
+    - name: Restore
+      run: dotnet restore Client/Simitone/Simitone.sln
+
+    - name: Read the target framework
+      id: tfm
+      shell: pwsh
+      run: |
+        # Single-sourced in Client/Simitone/Directory.Build.props, so the artifact path
+        # below cannot drift from what the build actually produced.
+        $tfm = (& dotnet msbuild Client/Simitone/Simitone.Windows/Simitone.Windows.csproj -getProperty:TargetFramework -nologo | Out-String).Trim()
+        if (-not $tfm) { throw 'Could not read TargetFramework from Simitone.Windows.csproj.' }
+        "value=$tfm" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+    # Capture the warning count. The build used to fail on a new warning silently because
+    # nothing looked at the number: 946 at the time of the audit, of which 176 were trim/AOT
+    # analyzer noise from a feature this build never uses (now gone - see
+    # Directory.Build.targets). A breakdown in the run summary is what makes the next 45
+    # visible. The output is teed to a file rather than rebuilt, so this costs nothing.
+    #
+    # This is also the step that runs Simitone.Windows's AfterTargets="Build" assertions, so a
+    # full build rather than -t:Compile is what makes them count: _SimitoneAssertNoIdeReferences
+    # (the B-12 split still holds), _SimitoneContentContract (the split's content drop is
+    # classified and the startup path's files are all present) and TrimSingleplayerOutput. The
+    # ide-build job below is deliberately -t:Compile, which is why these do not run there -
+    # see the comment on that job.
+    - name: Build
+      shell: pwsh
+      run: |
+        dotnet build Client/Simitone/Simitone.sln -c $env:CONFIGURATION --no-restore 2>&1 |
+          Tee-Object -FilePath build-output.log
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    - name: Summarise warnings by code
+      shell: pwsh
+      run: |
+        $lines = Select-String -Path build-output.log -Pattern ': warning ([A-Za-z]+\d+):' -AllMatches |
+                 ForEach-Object { $_.Matches[0].Groups[1].Value }
+        $lines | Group-Object | Sort-Object Count -Descending |
+                 Select-Object -First 25 | Format-Table Count, Name -AutoSize |
+                 Out-String -Width 200 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+        "Total warning lines: $($lines.Count)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+    # The NU1701 census, by package rather than by line.
+    #
+    # 512 of the audit's 946 warnings were 20 packages restoring for the wrong target
+    # framework, and after B-12 most of them were the TSO server closure leaving the
+    # build. What is left is small, unmaintained, and deliberately still there:
+    # Mina (FSO.Common, FSO.UI) and xxHashSharp (FSO.Files) have no maintained port
+    # this repository can switch to, and FreeSO.HandEvaluator is FreeSO's own package.
+    # Replacing them is upstream work, so the achievable property is not "zero" - it
+    # is "visible, and impossible to grow without it showing up in the run".
+    #
+    # Hence this step rather than <WarningsAsErrors>NU1701</WarningsAsErrors>. Promoting
+    # it to an error would not make the graph cleaner, it would make the build
+    # unfixable from here, and a build that cannot be fixed is a build people stop
+    # reading. A list in the run summary is checkable; a permanent error is not.
+    - name: Census the NU1701 packages
+      shell: pwsh
+      run: |
+        $pkgs = @(Select-String -Path build-output.log -Pattern "warning NU1701: Package '([^']+)'" -AllMatches |
+                 ForEach-Object { $_.Matches[0].Groups[1].Value } |
+                 ForEach-Object { ($_ -split ' ')[0] } | Sort-Object -Unique)
+        '### NU1701 - packages restored for the wrong target framework' |
+          Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+        if ($pkgs.Count -eq 0) {
+          'None. The B-02 end state.' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+        } else {
+          ($pkgs | ForEach-Object { "* ``$_``" }) -join "`n" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "Count: $($pkgs.Count) (budget: $env:NU1701_BUDGET)" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+        }
+        if ($pkgs.Count -gt [int]$env:NU1701_BUDGET) {
+          "The game build restores $($pkgs.Count) packages for the wrong target framework and the budget is $env:NU1701_BUDGET. Either fix the package, accept it in the budget in the same commit, or check that the B-12 split has not let the TSO server closure back in." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          exit 1
+        }
+
+    # The count is only useful if something reads it. A budget, not a per-code gate:
+    # per-code gating means editing this workflow every time somebody fixes a warning,
+    # and an edit nobody makes is a gate nobody trusts. A single number that can only
+    # go down is the version of this that gets maintained - fix a class of warnings,
+    # lower the budget in the same commit, and the history reads as a ledger.
+    #
+    # Set WARNING_BUDGET to 0 to disable, which is the escape hatch for the SDK bump
+    # that changes the analyzer set underneath us: an SDK upgrade legitimately moves the
+    # number without anybody having written anything wrong, and a build that fails for
+    # that reason is a build people learn to retry.
+    #
+    # WHAT IS COUNTED, AND WHY IT IS NOT WHAT THE PREVIOUS VERSION COUNTED
+    # =====================================================================
+    # The previous version of this step was
+    #
+    #     $count = ($hits | ForEach-Object { $_.Matches[0].Value } | Sort-Object -Unique).Count
+    #
+    # $_.Matches[0].Value is the entire matched substring, ": warning CS0169:", not
+    # the capture group. So Sort-Object -Unique deduplicated on the warning *code* and
+    # $count was "how many distinct codes does this build produce" - 28 - and it was
+    # then compared against a budget of 250 and reported as "unique warning lines".
+    # The gate could not fire. The capture group is Groups[1].Value, and the
+    # by-code summary step above already used that; this step was the copy that
+    # lost it.
+    #
+    # Two more things have to be handled before the number means anything, and both
+    # are the reason it is computed here rather than reused from the summary step:
+    #
+    #   * `dotnet build` runs MSBuild's terminal logger, which prefixes every line it
+    #     echoes with a elapsed-milliseconds column ("   14>"). The same warning
+    #     therefore appears twice in build-output.log - once prefixed, once in
+    #     MSBuild's own summary - so a naive count is exactly double. The prefix is
+    #     stripped before deduplicating. This is why the raw and deduplicated counts
+    #     are both reported: a factor of ~2 between them means the strip has stopped
+    #     working, which is a metric problem rather than a build problem and is much
+    #     easier to notice than a budget that quietly stopped tripping.
+    #
+    #   * A warning reported by several consuming projects appears once per project.
+    #     NU1701 is the extreme case: 5 distinct packages produce 124 of the 247
+    #     lines, because each package is reported once per project that restores it
+    #     and once more by the solution-level restore. Those lines are real warnings
+    #     and the NU1701_BUDGET step counts them by package, so they are counted
+    #     here too - the two gates overlap on purpose rather than the warning budget
+    #     quietly excluding the largest family in the build.
+    - name: Check the warning budget
+      shell: pwsh
+      run: |
+        if ([int]$env:WARNING_BUDGET -le 0) {
+          'Warning budget is disabled; not gating.' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          exit 0
+        }
+        $raw = @(Select-String -Path build-output.log -Pattern ': warning ([A-Za-z]+\d+):' -AllMatches)
+        # Trim() as well as the prefix strip, and both are load-bearing: without
+        # Trim() the stripped terminal-logger line and MSBuild's own indented summary
+        # line differ only by leading whitespace, so nothing deduplicates and the
+        # count is exactly double. The raw-vs-unique line below is what makes that
+        # visible if it ever happens again.
+        $unique = @($raw | ForEach-Object { ($_.Line -replace '^\s*\d+>', '').Trim() } | Sort-Object -Unique)
+        $codes = @($raw | ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique)
+        $count = $unique.Count
+        "Warning lines: $($raw.Count) raw, $count unique, across $($codes.Count) distinct codes / budget $env:WARNING_BUDGET" |
+          Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+        if ($raw.Count -lt $count) {
+          'Raw count is below the unique count, which cannot happen. The log format or the dedupe has changed - treat this number as untrustworthy until it is looked at.' |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+        }
+        if ($count -gt [int]$env:WARNING_BUDGET) {
+          "The build produced $count unique warning lines and the budget is $env:WARNING_BUDGET." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          'Fix them, or - if the family is noise like the trim/AOT analyzers were - lower' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          'WARNING_BUDGET in .github/workflows/build.yml in the same commit.' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          $unique | Group-Object { if ($_ -match 'warning ([A-Za-z]+\d+):') { $Matches[1] } else { 'unparsed' } } |
+            Sort-Object Count -Descending | Select-Object -First 10 |
+            ForEach-Object { "  $($_.Count) x $($_.Name)" } |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          exit 1
+        }
+
+    # --no-build --no-restore: the Build step above already built configuration
+    # $env:CONFIGURATION. Re-restoring and rebuilding the whole FreeSO closure a second time
+    # roughly doubled the job's wall clock for no additional coverage.
+    - name: Test
+      run: dotnet test Client/Simitone/Simitone.Tests/Simitone.Tests.csproj -c $env:CONFIGURATION --no-build --no-restore
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: SimitoneWindows-${{ env.CONFIGURATION }}
+        # The real TargetFramework is now single-sourced in
+        # Client/Simitone/Directory.Build.props, so this path is derived from MSBuild
+        # rather than hardcoded, and a TFM bump cannot quietly upload nothing.
+        path: Client/Simitone/Simitone.Windows/bin/${{ env.CONFIGURATION }}/${{ steps.tfm.outputs.value }}/
+        if-no-files-found: warn
+
+  # ============================================================================
+  # The -ide path, which the game build no longer covers
+  # ============================================================================
+  # B-12 removed FSO.IDE, FSO.Client, FSO.Windows, FSO.SimAntics.JIT.Roslyn and the
+  # TSO server closure from Simitone.sln and from Simitone.Windows's references. They
+  # are still buildable -p:BuildIde=true - and still upstream FreeSO - but "still
+  # buildable" is a claim that decays: the game build would keep passing while the
+  # IDE path rotted behind a flag nobody sets.
+  #
+  # So it gets its own job, deliberately not `continue-on-error: true`. It is
+  # -t:Compile and not a full build, for the same reason the audit used that target:
+  # it produces no bin\ output to race another build over, and it is the only part of
+  # the -ide path that anyone can break from this repository - the copy, trim and
+  # MonoGame-placement steps all need bin\, and a job that only compiles the closure
+  # is a job that cannot interfere with a checkout.
+  #
+  # 19 projects, so this is still the slow job. It is not worth making it faster: the
+  # point is to be the thing that catches an upstream change nobody is looking at.
+  ide-build:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', '**/Directory.Build.targets', 'NuGet.config') }}
+        restore-keys: |
+          nuget-${{ runner.os }}-
+
+    - name: Compile the -ide closure
+      run: dotnet build Client/Simitone/Simitone.sln -c Release -p:BuildIde=true -t:Compile -nologo

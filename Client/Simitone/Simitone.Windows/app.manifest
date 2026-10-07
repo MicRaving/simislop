@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Simitone's application manifest.
+
+  Two things here matter to the game:
+
+  1. dpiAware. Without it Windows runs the process in a DPI-virtualised mode: on a 125% or 150%
+     display the window is created at a fake size and every GDI/DirectX surface inside it is
+     scaled afterwards, which blurs the text the UI draws and rounds the mouse coordinates the
+     lot view uses. "true/pm" asks for per-monitor awareness (Windows 8.1 and later) and falls
+     back to system-DPI awareness on anything older, so the process is never virtualised.
+     Per-monitor v2 is deliberately not requested: v2 requires every window to re-lay-out and
+     re-scale its own surfaces when it is dragged between displays, and the game's UI scaling
+     (a single DPIScaleFactor applied to the back buffer) is built around the scale being fixed
+     for the session.
+
+     "true/pm" is the same thing WinForms calls HighDpiMode.PerMonitor, which is why
+     Simitone.Windows.csproj declares <ApplicationHighDpiMode>PerMonitor</ApplicationHighDpiMode>
+     alongside this element. It is a declaration, not a second mechanism: the SDK only reads that
+     property to generate a call to Application.SetHighDpiMode inside an entry point it would
+     write, and Simitone.Windows has its own Main, so nothing calls it. The element below is what
+     actually sets the awareness, and it has to stay. The WinForms analyzer's WFO0003 ("remove
+     high DPI settings from the manifest") is therefore suppressed in that project file, with the
+     full reasoning written out there. HighDpiConfigurationTests reads both files and fails if
+     they ever disagree, or if either moves to PerMonitorV2.
+
+  2. supportedOS. Without it, Windows reports Windows 8.1 to anything calling the version APIs,
+     which changes DPI rounding and font metrics. The GUIDs below are the ones Windows itself
+     matches on.
+
+  The rest (asInvoker, common controls v6) is the standard desktop-app manifest that the SDK
+  would have generated, kept here so replacing the generated one changes the DPI and version
+  behaviour and nothing else.
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="Simitone.Windows" />
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"
+                        processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*" />
+    </dependentAssembly>
+  </dependency>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows Vista -->
+      <supportedOS Id="{e2011457-1546-43c5-a5fe-008deee3d3f0}" />
+      <!-- Windows 7 -->
+      <supportedOS Id="{35138b9a-5d96-4fbd-8e2d-a2440225f93a}" />
+      <!-- Windows 8 -->
+      <supportedOS Id="{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}" />
+      <!-- Windows 8.1 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}" />
+      <!-- Windows 10 and Windows 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
+    </application>
+  </compatibility>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+    </windowsSettings>
+  </application>
+
+</assembly>

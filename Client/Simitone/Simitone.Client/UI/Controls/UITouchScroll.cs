@@ -1,0 +1,353 @@
+﻿using FSO.Client;
+using FSO.Client.UI.Framework;
+using FSO.Content;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using FSO.Common;
+using FSO.Common.Rendering.Framework.Model;
+using FSO.Common.Rendering.Framework.IO;
+using Simitone.Client.Utils;
+
+namespace Simitone.Client.UI.Controls
+{
+    public class UITouchScroll : UICachedContainer
+    {
+        public int ItemWidth;
+        public Texture2D ScrollEdgeL;
+        public Texture2D ScrollEdgeR;
+        public bool DrawBounds = true;
+        public int Margin;
+        public bool VerticalMode;
+
+        private UIMouseEventRef HitTest;
+
+        private float Scroll;
+        private float ScrollVelocity;
+
+        private Func<int> LengthProvider;
+        private Func<int, UITSContainer> ElemProvider;
+
+        public UITouchScroll(Func<int> lengthProvider, Func<int, UITSContainer> elemProvider) : base()
+        {
+            var ui = Content.Get().CustomUI;
+            ScrollEdgeL = ui.Get("scroll_edge_l.png").Get(GameFacade.GraphicsDevice);
+            ScrollEdgeR = ui.Get("scroll_edge_r.png").Get(GameFacade.GraphicsDevice);
+            HitTest = ListenForMouse(new Rectangle(0, 0, (int)Size.X, (int)Size.Y), new UIMouseEvent(MouseEvents));
+
+            LengthProvider = lengthProvider;
+            ElemProvider = elemProvider;
+        }
+
+        private int MouseDownTime;
+        private int MouseDownID = -1;
+        private Point MouseDownAt;
+        private bool InScroll;
+        private UITSContainer LastSelected, LastHovered;
+        private List<float> ScrollVelocityHistory = new List<float>();
+
+        public void MouseEvents(UIMouseEventType type, UpdateState state)
+        {
+            switch (type)
+            {
+                case UIMouseEventType.MouseDown:
+                    MouseDownID = state.CurrentMouseID;
+                    MouseDownTime = 0;
+                    MouseDownAt = state.MouseState.Position;
+                    InScroll = false;
+                    ScrollVelocity = 0;
+                    break;
+                case UIMouseEventType.MouseUp:
+                    if (!InScroll)
+                    {
+                        Select(GlobalPoint(MouseDownAt.ToVector2()).ToPoint());
+                    }
+                    else
+                    {
+                        //calculate scroll velocity
+                        if (ScrollVelocityHistory.Count > 1)
+                        {
+                            int total = 0;
+                            ScrollVelocity = 0f;
+                            for (int i = 1; i < ScrollVelocityHistory.Count; i++)
+                            {
+                                total++;
+                                ScrollVelocity += ScrollVelocityHistory[i];
+                            }
+                            ScrollVelocity /= total;
+                        }
+                        ScrollVelocityHistory.Clear();
+                    }
+
+                    InScroll = false;
+                    MouseDownID = -1;
+                    break;
+            }
+        }
+
+        private int GetPAxis(Point p)
+        {
+            return (VerticalMode) ? p.Y : p.X;
+        }
+
+        private float GetPAxis(Vector2 p)
+        {
+            return (VerticalMode) ? p.Y : p.X;
+        }
+
+        /// <summary>
+        /// Clears the current selection, if there is one. Used when the owner is about to act
+        /// on the selection and must not leave a highlight behind pointing at a mode the
+        /// player is no longer in.
+        /// </summary>
+        public void Unselect()
+        {
+            LastSelected?.Deselected();
+            LastSelected = null;
+        }
+
+        public void Select(Point at)
+        {
+            var item = (int)(GetPAxis(at) + Scroll) / ItemWidth;
+            if (item >= LengthProvider()) return;
+            var rItem = GetOrPrepare(item);
+            if (rItem != null)
+            {
+                LastSelected?.Deselected();
+                rItem.Selected();
+                LastSelected = rItem;
+            }
+        }
+
+        /// <summary>
+        /// Moves the hover highlight onto whichever item is under <paramref name="at"/>.
+        ///
+        /// <para>
+        /// Hover is tracked here rather than left to each item's own mouse handling because
+        /// the strip scrolls under a stationary pointer: an item that is on screen this frame
+        /// is not necessarily the one that was under the pointer last frame, so "is the
+        /// pointer over me" has to be recomputed against the current scroll offset.
+        /// </para>
+        /// </summary>
+        private void Hover(Point at)
+        {
+            var item = (int)(GetPAxis(at) + Scroll) / ItemWidth;
+            if (item >= LengthProvider()) return;
+            var rItem = GetOrPrepare(item);
+            if (rItem != null)
+            {
+                LastHovered?.Unhovered();
+                rItem.Hovered();
+                LastHovered = rItem;
+            }
+        }
+
+        public UITSContainer GetOrPrepare(int id)
+        {
+            var item = Children.Where(x => (x as UITSContainer)?.ItemID == id).FirstOrDefault() as UITSContainer;
+            if (item == null)
+            {
+                item = ElemProvider(id);
+                item.Visible = false;
+                item.ItemID = id;
+                if (id == LastSelected?.ItemID)
+                {
+                    item.Selected();
+                    LastSelected = item;
+                }
+                Add(item);
+            }
+            return item;
+        }
+
+        public override void Update(UpdateState state)
+        {
+            base.Update(state);
+            var sizeRect = new Rectangle(0, 0, (int)Size.X, (int)Size.Y);
+            if (!sizeRect.Equals(HitTest.Region))
+            {
+                HitTest.Region = sizeRect;
+            }
+
+            var length = LengthProvider();
+
+            //perform scroll and input management.
+
+            if (MouseDownID != -1) // mouse button down
+            {
+                var lastMouse = state.MouseStates.FirstOrDefault(x => x.ID == MouseDownID);
+                if (lastMouse != null)
+                {
+                    var pos = lastMouse.MouseState.Position;
+                    if (!InScroll)
+                    {
+                        if (Math.Abs(GetPAxis(pos - MouseDownAt)) > TouchInput.ScrollThreshold(FSOEnvironment.DPIScaleFactor)) InScroll = true;
+                    }
+                    if (InScroll)
+                    {
+                        ScrollVelocity = -GetPAxis(pos - MouseDownAt);
+                        MouseDownAt = pos;
+                    }
+                }
+            }
+            else if (HitTestArea(state.MouseState, HitTest.Region, false)) // mouse hovering
+            {
+                //mouse inside boundaires of this control - Update hovered item
+                Hover(GlobalPoint(state.MouseState.Position.ToVector2()).ToPoint());
+            }
+            else
+            { // mouse left boundaries - unhover the currently hovered item
+                LastHovered?.Unhovered();
+                LastHovered = null;
+            }
+
+            ScrollVelocityHistory.Insert(0, ScrollVelocity);
+            if (ScrollVelocityHistory.Count > 5) ScrollVelocityHistory.RemoveAt(ScrollVelocityHistory.Count - 1);
+
+            Scroll += ScrollVelocity;
+            ScrollVelocity *= 0.9f;
+            Scroll = Math.Max(-Margin, Math.Min(length * ItemWidth - GetPAxis(Size) + Margin, Scroll));
+
+            //update children positions.
+            //delete ones that are not 
+
+            var untouched = new HashSet<UIElement>(Children);
+
+            var b = (int)(Scroll / ItemWidth);
+            var e = b + (GetPAxis(Size) + (ItemWidth - 1)) / ItemWidth;
+            for (int i=b; i<e; i++)
+            {
+                if (i < 0) continue;
+                if (i >= length) break;
+                var item = GetOrPrepare(i);
+                untouched.Remove(item);
+                if (VerticalMode) item.Y = i * ItemWidth - Scroll;
+                else item.X = i * ItemWidth - Scroll;
+                item.Visible = true;
+            }
+
+            foreach (var child in untouched)
+            {
+                Children.Remove(child);
+            }
+
+            Invalidate();
+        }
+
+        public void SetScroll(float value)
+        {
+            Scroll = value;
+        }
+
+        /// <summary>
+        /// Scrolls so that <paramref name="itemIndex"/> sits in the middle of the visible strip.
+        /// Used to bring a programmatically selected item into view (the eyedropper picking a
+        /// catalogue entry that is nowhere near the current scroll position). Clamped to the same
+        /// range the drag/momentum path uses, and any in-flight momentum is stopped so the scroll
+        /// does not immediately drift back off the item.
+        /// </summary>
+        public void ScrollToItem(int itemIndex)
+        {
+            if (itemIndex < 0) return;
+
+            var targetScroll = itemIndex * ItemWidth - (GetPAxis(Size) / 2) + (ItemWidth / 2);
+            var length = LengthProvider();
+            Scroll = Math.Max(-Margin, Math.Min(length * ItemWidth - GetPAxis(Size) + Margin, targetScroll));
+            ScrollVelocity = 0;
+            ScrollVelocityHistory.Clear();
+        }
+
+        /// <summary>
+        /// Selects the item at <paramref name="itemIndex"/> without a click, applying the same
+        /// highlight bookkeeping <see cref="Select"/> does so a later real click deselects it
+        /// rather than leaving two highlighted.
+        /// </summary>
+        public void SelectItem(int itemIndex)
+        {
+            if (itemIndex < 0 || itemIndex >= LengthProvider()) return;
+            var rItem = GetOrPrepare(itemIndex);
+            if (rItem != null)
+            {
+                LastSelected?.Deselected();
+                rItem.Selected();
+                LastSelected = rItem;
+            }
+        }
+
+        public override void Draw(UISpriteBatch batch)
+        {
+            if (!Visible) return;
+            base.Draw(batch);
+            if (DrawBounds)
+            {
+                if (VerticalMode)
+                {
+                    DrawLocalTexture(batch, ScrollEdgeL, null, new Vector2(Size.X / 2 - 64, 0), Vector2.One, Color.White, (float)Math.PI/2f, new Vector2(0, ScrollEdgeL.Height));
+                    DrawLocalTexture(batch, ScrollEdgeR, null, new Vector2(Size.X / 2 - 64, Size.Y - 15), Vector2.One, Color.White, (float)Math.PI / 2f, new Vector2(0, ScrollEdgeL.Height));
+                }
+                else
+                {
+                    DrawLocalTexture(batch, ScrollEdgeL, new Vector2(0, Size.Y / 2 - 64));
+                    DrawLocalTexture(batch, ScrollEdgeR, new Vector2(Size.X - 15, Size.Y / 2 - 64));
+                }
+            }
+        }
+
+        public void Reset()
+        {
+            var children = new List<UIElement>(Children);
+            foreach (var child in children)
+            {
+                Remove(child);
+            }
+            LastSelected = null;
+            LastHovered?.Unhovered();
+            LastHovered = null;
+        }
+    }
+
+    /// <summary>
+    /// One entry in a <see cref="UITouchScroll"/> strip. Derived entries react to being
+    /// selected or hovered by overriding those, and read <see cref="IsSelected"/> /
+    /// <see cref="IsHovered"/> when they need to redraw something other than their own
+    /// artwork.
+    /// </summary>
+    public class UITSContainer : UIContainer
+    {
+        public int ItemID;
+
+        /// <summary>
+        /// Gets if the user selected this item
+        /// </summary>
+        public bool IsSelected { get; protected set; }
+
+        /// <summary>
+        /// Gets if the mouse is currently hovering over this item
+        /// </summary>
+        public bool IsHovered { get; protected set; }
+
+        public virtual void Selected()
+        {
+            IsSelected = true;
+        }
+
+        public virtual void Deselected()
+        {
+            IsSelected = false;
+        }
+
+        public virtual void Hovered()
+        {
+            IsHovered = true;
+        }
+
+        public virtual void Unhovered()
+        {
+            IsHovered = false;
+        }
+    }
+}
