@@ -20,7 +20,7 @@
       * 14.0 (LangVersion) - Simitone.Tests.csproj, which documented why it set it
                              ("matches the rest of the repo" - the rest being the
                              net10.0 default)
-      * SixLabors.ImageSharp 3.1.11 - declared identically in Simitone.Client.csproj and
+      * SixLabors.ImageSharp 3.1.12 - declared identically in Simitone.Client.csproj and
                              Simitone.Windows.csproj, on purpose, so the two cannot
                              drift
       * MonoGame 3.8.5.1   - the version the whole graph actually resolves to, against
@@ -55,7 +55,7 @@
          defines the decoder and Simitone.Windows registers it with FreeSO, so both must
          agree on the version rather than trusting a transitive resolution. The property
          is what makes "both declare the same thing" enforceable instead of aspirational. -->
-    <SimitoneImageSharpVersion>3.1.11</SimitoneImageSharpVersion>
+    <SimitoneImageSharpVersion>3.1.12</SimitoneImageSharpVersion>
 
     <!-- The version the whole restore graph unifies to. Simitone.Windows declares this
          and CopyMonoGameDLLs asserts that what restore resolved matches it, so a
@@ -211,6 +211,26 @@
   <PropertyGroup>
     <WarningsAsErrors>$(WarningsAsErrors);NU1702;NU1902;NU1903;NU1904</WarningsAsErrors>
   </PropertyGroup>
+
+  <!--
+    ImageSharp advisories, suppressed one by one (2026-11-14 audit).
+    3.2.0 is the first patched 3.x release, but it refuses to build without a Six Labors
+    license key, so 3.1.12 (the last release that builds without one) is pinned until a
+    license is in place or the dependency is replaced. The advisories are TIFF CCITT
+    encode/decode, BigTIFF IFD parsing, ICC CLUT parsing and HistogramEqualization.
+    Simitone never encodes TIFF or equalises histograms, and BitmapDecoder only accepts
+    BMP and PNG, so the TIFF paths are unreachable from game or mod content. Remove these
+    items the moment the version above moves to a patched release: a suppression that
+    outlives its reason hides the next advisory of the same id.
+  -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-gwg2-r3hj-4w44" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-wmxv-xphr-5c9g" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j3p4-wp97-rph4" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j9gm-c75j-xc9q" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jjfr-hcj7-qf5w" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-v76p-62qx-wwq2" />
+  </ItemGroup>
 
   <!--
     ============================================================================
