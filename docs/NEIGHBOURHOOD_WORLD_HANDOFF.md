@@ -252,7 +252,7 @@ Dependencies: B3. Tasks:
 4. Camera/controls: a world camera that follows the avatar on the generated terrain, with the
    UI mode switch; keep the pure-helper style of `NeighCameraMachine` for testability.
 5. Guard: exactly one active lot at a time (active / transit / hollow), asserted.
-6. Flag `NeighbourhoodWorldWalk` (off ⇒ B3 discrete travel only — the shippable result).
+6. ~~Flag `NeighbourhoodWorldWalk`~~ (cut 2026-11; formerly off ⇒ B3 discrete travel only — the shippable result).
 
 Acceptance (if it lands): walk out of a lot, along generated roads, into another lot's
 entrance, and enter; camera and input coherent; no double simulation. If abandoned, B3 plus a
@@ -334,7 +334,7 @@ Part A (M0–M5) ──► B1 ──► B2 ──► B3 ──┬─► B4 (may 
 | B1 | `NeighbourhoodWorld` | Part A behaviour |
 | B2 | `NeighbourhoodWorldSurroundings` | Part A facades only |
 | B3 | `NeighbourhoodWorldTravel` | today's `SwitchLot` |
-| B4 | `NeighbourhoodWorldWalk` | B3 discrete travel |
+| B4 | ~~`NeighbourhoodWorldWalk`~~ (cut 2026-11) | B3 discrete travel |
 | B5 | `NeighbourhoodWorldServices` | `VMTS1GlobalLinkStub` |
 | B6 | `NeighbourhoodWorldOffscreen` | world time frozen off-lot |
 | B7 | `NeighbourhoodWorldPersist` | A's layout sidecar |

@@ -417,7 +417,7 @@ namespace Simitone.Tests.UI
 
         /// <summary>
         /// The cheat types the runner clears, as the person data slots the game itself stores
-        /// them in. Six skills and five traits, and no more: adding a slot that is not a skill
+        /// them in. Six skills and six personality slots (the five on the character screen plus Generous), and no more: adding a slot that is not a skill
         /// would clear something a player cares about.
         /// </summary>
         [Fact]
@@ -438,8 +438,9 @@ namespace Simitone.Tests.UI
         }
 
         [Fact]
-        public void KillTraits_ClearsExactlyTheFivePersonalityTraits()
+        public void KillTraits_ClearsExactlyTheSixPersonalitySlots()
         {
+            Assert.Equal(6, CheatRunner.TraitSlots.Length);
             Assert.Equal(new[]
             {
                 VMPersonDataVariable.NicePersonality,

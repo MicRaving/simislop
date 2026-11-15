@@ -16,7 +16,7 @@ namespace Simitone.Tests.Utils
     /// Scenario map:
     /// <list type="bullet">
     /// <item>corrupt save file -> <see cref="AtomicFileCommit"/>, <see cref="TravelSave.IsValidHeader"/>, <see cref="BitmapDecoder.Read"/></item>
-    /// <item>bad lot name/location -> <see cref="LotLocationParser.TryParseLotLocation"/>, <see cref="LotTravel.TryRestore{T}"/></item>
+    /// <item>bad lot name/location -> <see cref="LotLocationParser.TryParseLotLocation"/></item>
     /// <item>empty/invalid CAS selection -> <see cref="CasValidation"/></item>
     /// <item>over-budget buy -> <see cref="BuildBudget"/></item>
     /// <item>family delete / eviction -> <see cref="CasEdit.MergeFamilyGuids"/>, <see cref="LotPersistence.IsPersistableLot"/></item>
@@ -85,14 +85,6 @@ namespace Simitone.Tests.Utils
         public void ABadLotLocationIsRejected(string raw)
         {
             Assert.False(LotLocationParser.TryParseLotLocation(raw, out _, out _, out _));
-        }
-
-        [Fact]
-        public void RestoringALotThatWasNeverStashedFailsCleanly()
-        {
-            var saved = new System.Collections.Generic.Dictionary<short, string>();
-            Assert.False(LotTravel.TryRestore(saved, 5, out var marshal));
-            Assert.Null(marshal);
         }
 
         // ---- empty / invalid CAS selection ------------------------------------------------

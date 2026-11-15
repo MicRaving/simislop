@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- TargetFramework and the ImageSharp version come from
-         Client/Simitone/Directory.Build.props, which is where they are single-sourced. -->
+    <!-- TargetFramework comes from
+         Client/Simitone/Directory.Build.props, which is where it is single-sourced. -->
     <TargetFramework>$(SimitoneTargetFramework)</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <!--
@@ -61,12 +61,6 @@
          builder that generated them. Generated, then committed: the game never writes a file at
          run time, and EODLayoutBuilderTests fails if these stop matching the catalogue. -->
     <Content Include="Content\UI\uiscripts\**\*.uis" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-  <ItemGroup>
-    <!-- Declared explicitly rather than inherited: BitmapDecoder is Simitone's own code, and
-         relying on the version that FreeSO's server stack happens to pull in would make a
-         submodule update able to change our decoder's behaviour or break the build outright. -->
-    <PackageReference Include="SixLabors.ImageSharp" Version="$(SimitoneImageSharpVersion)" />
   </ItemGroup>
 
   <!-- FSO.Client (tso.client) is deliberately NOT referenced here, although Simitone.Windows does

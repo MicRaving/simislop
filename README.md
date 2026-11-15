@@ -50,20 +50,21 @@ pack's `metadata.json` aliases, `game` filters and priority rules). Point at a d
 checkout with `-p:RemeshPackDir=<path-to-remeshes>`, or skip it entirely with
 `-p:RemeshPackDir=`. Without the pack the game still runs, using generated meshes.
 
-The Release build also trims the TSO server stack and non-Windows natives that a
-singleplayer build never loads (`-p:TrimSingleplayerOutput=false` to keep them, which is
-required for the `-ide` Volcanic host). Both that trim and the remesh packaging are
-Release-only, so a Debug build keeps the whole server closure in `bin\Debug` and can be
-stepped into. The trim is verified after it runs: it names any allowlist path that stopped
+The Release build also trims non-Windows natives (and, with `-p:BuildIde=true`, the TSO server
+stack) that a singleplayer build never loads (`-p:TrimSingleplayerOutput=false` to keep them,
+which is required for the `-ide` Volcanic host). Both that trim and the remesh packaging are
+Release-only, so a Debug build keeps everything in `bin\Debug` and can be stepped into. The trim is verified after it runs: it names any allowlist path that stopped
 matching, any file that survived a delete, and any file in the output that still belongs to
 the server stack.
 
 ### The default build is the game; `-ide` is a flag
 
-The build above compiles **only** the game. FreeSO's TSO online client (`FSO.Client`), its
-server, and the Volcanic IDE host (`FSO.IDE`) are still buildable but are behind a switch,
-because none of them survives into a singleplayer output and building them cost about a third
-of the build's warnings:
+The build above compiles the game and **`FSO.Content.TSO`** (FreeSO's bundle of The Sims Online's
+own data: 1,405 files, 284 MB of `Content\Objects`, `Globals`, `Avatar`, `Patch` ... - it is
+content only, with no code dependencies, and the game needs it: cooked food and object-on-object
+placement read it). It does **not** compile FreeSO's TSO online client (`FSO.Client`), its server
+projects or the Volcanic IDE host (`FSO.IDE`): they are about 19 projects and a third of the
+build's warnings, and none of them survives into a singleplayer output. They are behind a switch:
 
 ```powershell
 dotnet build Client\Simitone\Simitone.sln -c Release -p:BuildIde=true
@@ -72,27 +73,17 @@ dotnet build Client\Simitone\Simitone.sln -c Release -p:BuildIde=true
 Add `-p:TrimSingleplayerOutput=false` to that as well if you want the server assemblies left
 in the output, which a Debug build already does. The split is verified rather than assumed:
 the build reads the resolved runtime graph out of `Simitone.deps.json` and **fails** if any of
-the twenty-two assemblies it removed is still reachable, so a game that needed one is a build
-error rather than a first-launch `TypeLoadException`.
+the IDE-host / TSO-server assemblies is reachable from a default build, so a game that needed
+one is a build error rather than a first-launch `TypeLoadException`.
 
-### Content the game build deliberately does not ship
+### The content contract
 
-`FSO.Content.TSO` — FreeSO's bundle of The Sims Online's own data — is 1,405 files and
-284 MB, and none of it is in a Simitone output. Dropping it is not only a size decision: it
-takes the TSO-only assets out of the process, and when one of them was still being read at
-startup the game crashed on the cursor rather than degrading. The build therefore carries an
-explicit contract for it, in `Simitone.Windows.csproj` under `_SimitoneContentContract`:
-
-* every top-level folder under `FreeSO/TSOClient/FSO.Content.TSO/Content` has to be on the
-  list of deliberately dropped ones, so a FreeSO bump that adds a folder **fails the build**
-  until somebody says whether the game needs it;
-* a small list of files the startup path opens **by name** (the neighbourhood's road atlas
-  marker, the string table, the weather clips, the eyedropper cursor, the CAS and EOD art, the
-  licence text) must be present in the output — a new startup dependency goes on that list, and
-  from then on the build will not go green without a source for it;
-* anything from the dropped tree that turns up in `Content\` is reported, so a re-opened
-  `FSO.Content.TSO` reference shows up as 284 MB of leaked TSO data rather than as a larger
-  zip.
+`Simitone.Windows.csproj` carries an explicit list (`SimitoneRequiredContent`, checked by
+`_SimitoneContentContract` after every build) of the files and folders the game opens **by
+name**: the TSO content folders above, the neighbourhood's road atlas marker, the string table,
+the weather clips, the eyedropper cursor, the CAS and EOD art, the licence text. If one is missing
+from the output the build **fails**; a new startup dependency goes on that list, and from then on
+the build will not go green without a source for it.
 
 ### There is no MonoGame content build
 

@@ -585,7 +585,8 @@ namespace Simitone.Client.UI.Panels.EODs
     /// "run this and diff" is the most honest way to review a change to a layout.
     /// </para>
     /// <para>
-    /// It is never called by the game. The game's only relationship with these files is that
+    /// It is run from the command line (<c>Simitone.Windows.exe -regen-eod-layouts &lt;content dir&gt;</c>,
+    /// see <see cref="EODLayoutTool"/>), never by the game. The game's only relationship with these files is that
     /// <c>UIContainer.RenderScript</c> opens them by name out of the content directory, which
     /// is the first root <c>EODPluginPolicy.LayoutSearchPaths</c> probes, so the same search
     /// that decides whether a layout "exists" is the one the panel reads from.

@@ -60,16 +60,18 @@ namespace Simitone.Client.Neighbourhood
     /// costs a whole <c>World</c> and a <c>VM</c> and a facade mesh costs seconds, so
     /// <see cref="SimitoneSurroundingsPlacement.Cull"/> is still
     /// <see cref="SimitoneSurroundingsPlacement.CullRadiusTiles"/> tiles past the property and only
-    /// the lots inside it are stood up or built. Beyond it only the map's own ground and streets are
-    /// drawn: the lot view builds its own mesh and draws none of the map view's houses, so lots
-    /// past the cull show as bare plots.</para>
+    /// the lots inside it are stood up as sub-worlds. Beyond it the ground and streets are the map's
+    /// own, and the lot view draws none of the map view's houses, so the houses out there are
+    /// facades - the nearest <see cref="SimitoneSurroundingsFacadeFeed.FarFacadeCap"/> of them; any
+    /// lot beyond that cap shows as a bare plot.</para>
     /// </para>
     ///
-    /// <para><b>The facade queue is the region too.</b> The cache is handed a layout holding only
-    /// the lots the region covers, which is what turns "38 still building" into a queue of the two
-    /// or three houses actually in view; they are built two a frame, nearest first, and every line
-    /// the pass writes about itself - including the sentence for a house file that would not load -
-    /// is handed to the log as it appears rather than being left in a list nobody reads.
+    /// <para><b>The facade queue is the region plus a capped far ring.</b> The cache is handed the
+    /// lots the region covers and the nearest few beyond it (<see cref="SimitoneSurroundingsFacadeFeed"/>);
+    /// they are built one at a time, nearest first, so the houses in view come up before the far
+    /// ones. Every line the pass writes about itself - including the sentence for a house file that
+    /// would not load - is handed to the log as it appears rather than being left in a list nobody
+    /// reads.
     /// </para>
     ///
     /// <para><b>Depth.</b> The hook runs after the lot has cleared the frame's colour and before
@@ -489,19 +491,18 @@ namespace Simitone.Client.Neighbourhood
             //in over the first frames of the lot rather than stalling the load
             _terrain.BeginMeshBuild();
 
-            //The facade cache is handed a layout holding only the lots the neighbour region
-            //covers, which is the whole of the cull on the facade side. The terrain above is drawn
-            //for the whole map; a *house* is a different cost - a mesh stands a World and a VM up -
-            //so a queue of every lot in the neighbourhood would be thirty-odd of them for houses
-            //eight lot widths away, and "0 facades, 38 still building" is what a player sees while
-            //that drains. Two or three lots, built nearest first, are up before the player has
-            //finished turning round; lots past the cull have no house in the lot view at all.
-            _facades = new NeighbourhoodFacades(device, NearLotsLayout(), _map);
+            //The facade cache is handed the lots of the neighbour region plus the nearest few
+            //beyond it (SimitoneSurroundingsFacadeFeed). The terrain above is drawn for the whole
+            //map, and a *house* is a different cost - a mesh stands a World and a VM up on the
+            //game thread - so the far lots are capped rather than the whole island. The cache
+            //builds nearest first, so the near houses are up before any far one starts.
+            _facades = new NeighbourhoodFacades(device, FedLotsLayout(), _map);
         }
 
         /// <summary>
-        /// A layout holding only the lots the neighbour region covers, for the facade cache - and
-        /// without the lot the player is standing in, which the lot view is already drawing.
+        /// The layout handed to the facade cache: the neighbour region's lots and the nearest
+        /// <see cref="SimitoneSurroundingsFacadeFeed.FarFacadeCap"/> beyond it, without the lot the
+        /// player is standing in, which the lot view is already drawing.
         /// </summary>
         /// <remarks>
         /// A layout the neighbourhood itself does not have is fine here: the cache asks a layout which
@@ -510,11 +511,12 @@ namespace Simitone.Client.Neighbourhood
         /// out - a whole <c>World</c> and a <c>VM</c> stood up to build the house the player is
         /// standing in is a cost with nothing to show for it.
         /// </remarks>
-        private NeighbourhoodLayout NearLotsLayout()
+        private NeighbourhoodLayout FedLotsLayout()
         {
             if (_layout == null) return NeighbourhoodLayout.Empty(0, 0, NeighbourhoodLayoutBuilder.CurrentGeneratorVersion);
             return new NeighbourhoodLayout(_layout.Slot, _layout.Seed, _layout.GeneratorVersion,
-                _layout.SchemaVersion, _layout.MapSize, _cull.LotsInRange(_layout, (short)_activeLot));
+                _layout.SchemaVersion, _layout.MapSize,
+                SimitoneSurroundingsFacadeFeed.LotsToFeed(_layout, _cull, (short)_activeLot));
         }
 
         /// <summary>
@@ -747,7 +749,8 @@ namespace Simitone.Client.Neighbourhood
                 + (_terrain.BuildFailure != null
                     ? " (the terrain mesh failed: " + _terrain.BuildFailure + ")"
                     : string.Empty)
-                + (_terrain.IsBuilding ? " (still building the mesh)" : string.Empty);
+                + (_terrain.IsBuilding ? " (still building the mesh)" : string.Empty)
+                + (_terrain.MeshWasCached ? " (whole-map mesh reused from the slot cache)" : string.Empty);
         }
 
         /// <summary>
@@ -884,7 +887,7 @@ namespace Simitone.Client.Neighbourhood
                 //into mvp/mv above. It owns its buffers, so a lot load never touches the map view's
                 //renderer - the two modes are independent.
                 _terrain.Draw(gfx, _vertexShader, _pixelShader, mvp, mv,
-                    _lightDirection, _lightColor, fog, fogDistance);
+                    _lightDirection, _lightColor, fog, fogDistance, frustum);
             }
             finally
             {
@@ -1025,7 +1028,21 @@ namespace Simitone.Client.Neighbourhood
                 get { return _failure; }
             }
 
-            /// <summary>Triangles submitted per frame, across the five layers and the roads.</summary>
+            /// <summary>Whether the whole-map mesh came out of <see cref="SimitoneSurroundingsMeshCache"/>.</summary>
+            public volatile bool MeshWasCached;
+
+            /// <summary>Triangles the last draw actually submitted, after the chunk cut.</summary>
+            public int LastSubmittedPrimitives { get; private set; }
+
+            //the kept index position of each map chunk, per layer and for the map's own roads (see
+            //SimitoneSurroundingsCropResult.LayerChunkStarts); null draws the layer whole
+            private int[][] _layerChunkStarts = new int[NeighbourhoodCityMeshBuilder.LayerCount][];
+            private int[] _roadChunkStarts;
+            private int _roadAlwaysIndices;
+            private readonly List<int> _visibleChunks = new List<int>(NeighbourhoodCityMeshBuilder.ChunkCount);
+            private readonly List<NeighbourhoodMeshDrawRange> _drawRanges = new List<NeighbourhoodMeshDrawRange>(64);
+
+            /// <summary>Triangles held per frame if nothing were cut, across the five layers and the roads.</summary>
             public int DrawnPrimitives
             {
                 get
@@ -1138,13 +1155,20 @@ namespace Simitone.Client.Neighbourhood
                 var drawn = _drawn;
                 var layout = _layout;
                 var activeLot = _activeLot;
+                //the cache key is read here, on the game thread, before the worker starts: the
+                //slot's invalidation epoch is what says the layout or terrain has changed
+                var slot = layout?.Slot ?? -1;
+                var epoch = slot >= 0 ? NeighbourhoodWorldCache.EpochOf(slot) : 0;
                 Task.Run(() =>
                 {
                     SimitoneSurroundingsCropResult crop = null;
                     string reason = null;
                     try
                     {
-                        var mesh = NeighbourhoodCityMeshBuilder.Build(map);
+                        bool cached;
+                        var mesh = SimitoneSurroundingsMeshCache.GetOrBuild(slot, map, epoch,
+                            m => NeighbourhoodCityMeshBuilder.Build(m), out cached);
+                        MeshWasCached = cached;
                         crop = SimitoneSurroundingsCrop.Crop(
                             mesh, drawn, BuildRoadBand(map, layout, cull, activeLot));
                     }
@@ -1236,6 +1260,9 @@ namespace Simitone.Client.Neighbourhood
                 DisposeRoad();
                 _roadVertices = UploadLayer(crop.RoadVertices, crop.RoadIndices, out _roadIndices);
                 _roadPrims = crop.RoadPrimitives;
+                _layerChunkStarts = crop.LayerChunkStarts ?? new int[NeighbourhoodCityMeshBuilder.LayerCount][];
+                _roadChunkStarts = crop.RoadChunkStarts;
+                _roadAlwaysIndices = crop.RoadAlwaysIndices;
 
                 SourcePrimitives = crop.SourcePrimitives;
                 RoadSource = crop.RoadSource;
@@ -1306,13 +1333,26 @@ namespace Simitone.Client.Neighbourhood
             /// <param name="lightColor">The light's colour and strength.</param>
             /// <param name="fogColor">The colour the far edge of the drawn region fades into.</param>
             /// <param name="fogDistance">How far away the fade completes, in world units.</param>
+            /// <param name="frustum">
+            /// What the camera sees, in the mesh's own space (the same matrix as
+            /// <paramref name="viewProjection"/>). Map chunks outside it are not submitted; null
+            /// submits everything.
+            /// </param>
             public void Draw(
                 GraphicsDevice device, Effect vertexShader, Effect pixelShader,
                 Matrix viewProjection, Matrix modelView,
-                Vector3 lightDirection, Vector4 lightColor, Vector4 fogColor, float fogDistance)
+                Vector3 lightDirection, Vector4 lightColor, Vector4 fogColor, float fogDistance,
+                BoundingFrustum frustum = null)
             {
                 if (!_ready || _content == null || device == null) return;
                 var content = _content;
+
+                //the chunk cut: one box test per map chunk (1024), which is far cheaper than
+                //submitting the ~276k triangles of the whole island every frame
+                _visibleChunks.Clear();
+                if (frustum != null) NeighbourhoodCityMeshBuilder.ChunksInFrustum(frustum, _visibleChunks);
+                var cutting = frustum != null && _visibleChunks.Count < NeighbourhoodCityMeshBuilder.ChunkCount;
+                var submitted = 0;
 
                 var vsPass = NeighbourhoodShaderState.BeginCity(
                     vertexShader, pixelShader, viewProjection, lightDirection, lightColor, fogColor, fogDistance);
@@ -1343,7 +1383,8 @@ namespace Simitone.Client.Neighbourhood
                         NeighbourhoodShaderState.ApplyCity(vsPass, vertexShader, pixelShader);
                         device.SetVertexBuffer(_layerVertices[i]);
                         device.Indices = _layerIndices[i];
-                        device.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, _layerPrims[i]);
+                        submitted += SubmitChunks(device,
+                            cutting ? _layerChunkStarts[i] : null, 0, _layerPrims[i]);
                     }
 
                     if (content.RoadAtlas != null && _roadPrims > 0 && _roadVertices != null)
@@ -1364,13 +1405,58 @@ namespace Simitone.Client.Neighbourhood
                         NeighbourhoodShaderState.ApplyCity(vsPass, vertexShader, pixelShader);
                         device.SetVertexBuffer(_roadVertices);
                         device.Indices = _roadIndices;
-                        device.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, _roadPrims);
+                        if (cutting && _roadChunkStarts != null)
+                        {
+                            //the band's block first, always, then the map's own road chunks after it
+                            var always = _roadAlwaysIndices / 3;
+                            if (always > 0)
+                            {
+                                device.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, always);
+                                submitted += always;
+                            }
+                            submitted += SubmitChunks(device, _roadChunkStarts, _roadAlwaysIndices,
+                                _roadPrims - always);
+                        }
+                        else
+                        {
+                            submitted += SubmitChunks(device, null, 0, _roadPrims);
+                        }
                     }
                 }
                 finally
                 {
                     device.BlendState = previousBlend;
+                    LastSubmittedPrimitives = submitted;
                 }
+            }
+
+            /// <summary>
+            /// Submits one buffer: the whole of it when there is no chunk table, otherwise only the
+            /// runs of visible chunks. Returns the triangles submitted.
+            /// </summary>
+            /// <param name="device">The device.</param>
+            /// <param name="chunkStarts">The buffer's chunk table, or null to draw it whole.</param>
+            /// <param name="startOffset">Index position the table's zero sits at.</param>
+            /// <param name="wholePrimitives">The triangle count to draw when drawing whole.</param>
+            private int SubmitChunks(GraphicsDevice device, int[] chunkStarts, int startOffset, int wholePrimitives)
+            {
+                if (chunkStarts == null)
+                {
+                    if (wholePrimitives <= 0) return 0;
+                    device.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, wholePrimitives);
+                    return wholePrimitives;
+                }
+                NeighbourhoodCityMeshBuilder.VisibleDrawRanges(chunkStarts, _visibleChunks, _drawRanges);
+                var total = 0;
+                for (int r = 0; r < _drawRanges.Count; r++)
+                {
+                    var call = NeighbourhoodDrawCall.ForRange(_drawRanges[r]);
+                    if (call.IsEmpty) continue;
+                    device.DrawIndexedPrimitives(PrimitiveType.TriangleList, call.BaseVertex,
+                        startOffset + call.StartIndex, call.PrimitiveCount);
+                    total += call.PrimitiveCount;
+                }
+                return total;
             }
 
             public void Dispose()

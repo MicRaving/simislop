@@ -208,13 +208,12 @@ namespace Simitone.Client.Neighbourhood
         /// why there is no seam to hide.
         /// </para>
         /// <para>
-        /// <b>And what it costs.</b> The whole island is about 138,000 quads, so the surround
-        /// submits what the map view already submits instead of a tenth of it. That is a fill-rate
-        /// decision and it is the owner's: §8.1 asks for one connected map with no visible
-        /// discontinuity, and a crop is a discontinuity. The per-frame reduction belongs to a
-        /// chunked submission and a camera frustum, which is the TSO path RW2 lifts
-        /// (<c>CityGeometry.DrawSlice</c>) and not to a rectangle this file can shrink without
-        /// bringing the crop back.
+        /// <b>And what it costs.</b> The whole island is about 138,000 quads, which is why the
+        /// region is not what limits the per-frame cost: the crop keeps each source chunk's quads
+        /// together (<see cref="SimitoneSurroundingsCropResult.LayerChunkStarts"/>) and the draw
+        /// submits only the chunks inside the camera's frustum. The whole-map mesh itself is
+        /// cached per slot (<see cref="SimitoneSurroundingsMeshCache"/>), so a lot entry pays for
+        /// the crop and the upload but not for the mesh build.
         /// </para>
         /// </remarks>
         public SimitoneSurroundingsCull DrawnRegion { get; }
@@ -2158,6 +2157,27 @@ namespace Simitone.Client.Neighbourhood
         /// <summary>Triangles kept per ground layer.</summary>
         public int[] LayerPrimitives { get; internal set; }
 
+        /// <summary>
+        /// Per ground layer, the index at which each map chunk's kept quads start in
+        /// <see cref="LayerIndices"/>, plus a final entry holding the layer's index count - the
+        /// source mesh's own <c>LayerChunkIndexStarts</c> after the crop. <c>null</c> for a layer
+        /// whose source mesh carried no usable table, which is drawn whole.
+        /// </summary>
+        public int[][] LayerChunkStarts { get; internal set; }
+
+        /// <summary>
+        /// The same table for the map's own road quads, counted from the end of the band's block:
+        /// add <see cref="RoadAlwaysIndices"/> to get a position in <see cref="RoadIndices"/>.
+        /// <c>null</c> when the source carried no usable table.
+        /// </summary>
+        public int[] RoadChunkStarts { get; internal set; }
+
+        /// <summary>
+        /// How many road indices at the front of <see cref="RoadIndices"/> belong to the lot-view
+        /// band, which is small and always drawn.
+        /// </summary>
+        public int RoadAlwaysIndices { get; internal set; }
+
         /// <summary>The road vertices that survived.</summary>
         public NeighbourhoodTerrainVertex[] RoadVertices { get; internal set; }
 
@@ -2278,7 +2298,7 @@ namespace Simitone.Client.Neighbourhood
     /// </para>
     ///
     /// <para><b>What it keeps.</b> In production the region is <see cref="SimitoneSurroundingsCull.ConnectedMap"/>,
-    /// the whole map, so the crop is a pass-through that copies every quad and adds the bank. A
+    /// the whole map, so the crop keeps every quad (in chunk order) and adds the bank. A
     /// caller that wants a narrower region still gets one - the tests are built on it.</para>
     ///
     /// <para><b>Why it is not a vertex-range draw.</b> A quad's four vertices are re-emitted
@@ -2370,6 +2390,7 @@ namespace Simitone.Client.Neighbourhood
                 LayerVertices = new NeighbourhoodTerrainVertex[NeighbourhoodCityMeshBuilder.LayerCount][],
                 LayerIndices = new int[NeighbourhoodCityMeshBuilder.LayerCount][],
                 LayerPrimitives = new int[NeighbourhoodCityMeshBuilder.LayerCount],
+                LayerChunkStarts = new int[NeighbourhoodCityMeshBuilder.LayerCount][],
                 RoadVertices = new NeighbourhoodTerrainVertex[0],
                 RoadIndices = new int[0],
                 RoadSource = "nothing was drawn"
@@ -2381,10 +2402,13 @@ namespace Simitone.Client.Neighbourhood
             {
                 //the bank is ground, not road: it is the ground the lot's own meets, and a road
                 //along the property line already has its own geometry laid over it
-                var kept = CropLayer(mesh.Layers[i], cull, result, bank: true);
+                int[] keptStarts;
+                var kept = CropLayer(mesh.Layers[i], cull, result, bank: true,
+                    sourceChunkStarts: mesh.LayerChunkIndexStarts?[i], keptChunkStarts: out keptStarts);
                 result.LayerVertices[i] = kept.ToArray();
                 result.LayerPrimitives[i] = kept.Count / 2;
                 result.LayerIndices[i] = BuildIndices(result.LayerPrimitives[i]);
+                result.LayerChunkStarts[i] = keptStarts;
             }
 
             //The lot view's band first and the map's real connectors after, so a tile both grammars
@@ -2396,8 +2420,14 @@ namespace Simitone.Client.Neighbourhood
             var bandRoads = band != null && !band.IsEmpty
                 ? BandRoads(band)
                 : new List<NeighbourhoodTerrainVertex>(0);
-            var mapRoads = CropLayer(mesh.Roads, cull, result, bank: false);
+            int[] keptRoadStarts;
+            var mapRoads = CropLayer(mesh.Roads, cull, result, bank: false,
+                sourceChunkStarts: mesh.RoadChunkIndexStarts, keptChunkStarts: out keptRoadStarts);
             result.MapRoadPrimitives = mapRoads.Count / 2;
+            //the band is a small block that is always drawn; the map's own road quads follow it,
+            //so the chunk starts of those are shifted past it
+            result.RoadAlwaysIndices = bandRoads.Count / 4 * 6;
+            result.RoadChunkStarts = keptRoadStarts;
             roads.AddRange(bandRoads);
             roads.AddRange(mapRoads);
             if (band != null && !band.IsEmpty)
@@ -2534,18 +2564,40 @@ namespace Simitone.Client.Neighbourhood
 
         private static List<NeighbourhoodTerrainVertex> CropLayer(
             NeighbourhoodMeshLayer layer, SimitoneSurroundingsCull cull,
-            SimitoneSurroundingsCropResult result, bool bank)
+            SimitoneSurroundingsCropResult result, bool bank,
+            int[] sourceChunkStarts, out int[] keptChunkStarts)
         {
             var kept = new List<NeighbourhoodTerrainVertex>(256);
+            keptChunkStarts = null;
             if (layer == null) return kept;
             var vertices = layer.Vertices;
             var indices = layer.Indices;
             if (vertices == null || indices == null) return kept;
 
+            //Where each source chunk's quads start in the kept index run, so the draw can submit
+            //only the chunks the camera sees. Only trusted when the source's own table is whole:
+            //one entry per chunk plus the sentinel, ending at the layer's last index.
+            var tracking = sourceChunkStarts != null
+                && sourceChunkStarts.Length == NeighbourhoodCityMeshBuilder.ChunkCount + 1
+                && sourceChunkStarts[NeighbourhoodCityMeshBuilder.ChunkCount] == indices.Length;
+            if (tracking) keptChunkStarts = new int[NeighbourhoodCityMeshBuilder.ChunkCount + 1];
+            var chunk = 0;
+
             //every quad the builder emits is two triangles over the same four vertices, so the
             //index array advances six at a time and a quad is kept or dropped whole
             for (int i = 0; i + 5 < indices.Length; i += 6)
             {
+                if (tracking)
+                {
+                    //a bank quad is appended straight after its border tile's quad, so it stays in
+                    //that tile's chunk and is drawn with it
+                    while (chunk < NeighbourhoodCityMeshBuilder.ChunkCount - 1
+                        && i >= sourceChunkStarts[chunk + 1])
+                    {
+                        chunk++;
+                        keptChunkStarts[chunk] = kept.Count / 4 * 6;
+                    }
+                }
                 //The four corners are indices i, i+1, i+2 and i+5. Not i+3: the builder's six
                 //indices are (v0, v1, v2) and (v0, v2, v3), so the fourth of the run is v0 *again*
                 //and the fifth is v2 - taking the fourth corner from there re-emits the quad as
@@ -2579,6 +2631,12 @@ namespace Simitone.Client.Neighbourhood
                 if (!bank) continue;
                 if (!cull.IsLotBorderTile(centreX, centreZ)) continue;
                 AddBank(kept, cull, a, b, c, d, centreX, centreZ, result);
+            }
+            if (tracking)
+            {
+                //chunks after the last quad (and the sentinel) all start where the run ends
+                var total = kept.Count / 4 * 6;
+                for (int c = chunk + 1; c <= NeighbourhoodCityMeshBuilder.ChunkCount; c++) keptChunkStarts[c] = total;
             }
             return kept;
         }

@@ -2,8 +2,6 @@ using FSO.Files.Formats.IFF.Chunks;
 using FSO.Files.RC;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -51,20 +49,20 @@ namespace Simitone.MeshCleanup
                 // Off-axis preview for judging the 3D form: the game only shows the four
                 // canonical rotations, but a replacement that only exists from those four is a
                 // billboard, and this is the view that shows it.
-                var single = new Image<Rgba32>(panelSize, panelSize, new Rgba32(18, 18, 22));
+                var single = new PixelImage(panelSize, panelSize, new Rgba32(18, 18, 22));
                 RenderPanel(single, 0, panelSize, fsom, store, CustomCamera(azDeg.Value, elDeg ?? 30f), true, bilinear);
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath)) ?? ".");
-                single.SaveAsPng(outPath);
+                single.SavePng(outPath);
                 Console.WriteLine("rendered " + fsom.TriangleCount + " tris to " + outPath + " (az " + azDeg.Value + ", el " + (elDeg ?? 30f) + ")");
                 return;
             }
 
-            var canvas = new Image<Rgba32>(panelSize * 4, panelSize, new Rgba32(18, 18, 22));
+            var canvas = new PixelImage(panelSize * 4, panelSize, new Rgba32(18, 18, 22));
             for (int rotation = 0; rotation < 4; rotation++)
                 RenderPanel(canvas, rotation * panelSize, panelSize, fsom, store, CameraFor(rotation), largerIsNear, bilinear);
 
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath)) ?? ".");
-            canvas.SaveAsPng(outPath);
+            canvas.SavePng(outPath);
             Console.WriteLine("rendered " + fsom.TriangleCount + " tris to " + outPath + " (panels: rotations 0,1,2,3)");
         }
 
@@ -84,7 +82,7 @@ namespace Simitone.MeshCleanup
                 0, 0, 0, 1);
         }
 
-        static void RenderPanel(Image<Rgba32> canvas, int xoff, int size, FsomFile fsom, TextureStore store, Matrix toCamera, bool largerIsNear, bool bilinear = false)
+        static void RenderPanel(PixelImage canvas, int xoff, int size, FsomFile fsom, TextureStore store, Matrix toCamera, bool largerIsNear, bool bilinear = false)
         {
             var verts = new List<(Vector3 cam, DGRP3DVert v)>();
             var all = fsom.AllGeoms.ToList();
@@ -128,14 +126,8 @@ namespace Simitone.MeshCleanup
                 baseVert += geom.Verts.Count;
             }
 
-            canvas.ProcessPixelRows(acc =>
-            {
-                for (int y = 0; y < size; y++)
-                {
-                    var row = acc.GetRowSpan(y);
-                    for (int x = 0; x < size; x++) row[xoff + x] = px[y * size + x];
-                }
-            });
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++) canvas.Pixels[y * canvas.Width + xoff + x] = px[y * size + x];
         }
 
         static void Raster(float[] zbuf, Rgba32[] px, int size, float ox, float oy, float scale,
@@ -209,7 +201,7 @@ namespace Simitone.MeshCleanup
         public static void RenderSprites(GameData game, DGRP dgrp, string outDir, bool depth)
         {
             Directory.CreateDirectory(outDir);
-            var panels = new List<Image<Rgba32>>();
+            var panels = new List<PixelImage>();
             int panelW = 1, panelH = 1;
 
             for (int rotation = 0; rotation < 4; rotation++)
@@ -232,68 +224,41 @@ namespace Simitone.MeshCleanup
                         var z = sprite.GetDepth();
                         if (z != null)
                         {
-                            var map = new Image<Rgba32>(frame.Width, frame.Height);
-                            map.ProcessPixelRows(acc =>
+                            var map = new PixelImage(frame.Width, frame.Height);
+                            for (int y = 0; y < frame.Height; y++)
                             {
-                                for (int y = 0; y < frame.Height; y++)
+                                for (int x = 0; x < frame.Width; x++)
                                 {
-                                    var row = acc.GetRowSpan(y);
-                                    for (int x = 0; x < frame.Width; x++)
-                                    {
-                                        var d = z[y * frame.Width + x];
-                                        // 0 = near, 255 = empty; near is bright.
-                                        byte g = (byte)(255 - d);
-                                        var src = frame.PixelData[y * frame.Width + x];
-                                        row[x] = src.A < 8 ? new Rgba32(18, 18, 22) : new Rgba32(g, g, g, 255);
-                                    }
+                                    var d = z[y * frame.Width + x];
+                                    // 0 = near, 255 = empty; near is bright.
+                                    byte g = (byte)(255 - d);
+                                    var src = frame.PixelData[y * frame.Width + x];
+                                    map.Pixels[y * frame.Width + x] = src.A < 8 ? new Rgba32(18, 18, 22) : new Rgba32(g, g, g, 255);
                                 }
-                            });
-                            map.SaveAsPng(Path.Combine(outDir, $"rot{rotation}_spr{si}_depth.png"));
+                            }
+                            map.SavePng(Path.Combine(outDir, $"rot{rotation}_spr{si}_depth.png"));
                         }
                     }
                 }
             }
 
             if (panels.Count == 0) { Console.Error.WriteLine("no sprite pixels found for this drawing group"); return; }
-            var composite = new Image<Rgba32>((panelW + 12) * 4 + 12, panelH + 24, new Rgba32(18, 18, 22));
+            var composite = new PixelImage((panelW + 12) * 4 + 12, panelH + 24, new Rgba32(18, 18, 22));
             for (int i = 0; i < panels.Count && i < 4; i++)
-                composite.MutateImage(panels[i], 12 + i * (panelW + 12), 12 + (panelH - panels[i].Height) / 2);
-            composite.SaveAsPng(Path.Combine(outDir, "sprites.png"));
+                composite.Blit(panels[i], 12 + i * (panelW + 12), 12 + (panelH - panels[i].Height) / 2);
+            composite.SavePng(Path.Combine(outDir, "sprites.png"));
             Console.WriteLine("wrote " + panels.Count + " sprite(s) and sprites.png to " + outDir);
         }
 
-        static Image<Rgba32> ToImage(SpriteTexture tex, Rgba32 background)
+        static PixelImage ToImage(SpriteTexture tex, Rgba32 background)
         {
-            var image = new Image<Rgba32>(tex.Width, tex.Height);
-            image.ProcessPixelRows(acc =>
+            var image = new PixelImage(tex.Width, tex.Height);
+            for (int i = 0; i < image.Pixels.Length; i++)
             {
-                for (int y = 0; y < tex.Height; y++)
-                {
-                    var row = acc.GetRowSpan(y);
-                    for (int x = 0; x < tex.Width; x++)
-                    {
-                        var c = tex.Pixels[y * tex.Width + x];
-                        row[x] = c.A < 8 ? background : c;
-                    }
-                }
-            });
+                var c = tex.Pixels[i];
+                image.Pixels[i] = c.A < 8 ? background : c;
+            }
             return image;
-        }
-    }
-
-    static class ImageExtensions
-    {
-        public static void MutateImage(this Image<Rgba32> canvas, Image<Rgba32> source, int x, int y)
-        {
-            canvas.ProcessPixelRows(source, (dest, src) =>
-            {
-                for (int sy = 0; sy < src.Height; sy++)
-                {
-                    var destRow = dest.GetRowSpan(y + sy);
-                    var srcRow = src.GetRowSpan(sy);
-                    for (int sx = 0; sx < src.Width; sx++) destRow[x + sx] = srcRow[sx];
-                }
-            });
         }
     }
 }

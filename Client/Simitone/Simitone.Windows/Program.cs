@@ -24,12 +24,31 @@ namespace Simitone.Windows
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool AttachConsole(int processId);
+
         [STAThread]
         static void Main(string[] args)
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string startDir = Directory.GetCurrentDirectory();
             Directory.SetCurrentDirectory(baseDir);
             AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
+
+            // Authoring tool, not the game: regenerates the committed EOD layouts and exits. The
+            // content directory is the argument, so the working directory change above is moot.
+            if (Simitone.Client.UI.Panels.EODs.EODLayoutTool.IsRequested(args))
+            {
+                // A WinExe has no console of its own; borrow the launching shell's (-1 = parent)
+                // so the output is visible. Without one the writes are simply dropped.
+                AttachConsole(-1);
+                var toolArgs = (string[])args.Clone();
+                if (toolArgs.Length > 1 && !string.IsNullOrWhiteSpace(toolArgs[1]))
+                    toolArgs[1] = Path.GetFullPath(toolArgs[1], startDir);
+                var writer = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
+                Environment.Exit(Simitone.Client.UI.Panels.EODs.EODLayoutTool.Run(toolArgs, writer));
+                return;
+            }
 
             OperatingSystem os = Environment.OSVersion;
             PlatformID pid = os.Platform;

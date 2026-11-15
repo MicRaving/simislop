@@ -155,34 +155,25 @@ namespace Simitone.Tests.Neighbourhood
         /// draws and the extremes of it are close enough to clear and to solid overcast for a test
         /// to say something definite.
         /// </summary>
-        private static NeighbourhoodWorldLighting ClearestAt(int hour, int minute = 0)
-        {
-            return ExtremeAt(hour, minute, lowest: true);
-        }
-
-        /// <summary>The most cloud of <see cref="SeedSearch"/> seeds at a stated hour.</summary>
-        private static NeighbourhoodWorldLighting CloudiestAt(int hour, int minute = 0)
-        {
-            return ExtremeAt(hour, minute, lowest: false);
-        }
-
         private static NeighbourhoodWorldLighting ExtremeAt(int hour, int minute, bool lowest)
         {
-            var best = At(hour, minute, Seed);
+            var best = FeaturesAt(hour, minute, Seed);
             for (var i = 1; i < SeedSearch; i++)
             {
-                var candidate = At(hour, minute, Seed + i);
-                if (lowest ? candidate.Overcast < best.Overcast : candidate.Overcast > best.Overcast)
+                var candidate = FeaturesAt(hour, minute, Seed + i);
+                if (lowest
+                    ? candidate.Weather.CloudCover < best.Weather.CloudCover
+                    : candidate.Weather.CloudCover > best.Weather.CloudCover)
                 {
                     best = candidate;
                 }
             }
-            return best;
+            return NeighbourhoodWorldLighting.From(best.Lighting, best.Weather);
         }
 
-        private static double Length(double x, double y, double z)
+        private static double Luminance(WorldColour colour)
         {
-            return Math.Sqrt(x * x + y * y + z * z);
+            return 0.2126 * colour.R + 0.7152 * colour.G + 0.0722 * colour.B;
         }
 
         // ---------------------------------------------------------------- the adapter is a pure function
@@ -227,19 +218,13 @@ namespace Simitone.Tests.Neighbourhood
         public void TheAdapterAnswersForDefaultStateRatherThanThrowing()
         {
             //A world whose features were never built hands over default for both arguments, and the
-            //first frame of a lot load must not be the frame that throws.
+            //first frame of a lot load must not be the frame that throws. Default reads as no sun
+            //(angle zero is not above the horizon) and a black fill under a clear sky.
             var lighting = NeighbourhoodWorldLighting.From(default, default);
 
-            //default reads as solar midnight with no cloud: a moon at its peak, the night's own sky
-            //tint, and a clear horizon. All of that is a decision, and this is where it is pinned.
             Assert.False(lighting.IsSunUp);
-            Assert.Equal(NeighbourhoodWorldLighting.MaxMoonElevationDegrees, lighting.SunElevationDegrees);
-            Assert.Equal(NeighbourhoodWorldLighting.MoonIntensityScale, lighting.SunIntensity);
-            Assert.Equal(0.0, lighting.AmbientIntensity);
-            Assert.Equal(0.0, lighting.Overcast);
-            Assert.Equal(NeighbourhoodWorldLighting.NightSkyTint, lighting.SkyTint);
-            Assert.Equal(NeighbourhoodWorldLighting.ClearFogDistance, lighting.FogDistance);
-            Assert.Equal(1.0, Length(lighting.SunDirectionX, lighting.SunDirectionY, lighting.SunDirectionZ), 9);
+            Assert.Equal(default(WorldColour), lighting.OutsideColour);
+            Assert.Equal(default(NeighbourhoodWorldLighting), lighting);
         }
 
         [Fact]
@@ -254,197 +239,45 @@ namespace Simitone.Tests.Neighbourhood
                 world.CurrentLighting);
         }
 
-        // ---------------------------------------------------------------- the mapping itself
+        // ---------------------------------------------------------------- the two values read
 
         [Fact]
-        public void NoonIsTheBrightestAndTheHighestOfTheDay()
+        public void TheSunIsUpAtNoonAndDownAtMidnight()
         {
-            //One seed throughout, so the weather is the same number in all three and cancels.
-            var morning = At(9);
-            var noon = At(12);
-            var evening = At(15);
-
-            //the noon elevation is the features' own 70 degrees, lifted towards the zenith by cloud
-            Assert.InRange(noon.SunElevationDegrees,
-                NeighbourhoodWorldFeatures.MaxSunElevationDegrees,
-                NeighbourhoodWorldLighting.OvercastPeakElevationDegrees);
-            Assert.True(morning.SunElevationDegrees < noon.SunElevationDegrees);
-            Assert.True(evening.SunElevationDegrees < noon.SunElevationDegrees);
-
-            //The sun's own strength is FLAT across the middle of the day, and that is the claim: the
-            //disc's height term saturates once the sun is a few degrees up, so a model that dipped
-            //at noon would be a model dimming the day in the middle. The elevation is what carries
-            //the hour, and the fill light is what ramps the whole day.
-            Assert.Equal(morning.SunIntensity, noon.SunIntensity);
-            Assert.Equal(noon.SunIntensity, evening.SunIntensity);
-            Assert.True(noon.AmbientIntensity > morning.AmbientIntensity);
-            Assert.True(noon.AmbientIntensity > evening.AmbientIntensity);
-
-            //and the noon fill is the features' own maximum, less whatever the cloud took off it
-            Assert.InRange(noon.AmbientIntensity,
-                WorldLightingState.MaxAmbientIntensity * (1.0 - NeighbourhoodWorldLighting.OvercastAmbientCut),
-                WorldLightingState.MaxAmbientIntensity);
+            Assert.True(At(12).IsSunUp);
+            Assert.True(At(15).IsSunUp);
+            Assert.False(At(0).IsSunUp);
+            Assert.False(At(3).IsSunUp);
+            Assert.False(At(23).IsSunUp);
         }
 
         [Fact]
-        public void TheSunContributesNothingAtAllWhileItIsOnTheHorizon()
+        public void IsSunUpFollowsTheSunsAngleAndNotTheHour()
         {
-            //The disc's height term is read from the sun's own elevation and not from the one cloud
-            //lifts it to, so an overcast sunrise is still a sunrise. This is the assertion that
-            //would fail first if the two were ever collapsed back into one number.
-            var onTheHorizon = At(NeighbourhoodWorldFeatures.SunriseHour);
-            var quarterPast = At(NeighbourhoodWorldFeatures.SunriseHour, minute: 15);
-
-            Assert.True(onTheHorizon.SunIntensity < 1e-9, "a disc on the horizon writes no light");
-            Assert.True(quarterPast.SunIntensity > onTheHorizon.SunIntensity, "and a rising one does");
-            Assert.True(ClearestAt(7).SunIntensity > 0.9, "by seven it is a full-strength sun");
-        }
-
-        [Fact]
-        public void TheSunIsEastAtSunriseSouthAtNoonAndWestAtSunset()
-        {
-            //The lot view's frame: +X east, +Z south. A compass bearing of 90 becomes an azimuth of
-            //0, and the whole of that is LotViewAzimuthOffsetDegrees.
-            var dawn = At(NeighbourhoodWorldFeatures.SunriseHour);
-            var noon = At(12);
-            var dusk = At(NeighbourhoodWorldFeatures.SunsetHour);
-
-            Assert.Equal(0.0, dawn.SunAzimuthDegrees, 6);
-            Assert.Equal(90.0, noon.SunAzimuthDegrees, 6);
-            Assert.Equal(180.0, dusk.SunAzimuthDegrees, 6);
-
-            //The components, which hold at any elevation the model can produce - the sign of an
-            //east/west or a north/south bearing does not depend on how high the disc is, and a
-            //test that wanted it to would be testing the cloud cover of a particular seed.
-            Assert.True(dawn.SunDirectionX > 0.0, "the sun rises in the east");
-            Assert.True(dusk.SunDirectionX < 0.0, "and sets in the west");
-            Assert.True(noon.SunDirectionZ > 0.0, "and is south at noon");
-            Assert.True(dawn.SunDirectionZ <= 0.0, "and rises due east, not south of it");
-        }
-
-        [Fact]
-        public void TheSunDirectionIsAlwaysAUnitVectorPointingUp()
-        {
+            //the angle crosses zero at sunrise and sunset, and that - not the hour-based IsNight -
+            //is the question a renderer asks when it picks the sun or the moon
             for (var hour = 0; hour < 24; hour++)
             {
-                var lighting = At(hour);
-
-                Assert.Equal(1.0,
-                    Length(lighting.SunDirectionX, lighting.SunDirectionY, lighting.SunDirectionZ), 9);
-                Assert.True(lighting.SunDirectionY >= 0.0, "the disc is never below the skyline at " + hour);
-                Assert.InRange(lighting.SunAzimuthDegrees, 0.0, 360.0);
-                Assert.InRange(lighting.SunIntensity, 0.0, 1.0);
-                Assert.InRange(lighting.AmbientIntensity, 0.0, 1.0);
-                Assert.InRange(lighting.Overcast, 0.0, 1.0);
-                Assert.InRange(lighting.Haze, 0.0, 1.0);
-                Assert.InRange(lighting.Visibility, 0.0, 1.0);
-                Assert.InRange(lighting.FogDistance, NeighbourhoodWorldLighting.ObscuredFogDistance,
-                    NeighbourhoodWorldLighting.ClearFogDistance);
+                for (var minute = 0; minute < 60; minute += 15)
+                {
+                    var features = FeaturesAt(hour, minute, Seed);
+                    Assert.Equal(features.Lighting.SunAngleDegrees > 0.0,
+                        NeighbourhoodWorldLighting.From(features.Lighting, features.Weather).IsSunUp);
+                }
             }
         }
 
         [Fact]
-        public void NightIsAMoonAndNotASun()
+        public void UnderAClearSkyTheBackgroundIsTheFillColour()
         {
-            //The features type's own sun crosses the horizon at 06:00 and 18:00, so everything
-            //between those is a moon - including B8's dusk band, which the features type calls dark
-            //from 18:00 while its trigonometry calls the sun down from 18:00 too.
-            var midnight = At(0);
-            var dusk = At(19);
-
-            Assert.False(midnight.IsSunUp);
-            Assert.True(midnight.IsNight);
-            Assert.False(dusk.IsSunUp);
-            Assert.True(dusk.IsNight);
-
-            //The two questions part in the dawn band, and this is the hour they part in: the sun
-            //is still down at five in the morning, but the lamps have not been on since four.
-            var dawn = At(5);
-            Assert.False(dawn.IsSunUp);
-            Assert.False(dawn.IsNight);
-            Assert.Equal(WorldDayPhase.Dawn, dawn.Phase);
-        }
-
-        [Fact]
-        public void TheMoonStaysBelowTheSunAndLightsLessThanIt()
-        {
-            var midnight = ClearestAt(0);
-            var noon = ClearestAt(12);
-
-            Assert.True(midnight.SunElevationDegrees <= NeighbourhoodWorldLighting.MaxMoonElevationDegrees);
-            Assert.True(noon.SunElevationDegrees > midnight.SunElevationDegrees);
-            Assert.True(noon.SunIntensity > midnight.SunIntensity);
-            //a dimmer disc of its own colour, not the sun's colour at a smaller number
-            Assert.NotEqual(noon.SunColour, midnight.SunColour);
-        }
-
-        [Fact]
-        public void TheSkyIsWarmAtTheHorizonsAndNeutralAtNoonAndBlueAtNight()
-        {
-            //The clearest sky the model produces at each of four hours. Even that is not a
-            //cloudless one, so the tints are compared rather than pinned to the constants: what is
-            //being claimed is the shape of the day, not one seed's weather. The two horizon hours
-            //are seven and seventeen rather than five and nineteen because those are the hours the
-            //sun is actually *up* and low - at five the sun is still below the horizon and the model
-            //is already drawing a night sky.
-            var dawn = ClearestAt(7);
-            var noon = ClearestAt(12);
-            var dusk = ClearestAt(17);
-            var midnight = ClearestAt(0);
-
-            Assert.True(dawn.SkyTint.R > dawn.SkyTint.B, "a sunrise is warmer than it is blue");
-            Assert.True(dusk.SkyTint.R > dusk.SkyTint.B, "a sunset too");
-            Assert.True(midnight.SkyTint.B > midnight.SkyTint.R, "and the night is the other way round");
-
-            //brightest at noon, the two horizons in between, darkest over the moonlit value
-            Assert.True(Luminance(noon.SkyTint) > Luminance(dusk.SkyTint));
-            Assert.True(Luminance(dusk.SkyTint) > Luminance(midnight.SkyTint));
-            Assert.True(Luminance(noon.SkyTint) > Luminance(dawn.SkyTint));
-
-            //and the night one is the model's own constant, within a hair of it
-            Assert.InRange(Luminance(midnight.SkyTint),
-                Luminance(NeighbourhoodWorldLighting.NightSkyTint) * 0.5,
-                Luminance(NeighbourhoodWorldLighting.NightSkyTint) * 1.5);
-        }
-
-        [Fact]
-        public void TheSkyStripRunsSunriseToSunsetAndThenOnIntoTheNight()
-        {
-            var dawn = At(NeighbourhoodWorldFeatures.SunriseHour);
-            var noon = At(12);
-            var dusk = At(NeighbourhoodWorldFeatures.SunsetHour);
-            var midnight = At(0);
-
-            Assert.InRange(dawn.SkyStrip, NeighbourhoodWorldLighting.SunriseStrip,
-                NeighbourhoodWorldLighting.SunsetStrip);
-            Assert.True(dawn.SkyStrip < noon.SkyStrip);
-            Assert.True(noon.SkyStrip < dusk.SkyStrip);
-            Assert.InRange(midnight.SkyStrip, NeighbourhoodWorldLighting.SunsetStrip,
-                NeighbourhoodWorldLighting.NightStrip);
-
-            //and never off either end of the texture, at any hour of any seed
-            for (var hour = 0; hour < 24; hour++)
+            //no cloud and no fog: the engine derives the background and its ambient from one ramp
+            //and pretending otherwise would be a second opinion
+            foreach (var hour in new[] { 0, 6, 9, 12, 17, 20 })
             {
-                Assert.InRange(At(hour).SkyStrip, NeighbourhoodWorldLighting.SunriseStrip,
-                    NeighbourhoodWorldLighting.NightStrip);
+                var lighting = FeaturesAt(hour, 0, Seed).Lighting;
+                Assert.Equal(lighting.AmbientColour,
+                    NeighbourhoodWorldLighting.From(lighting, default).OutsideColour);
             }
-        }
-
-        [Fact]
-        public void ACloudyNoonIsDimmerThanAClearNoonInEveryWay()
-        {
-            var clear = ClearestAt(12);
-            var cloudy = CloudiestAt(12);
-
-            Assert.True(cloudy.Overcast > clear.Overcast, "the search found two different skies");
-            Assert.True(cloudy.SunIntensity < clear.SunIntensity);
-            Assert.True(cloudy.AmbientIntensity < clear.AmbientIntensity);
-            Assert.True(cloudy.Haze > clear.Haze);
-
-            //Cloud cuts the sun much harder than the fill, because a cloudy sky is a lid over the
-            //sun and a lid over the whole dome. Pinning the ordering is the claim; the numbers are
-            //the features type's to move.
-            Assert.True(NeighbourhoodWorldLighting.OvercastSunCut > NeighbourhoodWorldLighting.OvercastAmbientCut);
         }
 
         [Fact]
@@ -453,35 +286,13 @@ namespace Simitone.Tests.Neighbourhood
             //The level-preserving shift, stated as a test because getting it wrong is invisible at
             //noon and glaring at midnight: a plain lerp towards the grey would make a solid overcast
             //night several times brighter than a clear one.
-            var clearNight = ClearestAt(0);
-            var cloudyNight = CloudiestAt(0);
+            var clearNight = ExtremeAt(0, 0, lowest: true);
+            var cloudyNight = ExtremeAt(0, 0, lowest: false);
 
-            Assert.True(Luminance(cloudyNight.AmbientColour) <= Luminance(clearNight.AmbientColour) + 0.02,
-                "cloud must not raise the fill light's level");
-            Assert.True(Luminance(cloudyNight.SkyTint) <= Luminance(clearNight.SkyTint) + 0.02,
-                "nor the sky's");
+            Assert.True(Luminance(cloudyNight.OutsideColour) <= Luminance(clearNight.OutsideColour) + 0.02,
+                "cloud must not raise the background's level");
         }
 
-        [Fact]
-        public void DescribeIsLocaleIndependentAndNamesEveryPart()
-        {
-            var text = At(18, 30).Describe();
-
-            Assert.Contains("lot view lighting", text);
-            Assert.Contains("disc:", text);
-            Assert.Contains("fill:", text);
-            Assert.Contains("air:", text);
-            Assert.Contains("sky:", text);
-            //Built from fields and invariant formats: two machines asked the same question produce
-            //the same text, which is what makes it worth diffing.
-            Assert.Equal(text, At(18, 30).Describe());
-            Assert.Contains("elev", At(18, 30).ToString());
-        }
-
-        private static double Luminance(WorldColour colour)
-        {
-            return 0.2126 * colour.R + 0.7152 * colour.G + 0.0722 * colour.B;
-        }
 
         // ---------------------------------------------------------------- determinism by seed
 
@@ -570,7 +381,6 @@ namespace Simitone.Tests.Neighbourhood
             Capability(NeighbourhoodWorldFlag.World, on: true);
             var world = World();
             world.Tick(OneGameHour * 3);
-            var before = world.CurrentLighting;
 
             //A lot that spent the afternoon hands its clock over on the way out; the neighbourhood
             //takes it, and the sky has to belong to the new time.
@@ -586,9 +396,8 @@ namespace Simitone.Tests.Neighbourhood
                 Ticks = 0L
             });
 
-            Assert.NotEqual(before, world.CurrentLighting);
             Assert.Equal(21, world.Lighting.TimeOfDay.Hour);
-            Assert.True(world.CurrentLighting.IsNight);
+            Assert.False(world.CurrentLighting.IsSunUp);
         }
 
         [Fact]

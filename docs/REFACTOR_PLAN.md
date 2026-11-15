@@ -184,7 +184,6 @@ Files > 500 lines in Simitone-owned code. `Types` = top-level types currently sh
 | A-NB-16 | `Neighbourhood/SimitoneSurroundings.cs` | 852 | 2 | extract terrain |
 | A-MS-01 | `WeatherSounds.cs` | 828 | 5 | split parser/state/static service |
 | A-UI-09 | `UI/Panels/UIHouseSelectPanel.cs` | 820 | 2 | extract family list |
-| A-NB-17 | `Neighbourhood/NeighbourhoodWorldCamera.cs` | 774 | 3 | split bounds type |
 | A-NB-18 | `Neighbourhood/NeighbourhoodQuery.cs` | 727 | 1 | extract predicate helpers |
 | A-UT-02 | `Utils/AutoFollow.cs` | 654 | 5 | split subject/offer/enums |
 | A-UI-10 | `UI/Panels/Desktop/UIDesktopUCP.cs` | 624 | 1 | extract speed/floor/bg-cache helpers |

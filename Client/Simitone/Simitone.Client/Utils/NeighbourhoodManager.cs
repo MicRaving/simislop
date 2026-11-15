@@ -1138,23 +1138,43 @@ namespace Simitone.Client.Utils
         /// </summary>
         private static bool CopyInto(string source, string destination, string label)
         {
+            //Copy into a uniquely named sibling this call alone created, then rename it into
+            //place. Directory.Move refuses an existing target, so a folder another process
+            //created in the meantime is never written into, and the only folder a failure
+            //deletes is the temp one.
+            var parent = Path.GetDirectoryName(destination.TrimEnd('/', '\\'));
+            var staging = Path.Combine(string.IsNullOrEmpty(parent) ? "." : parent,
+                "." + Path.GetFileName(destination.TrimEnd('/', '\\')) + ".copying-" + Guid.NewGuid().ToString("N"));
+
             int failures;
             try
             {
-                failures = CopyDirectory(source, destination);
+                failures = CopyDirectory(source, staging);
             }
             catch (Exception e)
             {
                 SimitoneLog.Error("NeighbourhoodManager: could not copy " + label + ".", e);
-                DiscardPartialCopy(destination);
+                DiscardPartialCopy(staging);
                 return false;
             }
 
             if (failures > 0)
             {
                 SimitoneLog.Error("NeighbourhoodManager: " + failures + " file(s) of " + label
-                    + " could not be written; discarding the partial copy at '" + destination + "'.");
-                DiscardPartialCopy(destination);
+                    + " could not be written; discarding the partial copy at '" + staging + "'.");
+                DiscardPartialCopy(staging);
+                return false;
+            }
+
+            try
+            {
+                Directory.Move(staging, destination);
+            }
+            catch (Exception e)
+            {
+                SimitoneLog.Error("NeighbourhoodManager: could not move the copy of " + label + " into '"
+                    + destination + "' (it may have appeared in the meantime; it is left untouched).", e);
+                DiscardPartialCopy(staging);
                 return false;
             }
 

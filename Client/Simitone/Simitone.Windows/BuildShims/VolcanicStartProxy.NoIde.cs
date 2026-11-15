@@ -5,8 +5,8 @@
 // Simitone.Windows wants to build the game without compiling FreeSO's IDE host or the
 // The Sims Online server closure behind it - see the "BuildIde" comment block in
 // ../../Directory.Build.props and the B-12 finding in docs/AUDIT_BUILD_DEPS.md. With
-// -p:BuildIde=false, Simitone.Windows drops its ProjectReference to FSO.IDE and
-// FSO.Client, and the 19 projects behind them stop being restored and compiled on every
+// a default build (BuildIde is not true), Simitone.Windows has no ProjectReference to FSO.IDE and
+// FSO.Client, and the 19 projects behind them are not restored and compiled on every
 // build. Nothing that survives into $(OutDir) is affected: the TrimSingleplayerOutput
 // target was already deleting all of it, and _SimitoneAssertNoIdeReferences fails the
 // build if anything left in the output still points at FSO.IDE or FSO.Client.
@@ -47,8 +47,8 @@ using System;
 namespace FSO.IDE
 {
     /// <summary>
-    /// Build-time stand-in for FreeSO's IDE start-up proxy, compiled only when this
-    /// project is built with <c>-p:BuildIde=false</c>.
+    /// Build-time stand-in for FreeSO's IDE start-up proxy, compiled unless this
+    /// project is built with <c>-p:BuildIde=true</c>.
     /// </summary>
     /// <remarks>
     /// Not part of the game. Simitone is singleplayer, offline and Windows-only, and
@@ -65,9 +65,9 @@ namespace FSO.IDE
         public void InitVolcanic(string[] args)
         {
             throw new PlatformNotSupportedException(
-                "Simitone was built without the FreeSO IDE host (-p:BuildIde=false), so " +
+                "Simitone was built without the FreeSO IDE host (the default build), so " +
                 "'-ide' is not available in this binary. To get an -ide-capable Simitone.exe, " +
-                "rebuild with the default, or explicitly: dotnet build Client/Simitone/Simitone.sln " +
+                "rebuild with: dotnet build Client/Simitone/Simitone.sln " +
                 "-p:BuildIde=true");
         }
     }

@@ -1690,11 +1690,11 @@ namespace Simitone.Client.Neighbourhood
 
                 state.PrepareLighting();
             }
-            catch (Exception)
+            catch (Exception e)
             {
-                //reported nowhere on purpose: a best-effort step in front of the one that
-                //actually produces the facade, and a warning here would be a line in the log
-                //about a house that did get built
+                //best-effort (the facade is still built), but logged so lighting that silently
+                //stops working is findable
+                Simitone.Client.Utils.SimitoneLog.Warn("NeighbourhoodFacadeBuilder: facade lighting setup failed; the facade is built without it.", e);
             }
         }
 

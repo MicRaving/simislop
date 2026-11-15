@@ -46,12 +46,6 @@ namespace Simitone.Client.UI.Panels.Options
         /// as a name only, exactly as <see cref="ConnectedNeighbourhood"/> is.
         /// </summary>
         public bool SimulateNeighbours { get; set; }
-
-        /// <summary>
-        /// B4 alone - <see cref="NeighbourhoodWorldCapabilityRow.WalkBetweenLots"/>. Carried as a
-        /// name only, exactly as <see cref="ConnectedNeighbourhood"/> is.
-        /// </summary>
-        public bool WalkBetweenLots { get; set; }
     }
 
     /// <summary>
@@ -60,7 +54,7 @@ namespace Simitone.Client.UI.Panels.Options
     ///
     /// <para>
     /// <b>Why a master switch at all, when the flags are deliberately separate.</b>
-    /// <see cref="NeighbourhoodWorldFlags"/> splits Part B into seven flags because §7 is a
+    /// <see cref="NeighbourhoodWorldFlags"/> splits Part B into six flags because §7 is a
     /// dependency graph and each milestone's acceptance test is "with the flag off, the previous
     /// stage is byte-identical" - a build and a test harness need the separate switches. A
     /// <em>player</em> does not: the five that exist are on together or not at all, and asking
@@ -70,21 +64,16 @@ namespace Simitone.Client.UI.Panels.Options
     /// </para>
     ///
     /// <para>
-    /// <b>Which five, and why not seven.</b> <see cref="MasterFlags"/> is
-    /// <see cref="NeighbourhoodWorldFlag.World"/>, <c>Surroundings</c>, <c>Travel</c>,
-    /// <c>Services</c> and <c>Persist</c>. <c>Walk</c> (B4, continuous walkable streets) and
-    /// <c>Offscreen</c> (B6, the world moving on while the player is elsewhere) are deliberately
-    /// absent: neither is shippable, and a checkbox that turns a capability on for a player who
-    /// cannot see it is the exact failure the all-off default exists to prevent. Both now have a
-    /// row of their own - <see cref="NeighbourhoodWorldCapabilityRow.SimulateNeighbours"/> and
-    /// <see cref="NeighbourhoodWorldCapabilityRow.WalkBetweenLots"/> - each over exactly one
-    /// flag, and both are off by default. They are rows rather than two more names in this one
-    /// because a player who wants the world to keep running while they are in a menu should not
-    /// have to turn on the five that ship to get it, and because a single checkbox cannot ask
-    /// "B6 but not B4" - the two are independent questions, and the master row is a third.
-    /// <b>Off is still the default on both</b>, which is what keeps a player from switching on a
-    /// capability whose milestone has not landed: a row that stores a flag nothing reads yet is
-    /// harmless, because the flag is off and the world is Part A's.
+    /// <b>Which five, and why not six.</b> <see cref="MasterFlags"/> is
+    /// <see cref="NeighbourhoodWorldFlag.World"/>, <c>NeighbourSubWorlds</c>, <c>Travel</c>,
+    /// <c>Services</c> and <c>Persist</c>. <c>Offscreen</c> (B6, the world moving on while the
+    /// player is elsewhere) is deliberately absent: it is not shippable, and a checkbox that
+    /// turns a capability on for a player who cannot see it is the exact failure the all-off
+    /// default exists to prevent. It has a row of its own -
+    /// <see cref="NeighbourhoodWorldCapabilityRow.SimulateNeighbours"/> - over exactly one flag,
+    /// off by default. It is a row rather than one more name in this one because a player who
+    /// wants the world to keep running while they are in a menu should not have to turn on the
+    /// five that ship to get it. (B4, walkable streets, was cut in 2026-11 and has no flag.)
     /// </para>
     ///
     /// <para>
@@ -105,7 +94,7 @@ namespace Simitone.Client.UI.Panels.Options
     /// <see cref="MasterFlags"/> is on, so a partially-on install - five keys somebody edited by
     /// hand, or a milestone that has switched one of them - reads as <em>off</em>. That is
     /// deliberate, because the alternative is a checkbox whose drawn state depends on which of
-    /// seven unrelated ini keys happens to be set, and a half-on world is not a world this row
+    /// six unrelated ini keys happens to be set, and a half-on world is not a world this row
     /// has a truthful caption for. The asymmetry that follows is also deliberate: ticking the
     /// box <em>completes</em> the set, and unticking it <em>clears</em> all five rather than only
     /// the ones this row turned on. Off is the state every capability starts and must return to
@@ -148,14 +137,14 @@ namespace Simitone.Client.UI.Panels.Options
 
         /// <summary>
         /// The five capabilities this row owns, in the order §7 lists them: B1, B2, B3, B5, B7.
-        /// B4 (<c>Walk</c>) and B6 (<c>Offscreen</c>) are not here and must not be added: each has
-        /// a row of its own in <see cref="NeighbourhoodWorldCapabilityRow"/>, and folding either
-        /// into this set would make one checkbox answer two questions at once.
+        /// B6 (<c>Offscreen</c>) is not here and must not be added: it has a row of its own in
+        /// <see cref="NeighbourhoodWorldCapabilityRow"/>, and folding it into this set would make
+        /// one checkbox answer two questions at once.
         /// </summary>
         public static readonly IReadOnlyList<NeighbourhoodWorldFlag> MasterFlags = new[]
         {
             NeighbourhoodWorldFlag.World,
-            NeighbourhoodWorldFlag.Surroundings,
+            NeighbourhoodWorldFlag.NeighbourSubWorlds,
             NeighbourhoodWorldFlag.Travel,
             NeighbourhoodWorldFlag.Services,
             NeighbourhoodWorldFlag.Persist
@@ -213,7 +202,7 @@ namespace Simitone.Client.UI.Panels.Options
         /// and never written down - a checkbox that appears to work and resets at the next
         /// launch, which is the exact failure the two-rows-of-one-flag test exists to catch. One
         /// predicate over the feature's own three names, and one <see cref="Apply"/> that writes
-        /// all seven flags, is what keeps the page's write path a one-liner.
+        /// all six flags, is what keeps the page's write path a one-liner.
         /// </para>
         /// </summary>
         /// <param name="attachedPropertyName">The descriptor's attached property name.</param>
@@ -276,7 +265,7 @@ namespace Simitone.Client.UI.Panels.Options
         }
 
         /// <summary>
-        /// Writes the feature's seven keys down, from the values already recorded in memory.
+        /// Writes the feature's six keys down, from the values already recorded in memory.
         ///
         /// <remarks>
         /// Ordered after the base class's own save on purpose, and re-reads each flag rather than
@@ -287,10 +276,10 @@ namespace Simitone.Client.UI.Panels.Options
         /// rather than an assumption about what ought to be.
         ///
         /// <para>
-        /// All seven, not the master's five, and that is not an expansion of scope: the page
+        /// All six, not the master's five, and that is not an expansion of scope: the page
         /// reaches this through <see cref="Describes(UIOptionsSubpanelBase.UIOptionDescriprion)"/>,
         /// which now matches either capability row too, so a write that covered only the five
-        /// would drop the seventh key of whichever capability row was just ticked. Nothing is
+        /// would drop the sixth key of whichever capability row was just ticked. Nothing is
         /// overwritten: every flag is written with the value it already has in memory, so a tick
         /// on one row cannot move another row's key off disk.
         /// </para>
@@ -313,7 +302,7 @@ namespace Simitone.Client.UI.Panels.Options
         /// <c>NeighbourhoodWorldRow.Descriptor(),</c> entry in that collection expression with a
         /// spread of this, <c>..NeighbourhoodWorldRow.Descriptors(),</c>. Nothing else changes -
         /// the change notification already matches all three names through
-        /// <see cref="Describes(string)"/>, and <see cref="Apply"/> already writes all seven keys.
+        /// <see cref="Describes(string)"/>, and <see cref="Apply"/> already writes all six keys.
         ///
         /// <para>
         /// Exposed here rather than only inside the page's list for the reason
@@ -341,22 +330,21 @@ namespace Simitone.Client.UI.Panels.Options
                 + " Off or 2D this switch is remembered but nothing is drawn with it, and the two"
                 + " settings are kept apart so that changing one never changes the other."
                 + " This is the switch for the part of the world that ships. Simulating your"
-                + " neighbours while you are elsewhere and walking between lots are separate"
-                + " rows below, and neither of them is turned on by this one.";
+                + " neighbours while you are elsewhere is a separate row below, and it is not"
+                + " turned on by this one.";
         }
     }
 
     /// <summary>
     /// A single Part B capability that has a row of its own on the Graphics page, over exactly
-    /// one of <see cref="NeighbourhoodWorldFlags"/>'s seven flags.
+    /// one of <see cref="NeighbourhoodWorldFlags"/>'s six flags.
     ///
     /// <para>
     /// <b>Why a class per flag rather than two more booleans on the master row.</b>
     /// <see cref="NeighbourhoodWorldRow"/>'s checkbox is a question about the feature - "is the
     /// connected neighbourhood on" - and its answer is a conjunction over five flags, so there is
-    /// nowhere in it to record one flag's state. B4 (<c>Walk</c>) and B6 (<c>Offscreen</c>) are
-    /// questions about a capability, and each of them is a different question from the other and
-    /// from the master. Making them rows rather than ini keys a player has to hand-edit is the
+    /// nowhere in it to record one flag's state. B6 (<c>Offscreen</c>) is a question about a
+    /// capability, and a different question from the master. Making them rows rather than ini keys a player has to hand-edit is the
     /// whole point of this class: a setting with no row does not exist as far as a player is
     /// concerned.
     /// </para>
@@ -417,22 +405,6 @@ namespace Simitone.Client.UI.Panels.Options
                 + " so that turning the rest of the world off never quietly turns this off too.",
                 "940", "941", "942");
 
-        /// <summary>
-        /// B4: continuous walkable streets between lots, with a following camera. Off, B3's
-        /// discrete travel, which is the shippable result.
-        /// </summary>
-        public static readonly NeighbourhoodWorldCapabilityRow WalkBetweenLots =
-            new NeighbourhoodWorldCapabilityRow(
-                "WalkBetweenLots", NeighbourhoodWorldFlag.Walk,
-                "Walk Between Lots",
-                "Lets you walk out of one lot and along the street to the next instead of"
-                + " travelling lot to lot from the map, with the camera following you. It is off"
-                + " unless you turn it on, and it does nothing at all unless Connected"
-                + " Neighbourhood is on as well - this switch is one part of that feature rather"
-                + " than a feature of its own, and it is kept separate from it so that turning the"
-                + " rest of the world off never quietly turns this off too.",
-                "943", "944", "945");
-
         private NeighbourhoodWorldCapabilityRow(string key, NeighbourhoodWorldFlag flag, string title,
             string aboutDescription, string simitoneTitleId, string simitoneAboutTitleId,
             string simitoneAboutDescriptionId)
@@ -446,15 +418,15 @@ namespace Simitone.Client.UI.Panels.Options
             SimitoneAboutDescriptionId = simitoneAboutDescriptionId;
         }
 
-        /// <summary>Both capability rows, in the order the page shows them.</summary>
+        /// <summary>The capability rows, in the order the page shows them.</summary>
         /// <remarks>
-        /// A property rather than a field so the list cannot be built before the two rows above
-        /// it have been constructed - static initialisers run in declaration order, and a
-        /// <c>static readonly</c> array declared first would capture two nulls.
+        /// A property rather than a field so the list cannot be built before the rows above it
+        /// have been constructed - static initialisers run in declaration order, and a
+        /// <c>static readonly</c> array declared first would capture nulls.
         /// </remarks>
         public static IEnumerable<NeighbourhoodWorldCapabilityRow> All
         {
-            get { return new[] { SimulateNeighbours, WalkBetweenLots }; }
+            get { return new[] { SimulateNeighbours }; }
         }
 
         /// <summary>

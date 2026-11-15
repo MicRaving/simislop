@@ -71,8 +71,9 @@ namespace Simitone.Client.Neighbourhood
     /// <para>
     /// <b>Everything it needs is a constructor argument.</b> The family it charges is a
     /// <c>Func&lt;short, FAMI&gt;</c>, the lot it sends a leaving player to is an
-    /// <c>Action&lt;int&gt;</c>, the world it consults is an <see cref="INeighbourhoodWorld"/>
-    /// and the milestone's capability is a <c>bool</c>. A test can therefore build one with a
+    /// <c>Action&lt;int&gt;</c> and the milestone's capability is a <c>bool</c>. It is
+    /// "leave-lot plus local architecture" and no more: it holds no world, and nothing here is
+    /// a neighbourhood-wide family or occupancy authority. A test can therefore build one with a
     /// dictionary of families and a list of destinations, and a screen can build one with its
     /// own <c>VMLotSwitch</c> and its own family, without either of them being visible to this
     /// file. What is left that needs a real lot - <c>Tick</c>'s architecture simulation, the
@@ -128,7 +129,6 @@ namespace Simitone.Client.Neighbourhood
 
         private readonly Func<short, FAMI> _families;
         private readonly Action<int> _lotTransition;
-        private readonly INeighbourhoodWorld _world;
         private readonly bool _worldServices;
 
         private readonly Queue<VMNetArchitectureCmd> _archBuffer = new Queue<VMNetArchitectureCmd>();
@@ -163,21 +163,14 @@ namespace Simitone.Client.Neighbourhood
         /// know where home is and asks the screen to resolve
         /// <see cref="GoHomeLot"/>, which is the pre-B5 answer and needs no world.
         /// </param>
-        /// <param name="world">
-        /// The world this link is backing, or <c>null</c> when there is not one. Held and
-        /// exposed for B1/B3's world; this milestone does not need to ask it a question it
-        /// cannot already ask the family.
-        /// </param>
         public SimitoneGlobalLink(
             Func<short, FAMI> familyResolver = null,
             Action<int> onLotTransitionRequested = null,
-            bool worldServicesEnabled = true,
-            INeighbourhoodWorld world = null)
+            bool worldServicesEnabled = true)
         {
             _families = familyResolver;
             _lotTransition = onLotTransitionRequested;
             _worldServices = worldServicesEnabled;
-            _world = world;
         }
 
         /// <summary>
@@ -187,12 +180,6 @@ namespace Simitone.Client.Neighbourhood
         public bool WorldServicesEnabled
         {
             get { return _worldServices; }
-        }
-
-        /// <summary>The world this link was built with, or <c>null</c>.</summary>
-        public INeighbourhoodWorld World
-        {
-            get { return _world; }
         }
 
         /// <summary>
@@ -847,8 +834,8 @@ namespace Simitone.Client.Neighbourhood
         /// The <c>NeighbourhoodWorldServices</c> flag gates the lookup. With the milestone off
         /// the link declines to name a destination and asks the screen to resolve
         /// <see cref="GoHomeLot"/> - which is what the pre-B5 behaviour was and what a screen
-        /// with no world behind it can already do. With it on, the family authority is the
-        /// world, so the family it resolves is the one whose money the lot is charging.
+        /// with no world behind it can already do. With it on, the family it resolves is the
+        /// lot's own current one, i.e. the one whose money the lot is charging.
         /// </para>
         ///
         /// <para>
@@ -931,6 +918,19 @@ namespace Simitone.Client.Neighbourhood
         /// existing travel signal is raised so the screen's stash-then-load path runs. The
         /// avatar is deleted either way, after the request, so the lot is left in the state the
         /// switch expects to find it in.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Why the delete stays (decided 2026-11-15, from code, not from a runtime trace).</b>
+        /// The deferred switch does <c>vm.Save()</c> after this returns, so the leaving sim is
+        /// absent from the stashed lot. That is what "leave" means in the engine's own primitive
+        /// (<c>VMGenericTSOCall</c> calls <c>UserLeaveLot</c> and then this: the sim's state is
+        /// meant to go to the server, which here is the lot's own save plus the family rebuild
+        /// the arrival scripts do), and the stub does the same. Keeping the sim would put it back
+        /// in a lot whose arrival path also spawns a controlled sim, which is the two-sims
+        /// failure. TS1 scripts do not reach this member at all (they travel through
+        /// <c>VMGenericTS1Call</c>'s lot-switch mode, which writes the sim to the inventory
+        /// motive first), so the question only matters for a TSO-style leave interaction.
         /// </para>
         ///
         /// <para>
@@ -1511,7 +1511,6 @@ namespace Simitone.Client.Neighbourhood
             return "simitone global link (" + (_worldServices ? "world services" : "no world services")
                 + ", " + PendingArchitectureCommands + " architecture command(s) queued"
                 + (_waitingOnArch ? ", waiting on a charge" : "")
-                + (_world != null ? ", world" : "")
                 + ")";
         }
     }

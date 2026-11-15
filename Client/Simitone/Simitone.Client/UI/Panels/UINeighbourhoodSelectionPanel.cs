@@ -1523,13 +1523,15 @@ namespace Simitone.Client.UI.Panels
                 return;
             }
 
-            _paintedMapLayersHidden = false;
             //The filters are not re-applied on every frame of a view that is already showing the
             //painted map: that would allocate a dictionary of every lot on the map sixty times a
-            //second to produce the answer they were last given. The overlays are written on every
-            //call regardless, because they cost three field writes and they are the elements this
-            //whole fix is about.
-            if (_paintedMapLayersHidden) ApplyLotVisibility(LotPasses());
+            //second to produce the answer they were last given. They are re-applied only on the
+            //transition back from hidden (the flag was cleared before this test, so the buttons
+            //the hide switched off were never restored). The overlays are written on every call
+            //regardless, because they cost three field writes.
+            var wasHidden = _paintedMapLayersHidden;
+            _paintedMapLayersHidden = false;
+            if (wasHidden) ApplyLotVisibility(LotPasses());
             foreach (var overlay in _mapOverlays) overlay.Visible = true;
         }
 
@@ -1605,10 +1607,9 @@ namespace Simitone.Client.UI.Panels
         /// <b>The camera moves first, on the same world.</b> Nothing here detaches or rebuilds the
         /// scene: <see cref="FocusOnLot"/> aims the generated world at the target and then tweens the
         /// painted camera onto the same numbers, and <see cref="UpdateWorldCamera"/> keeps it there on
-        /// every frame of that tween. The lot is then loaded over that same map - the lot view's
-        /// surround reads the very source this panel is drawing, through
-        /// <see cref="NeighbourhoodSharedWorld"/> - so the player watches the camera travel to the
-        /// house and then steps into it.
+        /// every frame of that tween, so the player watches the camera travel to the house and
+        /// then steps into it. (The lot view builds its own surround; the two views no longer
+        /// share one map.)
         /// </para>
         /// </remarks>
         /// <param name="lot">The lot number under the mouse.</param>

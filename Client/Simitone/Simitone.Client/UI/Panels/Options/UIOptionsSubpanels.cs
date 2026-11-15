@@ -312,6 +312,17 @@ namespace Simitone.Client.UI.Panels.Options
                     new UIBoolPropOptionDescription(typeof(GlobalSettings).GetProperty("EdgeScroll")) {
                         LocalizationInfo = new(EdgeScrollTitle, AboutEdgeScroll, EdgeScrollDesc)
                     },
+                    // Simitone's own switch, stored in simitone.ini like Dynamic Sun; TS1 never had
+                    // it, so it carries its own caption and tooltip.
+                    new UIExternalBoolPropOptionDescription(
+                        typeof(PictureInPictureOption).GetProperty(PictureInPictureSetting.Key),
+                        () => SimitoneFlags.PictureInPicture.Enabled,
+                        value => SimitoneFlags.PictureInPicture.SetEnabled(value)) {
+                        LocalizationInfo = new(null, null, null,
+                            PictureInPictureSetting.Title,
+                            PictureInPictureSetting.Title,
+                            PictureInPictureSetting.Description)
+                    },
         ];
 
         /// <summary>
@@ -330,6 +341,12 @@ namespace Simitone.Client.UI.Panels.Options
         protected override void OnSettingsChanged(params UIOptionDescriprion[] ChangedSettings)
         {
             base.OnSettingsChanged(ChangedSettings);
+
+            foreach (var changed in ChangedSettings)
+            {
+                if (PictureInPictureSetting.Describes(changed))
+                    SimitoneFlags.PictureInPicture.SetEnabled(SimitoneFlags.PictureInPicture.Enabled, save: true);
+            }
 
             if (SettingsObjectInstance is not GlobalSettings settings) return;
             foreach (var changed in ChangedSettings)

@@ -879,22 +879,32 @@ namespace Simitone.Client.UI.Panels
             context.Blueprint = blueprint;
             context.Architecture = new VMArchitecture(1, 1, blueprint, vm.Context);
 
-            int i = 0;
-            var baseX = 0;
-            foreach (var sim in family.FamilyGUIDs)
+            try
             {
-                var fam = vm.Context.CreateObjectInstance(sim, LotTilePos.OUT_OF_WORLD, Direction.NORTH, true).BaseObject;
-                var btn = new UIAvatarSelectButton(UIIconCache.GetObject(fam));
-                btn.Opacity = 1f;
-                btn.Name = fam.Name;
-                btn.X = baseX + (i++) * 100;
-                btn.Y = 0;
-                btn.DeregisterHandler();
-                Btns.Add(btn);
-                Add(btn);
-                fam.Delete(true, vm.Context);
+                int i = 0;
+                var baseX = 0;
+                foreach (var sim in family.FamilyGUIDs)
+                {
+                    var fam = vm.Context.CreateObjectInstance(sim, LotTilePos.OUT_OF_WORLD, Direction.NORTH, true).BaseObject;
+                    var btn = new UIAvatarSelectButton(UIIconCache.GetObject(fam));
+                    btn.Opacity = 1f;
+                    btn.Name = fam.Name;
+                    btn.X = baseX + (i++) * 100;
+                    btn.Y = 0;
+                    btn.DeregisterHandler();
+                    Btns.Add(btn);
+                    Add(btn);
+                    fam.Delete(true, vm.Context);
+                }
             }
-            world.Dispose();
+            finally
+            {
+                //the VM has no Dispose; this is the teardown the other throwaway VMs use. It
+                //used to be dropped with its driver and BHAV hooks still live.
+                vm.CloseNet(FSO.SimAntics.NetPlay.VMCloseNetReason.LeaveLot);
+                vm.SuppressBHAVChanges();
+                world.Dispose();
+            }
         }
     }
 }

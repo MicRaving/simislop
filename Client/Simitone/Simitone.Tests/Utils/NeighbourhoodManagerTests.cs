@@ -526,6 +526,21 @@ namespace Simitone.Tests.Utils
         }
 
         [Fact]
+        public void ACopyLeavesNoStagingFolderBehindAndNeverTouchesAFolderThatAppearedFirst()
+        {
+            Assert.True(NeighbourhoodManager.CopyFromInstall(_install, _userDir, 2));
+            Assert.Empty(Directory.GetDirectories(_userDir, "*copying-*"));
+
+            //a slot folder that exists is refused, and survives untouched
+            var existing = SlotDir(4);
+            Directory.CreateDirectory(existing);
+            File.WriteAllText(Path.Combine(existing, "mine.txt"), "keep");
+            Assert.False(NeighbourhoodManager.CopyFromInstall(_install, _userDir, 4));
+            Assert.Equal("keep", File.ReadAllText(Path.Combine(existing, "mine.txt")));
+            Assert.Empty(Directory.GetDirectories(_userDir, "*copying-*"));
+        }
+
+        [Fact]
         public void CopyingASlotWithNoPlayedNeighbourhoodFallsBackToTheBaseTemplate()
         {
             //UserData4 is not in this install, and TemplateStudiotown is not either, so the chain

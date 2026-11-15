@@ -146,8 +146,14 @@ namespace Simitone.Client.Neighbourhood
         private readonly NeighbourhoodMap _map;
         private readonly NeighbourhoodQuery _query;
         private readonly WorldClock _clock = new WorldClock();
-        private readonly LotStore _lotStore = new LotStore();
+        private readonly LotStore _lotStore;
         private readonly TransitStore _transit = new TransitStore();
+
+        /// <summary>
+        /// The stamp (year, month, day, hour, minute) of the lot clock the world last followed, or
+        /// -1 before it has followed one. See <see cref="FollowLotClock"/>.
+        /// </summary>
+        private long _followStamp = -1;
 
         /// <summary>
         /// The off-screen simulator, or <c>null</c> until somebody asks for <see cref="Offscreen"/>.
@@ -212,10 +218,28 @@ namespace Simitone.Client.Neighbourhood
         /// <param name="worldEnabled">Whether <see cref="Tick"/> advances anything.</param>
         public SimitoneNeighbourhoodWorld(NeighbourhoodLayout layout, NeighbourhoodMap map,
             bool worldEnabled)
+            : this(layout, map, worldEnabled, null)
+        {
+        }
+
+        /// <summary>
+        /// A world over a lot store that somebody else owns. The screen keeps one store for the
+        /// whole session - lot numbers are global, and a player who goes home -> downtown ->
+        /// vacation crosses neighbourhoods - while a world belongs to one neighbourhood and is
+        /// dropped when the player leaves it. The store outlives the world, so the stashed lots
+        /// are still there for the next one.
+        /// </summary>
+        /// <param name="layout">The layout to own. A null layout becomes an empty one.</param>
+        /// <param name="map">The generated map, or null for a blank one of the layout's size.</param>
+        /// <param name="worldEnabled">Whether <see cref="Tick"/> advances anything.</param>
+        /// <param name="lotStore">The store to use, or null for a store of this world's own.</param>
+        public SimitoneNeighbourhoodWorld(NeighbourhoodLayout layout, NeighbourhoodMap map,
+            bool worldEnabled, LotStore lotStore)
         {
             _layout = layout ?? NeighbourhoodLayout.Empty(0, 0, 0);
             _map = map ?? NeighbourhoodMap.Create(_layout.MapSize);
             _query = new NeighbourhoodQuery(_layout, _map);
+            _lotStore = lotStore ?? new LotStore();
             WorldEnabled = worldEnabled;
         }
 
@@ -614,6 +638,67 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
+        /// Keep the neighbourhood's time on a lot's clock while that lot is up: the lot's clock is
+        /// the authority, and the world does not tick a second one beside it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A lot's <c>VMClock</c> runs at game speed and stops when the game is paused, and the
+        /// world's own <see cref="Tick"/> is wall-clock time that never stops, so letting both run
+        /// while a lot is up made them drift apart for the whole visit. While a lot is up the
+        /// caller therefore calls this instead of <see cref="Tick"/>, once a frame: the world
+        /// takes the lot's time when it has none yet, and again each time the lot's clock crosses
+        /// into a new game minute (a paused lot crosses nothing, so neighbourhood time stops with
+        /// it). Called with the same minute twice it does nothing, so the per-frame cost is one
+        /// comparison.
+        /// </para>
+        /// <para>
+        /// With <see cref="NeighbourhoodWorldFlag.Offscreen"/> on, the lot's elapsed ticks since
+        /// the world's last reading are first spent on the stored lots, so the lots the player is
+        /// not in decay by the minutes the played lot actually lived. The clock is then snapped to
+        /// the lot's, which makes the answer exactly the lot's whatever rounding the simulator
+        /// made on the way.
+        /// </para>
+        /// </remarks>
+        /// <param name="lotClock">The played lot's clock. Required; null throws.</param>
+        /// <returns>Whether the world's time was taken from the lot on this call.</returns>
+        public bool FollowLotClock(VMClock lotClock)
+        {
+            if (lotClock == null) throw new ArgumentNullException(nameof(lotClock));
+
+            var stamp = ((((long)lotClock.Year * 13 + lotClock.Month) * 32 + lotClock.DayOfMonth) * 24
+                + lotClock.Hours) * 60 + lotClock.Minutes;
+            if (_clock.IsAvailable && stamp == _followStamp) return false;
+
+            if (_clock.IsAvailable && WorldEnabled
+                && NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Offscreen))
+            {
+                var elapsed = lotClock.Ticks - _clock.Ticks;
+                if (elapsed > 0)
+                {
+                    TickOffscreen((double)elapsed / TicksPerMinute(_clock));
+                }
+            }
+
+            _followStamp = stamp;
+            PullClockFrom(lotClock);
+            return true;
+        }
+
+        /// <summary>
+        /// A lot has just been taken out of the store to be played again. Its marshal was decayed
+        /// in place while it sat there, so the simulator's record of how far it had got is spent:
+        /// forgetting it makes the lot's next absence start from the moment it is stashed again,
+        /// instead of owing the whole time it was played as a second helping of decay.
+        /// </summary>
+        /// <param name="lot">The lot number.</param>
+        public void NoteLotRestored(short lot)
+        {
+            //the field, not the property: noting a restore must not build a simulator
+            if (_offscreen != null) _offscreen.Forget(lot);
+        }
+
+        /// <summary>
         /// Write the neighbourhood's time into <paramref name="clock"/> - the handshake's way
         /// <em>in</em>, as a statement rather than a question.
         /// </summary>
@@ -641,7 +726,7 @@ namespace Simitone.Client.Neighbourhood
         /// The rule, stated once so both halves cannot disagree: <b>the store holds the lots the
         /// player is not in, and this object holds the one they are.</b> So leaving a lot
         /// stashes its marshal in the store under its own number - keyed as the lot number and
-        /// nothing else, which is what today's <c>SavedLots</c> dictionary is and what
+        /// nothing else, which is what the screen's session stash is and what
         /// <see cref="LotStore"/>'s own keying is - and entering a lot takes any stashed marshal
         /// back out and hands it to the caller to resume from. That is §5.3's third state
         /// (unloaded: only the house file) arriving on its own: a lot with no marshal in the store

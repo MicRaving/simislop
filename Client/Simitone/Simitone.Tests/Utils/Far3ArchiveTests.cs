@@ -361,6 +361,31 @@ namespace Simitone.Tests.Utils
         }
 
         /// <summary>
+        /// The manifest's own decompressed size (a plain little-endian uint) is the authority, so
+        /// an entry still decodes when the RefPack header's three size bytes are in the other
+        /// byte order - which is what a wrong guess about retail data would look like.
+        /// </summary>
+        [Fact]
+        public void AMisorderedRefPackHeaderSizeDoesNotBreakAnEntryTheManifestSizes()
+        {
+            var data = PseudoRandom(0x012345);
+            var path = WriteArchive("swapped.far3", Entry("big.dat", data, compressed: true, fileId: 1));
+
+            var bytes = File.ReadAllBytes(path);
+            //payload starts at 16; the 0x10,0xFB magic sits 13 bytes in, the size bytes follow it
+            Assert.Equal(0x10, bytes[16 + 13]);
+            Assert.Equal(0xFB, bytes[16 + 14]);
+            (bytes[16 + 15], bytes[16 + 17]) = (bytes[16 + 17], bytes[16 + 15]);
+            File.WriteAllBytes(path, bytes);
+
+            using (var archive = new FAR3Archive(path))
+            {
+                var entry = Assert.Single(archive.GetAllFAR3Entries());
+                AssertSameBytes(data, archive.GetEntry(entry), "the manifest size must win over the header size");
+            }
+        }
+
+        /// <summary>
         /// The same round trip at a size whose high size byte is zero, and one at a size that
         /// fills all three bytes to the top, so the assertion is not accidentally satisfied by a
         /// single correct byte.

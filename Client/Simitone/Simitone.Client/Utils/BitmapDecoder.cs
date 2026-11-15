@@ -1,10 +1,5 @@
 using System;
 using System.IO;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats;
-using SixLabors.ImageSharp.Formats.Bmp;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Simitone.Client.Utils
 {
@@ -13,8 +8,8 @@ namespace Simitone.Client.Utils
     /// FreeSO's <c>ImageLoaderHelpers.BitmapFunction</c> hook expects.
     ///
     /// This replaces a <c>System.Drawing</c> (GDI+) implementation. GDI+ is Windows-only and
-    /// unsupported on modern .NET for anything but a subset of scenarios; ImageSharp is managed,
-    /// cross-platform, and maintained. It also removes Simitone's last hard dependency on the
+    /// unsupported on modern .NET for anything but a subset of scenarios; <see cref="BmpCodec"/> and
+    /// <see cref="PngCodec"/> are managed, cross-platform and dependency-free. It also removes Simitone's last hard dependency on the
     /// legacy drawing stack, which is what allowed the hook to be moved into
     /// <c>Simitone.Client</c> (and therefore unit-tested) instead of living inline in the WinForms
     /// entry point.
@@ -47,7 +42,7 @@ namespace Simitone.Client.Utils
     /// <para>The old GDI+ implementation applied a colour matrix to swap R and B and then asked for
     /// <c>Format32bppArgb</c>; the two swaps cancelled out and the net buffer that FreeSO actually
     /// relies on was R,G,B,A. This implementation therefore does no channel swapping at all: it
-    /// asks ImageSharp for <see cref="Rgba32"/> and copies the pixels out verbatim.</para>
+    /// takes the codecs' R,G,B,A output verbatim.</para>
     /// </summary>
     public static class BitmapDecoder
     {
@@ -71,9 +66,8 @@ namespace Simitone.Client.Utils
         /// through to their own error handling, and some of them do so from inside a catch block,
         /// so a decoder that threw would either be swallowed into a wrong answer or escape as a
         /// startup crash. Indexed/palettized, 24bpp and 32bpp BMPs and PNG all decode
-        /// through the same path - ImageSharp normalises the container and the caller sees RGBA.
-        /// Only BMP and PNG decode (see <c>DecoderOptionsBmpPng</c>); any other format, TIFF
-        /// included, returns <c>null</c>.
+        /// through the same path - the codecs normalise the container and the caller sees RGBA.
+        /// Only BMP and PNG decode; any other format, TIFF included, returns <c>null</c>.
         /// </remarks>
         public static Tuple<byte[], int, int> Read(Stream stream)
         {
@@ -82,41 +76,31 @@ namespace Simitone.Client.Utils
             try
             {
                 // Buffer the stream so the BMP header fix-up below can rewrite the colour-table
-                // offset before ImageSharp parses it. ImageSharp reads the whole stream anyway, so
+                // offset before the codec parses it. The decoders read the whole stream anyway, so
                 // this does not change how much of the caller's stream is consumed.
                 var bytes = ReadToEnd(stream);
                 NormalizeBmpColorTableOffset(bytes);
 
-                using (var ms = new MemoryStream(bytes, false))
-                using (Image<Rgba32> image = Image.Load<Rgba32>(DecoderOptionsBmpPng, ms))
-                {
-                    // Rgba32 is exactly 4 bytes per pixel, so the buffer is tightly packed and
-                    // matches FreeSO's "no row padding" assumption without any stride fixup.
-                    var data = new byte[image.Width * image.Height * 4];
-                    image.CopyPixelDataTo(data);
-                    return new Tuple<byte[], int, int>(data, image.Width, image.Height);
-                }
+                // Dispatch on the magic bytes: only BMP and PNG are ever parsed. TS1 content is
+                // BMP (cursors, thumbnails) and PNG; TGA is decoded by FreeSO before this hook is
+                // reached, and no TIFF/JPEG/GIF ships, so those return null without being parsed.
+                RgbaImage image;
+                if (PngCodec.HasSignature(bytes)) image = PngCodec.Decode(bytes);
+                else if (BmpCodec.HasSignature(bytes)) image = BmpCodec.Decode(bytes);
+                else return null;
+
+                // The codecs emit exactly 4 bytes per pixel, so the buffer is tightly packed and
+                // matches FreeSO's "no row padding" assumption without any stride fixup.
+                return new Tuple<byte[], int, int>(image.Pixels, image.Width, image.Height);
             }
             catch (Exception)
             {
-                // Deliberately broad: ImageSharp signals a bad file as UnknownImageFormatException
-                // or ImageFormatException, but a truncated/garbage stream can surface as almost
-                // anything from a decoder, and a half-read file must not take the game down.
+                // Deliberately broad: the codecs signal a bad file with InvalidDataException, but
+                // a truncated/garbage stream can surface as almost anything (index, overflow,
+                // inflate errors), and a half-read file must not take the game down.
                 return null;
             }
         }
-
-        /// <summary>
-        /// Only BMP and PNG are registered. ImageSharp 3.1.12 is pinned with advisories in its
-        /// TIFF/ICC/HistogramEqualization paths (see Directory.Build.props); a Configuration that
-        /// does not know TIFF means a TIFF stream is never parsed at all - format detection fails
-        /// and <see cref="Read"/> returns null. TS1 content is BMP (cursors, thumbnails) and PNG;
-        /// TGA is decoded by FreeSO before this hook is reached, and no JPEG/GIF ships.
-        /// </summary>
-        private static readonly DecoderOptions DecoderOptionsBmpPng = new DecoderOptions
-        {
-            Configuration = new Configuration(new PngConfigurationModule(), new BmpConfigurationModule())
-        };
 
         private static byte[] ReadToEnd(Stream stream)
         {
@@ -133,8 +117,8 @@ namespace Simitone.Client.Utils
         /// The TS1 cursor loader (<c>CurLoader.LoadCursor</c>) wraps a .cur's embedded bitmap in a
         /// synthetic BMP file header and always writes <c>bfOffBits = 14</c>, even for 1bpp/4bpp
         /// images that carry a colour table. GDI+ located the palette from the DIB header and
-        /// ignored the field, but ImageSharp honours it, so the palette was parsed as pixel data
-        /// and the file was rejected ("Bitmap does not have a valid format"). That turned every
+        /// ignored the field, but <see cref="BmpCodec"/> honours it (as every strict BMP reader does), so
+        /// without this the palette would be parsed as pixel data and the file rejected. That turned every
         /// cursor into a <c>null</c> decode and crashed startup inside FreeSO's cursor manager.
         ///
         /// The offset is only raised when it is demonstrably too small for the declared DIB header

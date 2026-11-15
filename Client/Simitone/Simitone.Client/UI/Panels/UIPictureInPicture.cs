@@ -194,7 +194,11 @@ namespace Simitone.Client.UI.Panels
     /// <b>Hosting.</b> The window is self-contained: it resolves the current screen itself and
     /// can be added to any <c>UIContainer</c> on the lot screen. The intended line is in
     /// <c>UISimitoneFrontend</c>'s constructor. A static trigger surface is exposed for the
-    /// headline / event system, and F9 toggles the window for manual testing.
+    /// headline / event system: <c>UIHeadlineRendererProvider</c> queues every event headline
+    /// and the window picks them up in <c>PumpEvents</c>, rate limited by
+    /// <see cref="PictureInPictureEventGate"/> and switched by the Options "Picture-in-Picture"
+    /// row (<see cref="SimitoneFlags.PictureInPicture"/>, on by default). F9 toggles the window
+    /// for manual testing when debug keys are enabled.
     /// </para>
     /// </summary>
     public sealed class UIPictureInPicture : UIContainer
@@ -308,8 +312,9 @@ namespace Simitone.Client.UI.Panels
         public PipCorner Corner = PipCorner.BottomRight;
 
         /// <summary>
-        /// The debug toggle. F8 and F11 are already taken in the lot control (lot thumbnail,
-        /// collision verification) and F12 switches graphics mode.
+        /// The debug toggle, live only with <c>DebugKeys=true</c> in <c>simitone.ini</c>
+        /// (<see cref="SimitoneFlags.DebugKeys"/>). F8 and F11 are the other debug keys in the lot
+        /// control (lot thumbnail, collision verification) and F12 switches graphics mode.
         /// </summary>
         public const Keys ToggleKey = Keys.F9;
 
@@ -408,6 +413,9 @@ namespace Simitone.Client.UI.Panels
 
             Opacity = 0f;
             Visible = false;
+
+            //Headlines re-created while the lot loaded are not events.
+            PictureInPictureEventQueue.Clear();
 
             if (Current != null)
             {
@@ -515,11 +523,13 @@ namespace Simitone.Client.UI.Panels
         {
             base.Update(state);
 
-            // The window is updated even while closed, so the debug toggle still works.
-            // UIContainer.Update ticks children regardless of Visible, so nothing has to be
-            // re-armed on show.
+            // The window is updated even while closed, so event pickup and the debug toggle
+            // still work. UIContainer.Update ticks children regardless of Visible, so nothing
+            // has to be re-armed on show.
+            PumpEvents();
+
             var nofocus = state?.InputManager == null || state.InputManager.GetFocus() == null;
-            if (nofocus && state?.NewKeys != null && state.NewKeys.Contains(ToggleKey))
+            if (nofocus && SimitoneFlags.DebugKeys.Enabled && state?.NewKeys != null && state.NewKeys.Contains(ToggleKey))
             {
                 // Re-showing with whatever it was already showing, so pressing the key twice is
                 // a clean close-then-open round trip rather than an open on a stale subject.
@@ -540,6 +550,33 @@ namespace Simitone.Client.UI.Panels
             ResolveFeed();
             Layout();
             UpdateLabels();
+        }
+
+        private readonly PictureInPictureEventGate EventGate = new PictureInPictureEventGate();
+        private readonly double CreatedAt = PictureInPictureEventQueue.Now();
+
+        /// <summary>
+        /// Takes the headline events the headline provider queued and opens the window for the
+        /// first one the gate accepts. The queue is always drained, even when the Options switch is
+        /// off, so a backlog cannot build up and fire the moment the switch is turned on.
+        /// </summary>
+        private void PumpEvents()
+        {
+            var events = PictureInPictureEventQueue.Drain();
+            if (events.Count == 0 || !SimitoneFlags.PictureInPicture.Enabled) return;
+
+            var now = PictureInPictureEventQueue.Now();
+            var active = DefaultSubject();
+            foreach (var e in events)
+            {
+                if (!(e.Subject is VMEntity subject)) continue;
+                if (EventGate.TryAccept(now, e.SubjectId, e.PostedAt, now - CreatedAt,
+                    ReferenceEquals(subject, active), State.IsVisible))
+                {
+                    Open(subject, e.Caption, DefaultHoldSeconds);
+                    return;
+                }
+            }
         }
 
         private static float FrameSeconds(UpdateState state)

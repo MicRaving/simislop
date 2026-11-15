@@ -38,7 +38,7 @@ namespace Simitone.Client.UI.Panels
         /// main panel, so this is the one place the window can be hosted without either of
         /// them having to know about it. The window re-places and re-resolves itself, so
         /// nothing else is needed; the headline / event system reaches it through the
-        /// statics on <see cref="UIPictureInPicture"/> (F9 toggles it for testing).
+        /// statics on <see cref="UIPictureInPicture"/> (headline events open it; F9 toggles it when debug keys are on).
         /// </summary>
         public UIPictureInPicture PictureInPicture;
 

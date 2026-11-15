@@ -121,9 +121,6 @@ namespace Simitone.Tests.UI
         private static NeighbourhoodWorldCapabilityRow Simulate =>
             NeighbourhoodWorldCapabilityRow.SimulateNeighbours;
 
-        private static NeighbourhoodWorldCapabilityRow Walk =>
-            NeighbourhoodWorldCapabilityRow.WalkBetweenLots;
-
         /// <summary>Puts a hand-written sidecar in place and forgets the flags' cache.</summary>
         private void Seed(params string[] lines)
         {
@@ -264,11 +261,10 @@ namespace Simitone.Tests.UI
             // B6 are unimplemented, and a checkbox that switched a capability a player cannot see
             // on is the exact failure the all-off default exists to prevent.
             Assert.Equal(NeighbourhoodWorldFlag.World, NeighbourhoodWorldRow.MasterFlags[0]);
-            Assert.Contains(NeighbourhoodWorldFlag.Surroundings, NeighbourhoodWorldRow.MasterFlags);
+            Assert.Contains(NeighbourhoodWorldFlag.NeighbourSubWorlds, NeighbourhoodWorldRow.MasterFlags);
             Assert.Contains(NeighbourhoodWorldFlag.Travel, NeighbourhoodWorldRow.MasterFlags);
             Assert.Contains(NeighbourhoodWorldFlag.Services, NeighbourhoodWorldRow.MasterFlags);
             Assert.Contains(NeighbourhoodWorldFlag.Persist, NeighbourhoodWorldRow.MasterFlags);
-            Assert.DoesNotContain(NeighbourhoodWorldFlag.Walk, NeighbourhoodWorldRow.MasterFlags);
             Assert.DoesNotContain(NeighbourhoodWorldFlag.Offscreen, NeighbourhoodWorldRow.MasterFlags);
             Assert.Equal(NeighbourhoodWorldRow.MasterFlagCount, NeighbourhoodWorldRow.MasterFlags.Count);
         }
@@ -311,21 +307,18 @@ namespace Simitone.Tests.UI
         }
 
         [Fact]
-        public void TickingTheRowLeavesTheTwoUnshippedFlagsAlone()
+        public void TickingTheRowLeavesTheUnshippedFlagAlone()
         {
-            // Walk and Offscreen are the milestone switches, not this row's, and it must not
-            // quietly gate a capability its implementation does not own.
-            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Walk, true, save: false);
+            // Offscreen is a milestone switch, not this row's, and it must not quietly gate a
+            // capability its implementation does not own.
             NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Offscreen, true, save: false);
 
             Row(NeighbourhoodWorldRow.Key).SetValue(null, true);
 
-            Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk));
             Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Offscreen));
 
-            //and unticking clears the five without reaching across to them either
+            //and unticking clears the five without reaching across to it either
             Row(NeighbourhoodWorldRow.Key).SetValue(null, false);
-            Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk));
             Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Offscreen));
         }
 
@@ -457,7 +450,7 @@ namespace Simitone.Tests.UI
             Assert.Equal(NeighbourhoodWorldFlags.TokenFor(true), Raw(NeighbourhoodWorldFlags.TravelKey));
         }
 
-        // ---- the two capability rows: Simulate Neighbours (B6) and Walk Between Lots (B4) ---------
+        // ---- the capability row: Simulate Neighbours (B6) -----------------------------------------
         //
         // What is worth pinning, in the same order as the rest of the class: that the rows exist
         // at all (a setting with no row does not exist as far as a player is concerned), that
@@ -473,14 +466,13 @@ namespace Simitone.Tests.UI
             var rows = WorldRows();
             var names = rows.Select(x => x.AttachedProperty?.Name).ToList();
 
-            Assert.Equal(3, rows.Count);
+            Assert.Equal(2, rows.Count);
             Assert.Contains(NeighbourhoodWorldRow.Key, names);
             Assert.Contains(Simulate.Key, names);
-            Assert.Contains(Walk.Key, names);
             Assert.Equal(names.Count, names.Distinct().Count());
 
-            //And the two are the capability rows, in the order the page shows them.
-            Assert.Equal(new[] { NeighbourhoodWorldFlag.Offscreen, NeighbourhoodWorldFlag.Walk },
+            //And the capability rows, in the order the page shows them.
+            Assert.Equal(new[] { NeighbourhoodWorldFlag.Offscreen },
                 NeighbourhoodWorldCapabilityRow.All.Select(x => x.Flag));
         }
 
@@ -525,7 +517,6 @@ namespace Simitone.Tests.UI
 
             AssertOnly(NeighbourhoodWorldFlag.Offscreen);
             Assert.True(Simulate.Enabled);
-            Assert.False(Walk.Enabled);
 
             //and the master row is a conjunction over its own five, so it must not follow
             Assert.False(NeighbourhoodWorldRow.Enabled);
@@ -533,76 +524,57 @@ namespace Simitone.Tests.UI
         }
 
         [Fact]
-        public void TickingWalkBetweenLotsTurnsWalkOnAndNothingElse()
-        {
-            WorldRow(Walk.Key).SetValue(null, true);
-
-            AssertOnly(NeighbourhoodWorldFlag.Walk);
-            Assert.True(Walk.Enabled);
-            Assert.False(Simulate.Enabled);
-            Assert.False(NeighbourhoodWorldRow.Enabled);
-        }
-
-        [Fact]
-        public void UntickingACapabilityRowLeavesTheMasterAndTheOtherRowAlone()
+        public void UntickingACapabilityRowLeavesTheMasterAlone()
         {
             // Off has to be as complete as on, or a player who switches B6 back off is still
             // running the world while they are away.
             WorldRow(Simulate.Key).SetValue(null, true);
-            WorldRow(Walk.Key).SetValue(null, true);
             Row(NeighbourhoodWorldRow.Key).SetValue(null, true);
 
             WorldRow(Simulate.Key).SetValue(null, false);
 
             Assert.False(Simulate.Enabled);
-            Assert.True(Walk.Enabled);
             Assert.True(NeighbourhoodWorldRow.Enabled);
             Assert.Equal(NeighbourhoodWorldFlags.All.Count - 1, FlagSet().Count(x => x));
         }
 
         [Fact]
-        public void TheMasterRowDoesNotMoveEitherCapabilityFlagInEitherDirection()
+        public void TheMasterRowDoesNotMoveTheCapabilityFlagInEitherDirection()
         {
-            // The independence the master row's remarks promise. A milestone that has switched B4
+            // The independence the master row's remarks promise. A milestone that has switched B6
             // on by hand must still find its flag on after somebody unticks Connected
             // Neighbourhood, and a tick on B6 must not make the master draw as on.
-            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Walk, true, save: false);
             NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Offscreen, true, save: false);
 
             Row(NeighbourhoodWorldRow.Key).SetValue(null, true);
             Assert.True(Simulate.Enabled);
-            Assert.True(Walk.Enabled);
 
             Row(NeighbourhoodWorldRow.Key).SetValue(null, false);
             Assert.True(Simulate.Enabled);
-            Assert.True(Walk.Enabled);
             Assert.False(NeighbourhoodWorldRow.Enabled);
-            Assert.Equal(2, FlagSet().Count(x => x));
+            Assert.Equal(1, FlagSet().Count(x => x));
         }
 
         [Fact]
-        public void NeitherCapabilityIsInTheMasterSet()
+        public void TheCapabilityIsNotInTheMasterSet()
         {
             // A capability folded into MasterFlags would become part of the conjunction: ticking
             // the master would switch it on and unticking would clear it, which is precisely the
-            // dependency the two rows exist to avoid.
-            Assert.DoesNotContain(NeighbourhoodWorldFlag.Walk, NeighbourhoodWorldRow.MasterFlags);
+            // dependency the capability rows exist to avoid.
             Assert.DoesNotContain(NeighbourhoodWorldFlag.Offscreen, NeighbourhoodWorldRow.MasterFlags);
             Assert.Equal(NeighbourhoodWorldRow.MasterFlagCount, NeighbourhoodWorldRow.MasterFlags.Count);
         }
 
         [Fact]
-        public void ThePageFindsAllThreeRowsByTheirOwnNames()
+        public void ThePageFindsBothRowsByTheirOwnNames()
         {
             // The one predicate UIGraphicsOptionsSubpanel.OnSettingsChanged has for this feature,
-            // and the reason Apply may cover all seven keys: a row it did not match would be
-            // recorded in memory and never written down.
+            // and the reason Apply covers every flag: a row it did not match would be recorded in
+            // memory and never written down.
             Assert.True(NeighbourhoodWorldRow.Describes(NeighbourhoodWorldRow.Key));
             Assert.True(NeighbourhoodWorldRow.Describes(Simulate.Key));
-            Assert.True(NeighbourhoodWorldRow.Describes(Walk.Key));
 
             Assert.True(NeighbourhoodWorldRow.Describes(WorldRow(Simulate.Key)));
-            Assert.True(NeighbourhoodWorldRow.Describes(WorldRow(Walk.Key)));
 
             //and still nobody else's
             Assert.False(NeighbourhoodWorldRow.Describes(NeighbourhoodViewSetting.Key));
@@ -613,19 +585,14 @@ namespace Simitone.Tests.UI
         }
 
         [Fact]
-        public void EachCapabilityRowIsFoundByItsOwnNameAndNotByTheOtherRows()
+        public void TheCapabilityRowIsFoundByItsOwnNameAndNotByTheMasterRows()
         {
-            // Two capabilities, two keys, and a row that matched the other's name would write a
-            // player's choice into the wrong ini key with no exception anywhere.
+            // A row that matched the master's name would write a player's choice into the wrong
+            // ini key with no exception anywhere.
             Assert.True(Simulate.Describes(Simulate.Key));
-            Assert.False(Simulate.Describes(Walk.Key));
             Assert.False(Simulate.Describes(NeighbourhoodWorldRow.Key));
             Assert.False(Simulate.Describes((string)null));
             Assert.False(Simulate.Describes((UIOptionsSubpanelBase.UIOptionDescriprion)null));
-
-            Assert.True(Walk.Describes(Walk.Key));
-            Assert.False(Walk.Describes(Simulate.Key));
-            Assert.False(Walk.Describes(NeighbourhoodWorldRow.Key));
         }
 
         [Fact]
@@ -635,7 +602,6 @@ namespace Simitone.Tests.UI
             // the floor under both tables, and the tooltip has to answer the two things a player
             // cannot otherwise see: that it is off by default, and that it does nothing on its own.
             Assert.Equal("Simulate Neighbours", WorldRow(Simulate.Key).GetTitle());
-            Assert.Equal("Walk Between Lots", WorldRow(Walk.Key).GetTitle());
 
             foreach (var capability in NeighbourhoodWorldCapabilityRow.All)
             {
@@ -649,9 +615,6 @@ namespace Simitone.Tests.UI
             Assert.Equal("940", Simulate.SimitoneTitleId);
             Assert.Equal("941", Simulate.SimitoneAboutTitleId);
             Assert.Equal("942", Simulate.SimitoneAboutDescriptionId);
-            Assert.Equal("943", Walk.SimitoneTitleId);
-            Assert.Equal("944", Walk.SimitoneAboutTitleId);
-            Assert.Equal("945", Walk.SimitoneAboutDescriptionId);
         }
 
         [Fact]
@@ -695,9 +658,8 @@ namespace Simitone.Tests.UI
             ToggleAndApply(Simulate, true);
 
             Assert.Equal(NeighbourhoodWorldFlags.TokenFor(true), Raw(NeighbourhoodWorldFlags.OffscreenKey));
-            Assert.Equal(NeighbourhoodWorldFlags.TokenFor(false), Raw(NeighbourhoodWorldFlags.WalkKey));
+            Assert.Null(Raw("NeighbourhoodWorldWalk")); //the cut flag is never written back
             Assert.True(NeighbourhoodWorldFlags.ReadFrom(Sidecar, NeighbourhoodWorldFlag.Offscreen));
-            Assert.False(NeighbourhoodWorldFlags.ReadFrom(Sidecar, NeighbourhoodWorldFlag.Walk));
 
             //Every one of the master's five stays off on disk, because it was off in memory.
             foreach (var flag in NeighbourhoodWorldRow.MasterFlags)
@@ -711,12 +673,12 @@ namespace Simitone.Tests.UI
         {
             // An off that is only implied by a missing key is a value this build never wrote, and
             // Resolve treats it as off for a different reason - so "off" has to be on the file.
-            ToggleAndApply(Walk, true);
+            ToggleAndApply(Simulate, true);
 
-            ToggleAndApply(Walk, false);
+            ToggleAndApply(Simulate, false);
 
-            Assert.Equal(NeighbourhoodWorldFlags.TokenFor(false), Raw(NeighbourhoodWorldFlags.WalkKey));
-            Assert.False(Walk.Enabled);
+            Assert.Equal(NeighbourhoodWorldFlags.TokenFor(false), Raw(NeighbourhoodWorldFlags.OffscreenKey));
+            Assert.False(Simulate.Enabled);
         }
 
         [Fact]
@@ -738,28 +700,25 @@ namespace Simitone.Tests.UI
                 Assert.True((bool)WorldRow(capability.Key).GetValue(null));
             }
 
-            //and nothing else came back with them
-            Assert.Equal(2, FlagSet().Count(x => x));
+            //and nothing else came back with it
+            Assert.Equal(1, FlagSet().Count(x => x));
         }
 
         [Fact]
-        public void TheMasterRowsWriteDoesNotDisturbTheTwoCapabilityKeys()
+        public void TheMasterRowsWriteDoesNotDisturbTheCapabilityKey()
         {
-            // The other direction of the same file. The master row's Apply now covers all seven
-            // keys, so it has to write the two it does not own with the values they already had -
-            // a save of an unrelated setting must not be able to reset B4 or B6.
+            // The other direction of the same file. The master row's Apply covers every flag, so
+            // it has to write the one it does not own with the value it already had - a save of
+            // an unrelated setting must not be able to reset B6.
             ToggleAndApply(Simulate, true);
-            ToggleAndApply(Walk, true);
 
             ToggleAndApply(true);
 
             Assert.True(NeighbourhoodWorldFlags.ReadFrom(Sidecar, NeighbourhoodWorldFlag.Offscreen));
-            Assert.True(NeighbourhoodWorldFlags.ReadFrom(Sidecar, NeighbourhoodWorldFlag.Walk));
 
             ToggleAndApply(false);
 
             Assert.True(NeighbourhoodWorldFlags.ReadFrom(Sidecar, NeighbourhoodWorldFlag.Offscreen));
-            Assert.True(NeighbourhoodWorldFlags.ReadFrom(Sidecar, NeighbourhoodWorldFlag.Walk));
         }
 
         [Fact]
@@ -801,7 +760,6 @@ namespace Simitone.Tests.UI
             var names = GraphicsRows().Select(x => x.AttachedProperty?.Name).ToList();
 
             Assert.Contains(Simulate.Key, names);
-            Assert.Contains(Walk.Key, names);
             Assert.Contains(NeighbourhoodWorldRow.Key, names);
         }
     }

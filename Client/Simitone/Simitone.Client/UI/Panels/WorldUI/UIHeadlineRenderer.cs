@@ -202,6 +202,19 @@ namespace Simitone.Client.UI.Panels.WorldUI
     {
         public VMHeadlineRenderer Get(VMRuntimeHeadline headline)
         {
+            //Every headline the VM puts up passes through here, which makes this the one place a
+            //"something notable happened to a sim" signal can be taken without touching the
+            //engine. Only fire and snake panics qualify (see PictureInPictureEventFilter for the
+            //evidence); UIPictureInPicture decides what to do with them.
+            if (headline?.Operand != null
+                && headline.Target is VMAvatar sim
+                && Utils.PictureInPictureEventFilter.IsNotable(
+                    (int)headline.Operand.Group, headline.Operand.Type, headline.Operand.Duration,
+                    true, headline.IconTarget?.Object?.OBJ?.GUID)
+                && Utils.SimitoneFlags.PictureInPicture.Enabled)
+            {
+                Utils.PictureInPictureEventQueue.Post(sim, sim.ObjectID, sim.Name);
+            }
             return (headline.Operand.Group == VMSetBalloonHeadlineOperandGroup.Money)? new UIMoneyHeadline(headline) : ((VMHeadlineRenderer)new UIHeadlineRenderer(headline));
         }
     }

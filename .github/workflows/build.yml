@@ -25,20 +25,20 @@ env:
   # Ceiling on unique warning lines the build may produce (deduplicated as in the
   # "Check the warning budget" step: terminal-logger prefix stripped, trimmed, unique).
   #
-  # Re-measured 2026-11-15 on the full BuildIde=true closure this job now builds
-  # (`dotnet build Client/Simitone/Simitone.sln -c Release --no-incremental`): 675 unique
-  # lines, of which 336 are NU1701 (19 packages, each reported once per consuming
-  # project). Every remaining warning is in the FreeSO tree; the Simitone projects
-  # (client, Windows, tests, tools) compile with zero warnings. 700 leaves room for a
-  # stray copy-lock warning or two without letting a family of tens slip under it.
+  # Re-measured 2026-11-15 on the default graph (game + FSO.Content.TSO, BuildIde=false; the
+  # FSO.IDE / FSO.Client / server projects are not built any more)
+  # (`dotnet build Client/Simitone/Simitone.sln -c Release --no-incremental`): 140 unique
+  # lines, of which 57 are NU1701 (5 packages, each reported once per consuming project).
+  # Every warning is in the FreeSO tree or Simitone.Client's legacy code; the shipped build
+  # was 675 before the server closure left it. 150 leaves room for a stray copy-lock
+  # warning or two without letting a family of tens slip under it.
   # Tighten it whenever the count comes down, in the same commit as the fix.
-  WARNING_BUDGET: 700
+  WARNING_BUDGET: 150
   # Distinct packages the build may restore for the wrong target framework (NU1701 /
-  # B-02). All 19 come from the FreeSO closure (Mina, xxHashSharp, FreeSO.HandEvaluator,
-  # the Common.Logging pair, CommandLineParser, Open.NAT, Portable.BouncyCastle,
-  # Portable.JWT and ten System.* 4.0.x facades pulled in by the server projects).
-  # Bump it down as packages are replaced, never up.
-  NU1701_BUDGET: 19
+  # B-02): Mina, xxHashSharp, FreeSO.HandEvaluator and the Common.Logging pair
+  # (Common.Logging, Common.Logging.Core), all FreeSO runtime dependencies with no
+  # maintained replacement. Bump it down as packages are replaced, never up.
+  NU1701_BUDGET: 5
 
 jobs:
   build:
@@ -125,15 +125,16 @@ jobs:
     # visible. The output is teed to a file rather than rebuilt, so this costs nothing.
     #
     # This is also the step that runs Simitone.Windows's AfterTargets="Build" assertions, so a
-    # full build rather than -t:Compile is what makes them count: TrimSingleplayerOutput, and -
-    # only if BuildIde is ever defaulted back to false - _SimitoneAssertNoIdeReferences and
-    # _SimitoneContentContract (both are gated on BuildIde=false).
+    # full build rather than -t:Compile is what makes them count: _SimitoneAssertNoIdeReferences
+    # (the game graph reaches no IDE / TSO-server assembly) and _SimitoneContentContract (every
+    # file the startup path opens by name, FSO.Content.TSO's folders included, is in the output).
     #
-    # BuildIde defaults to TRUE (Client/Simitone/Directory.Build.props), so this one build
-    # compiles the full closure, FSO.IDE / FSO.Client / the TSO server projects included. There
-    # used to be a separate "ide-build" job for -p:BuildIde=true; it compiled exactly the same
-    # graph a second time and was removed. If the default ever goes back to false, bring a
-    # -p:BuildIde=true -t:Compile job back or the -ide path will rot unobserved.
+    # BuildIde defaults to FALSE (Client/Simitone/Directory.Build.props): this build compiles the
+    # game plus FSO.Content.TSO (content only) and NOT FSO.IDE / FSO.Client / the ~19 TSO server
+    # projects. The opt-in -p:BuildIde=true graph (the -ide host) is therefore not compiled by CI;
+    # if the -ide path matters, add a `dotnet build ... -p:BuildIde=true -t:Compile` job or it
+    # will rot unobserved. (There used to be such an "ide-build" job; it was removed while
+    # BuildIde defaulted to true and the main job compiled the same graph.)
     #
     - name: Build
       shell: pwsh
@@ -279,3 +280,19 @@ jobs:
         # rather than hardcoded, and a TFM bump cannot quietly upload nothing.
         path: Client/Simitone/Simitone.Windows/bin/${{ env.CONFIGURATION }}/${{ steps.tfm.outputs.value }}/
         if-no-files-found: warn
+
+  # The opt-in editor/server graph (-p:BuildIde=true, Debug only) is no longer part of the
+  # default build, so compile it here or it rots unobserved. Compile only: nothing ships from it.
+  ide-compile:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+    - name: Compile the BuildIde=true graph
+      run: dotnet build Client/Simitone/Simitone.sln -c Debug -p:BuildIde=true -t:Compile

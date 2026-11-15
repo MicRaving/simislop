@@ -371,8 +371,9 @@ a real install, but lot entry, CAS editing and travel cannot be exercised headle
   `.Replace('\\','/')` was in fact effective. The new code matches the original
   forward-slash form either way, but the rationale comment was corrected here.
 - `BitmapFunction` now lives in `Simitone.Client`, so the test project can reach it; the
-  `Simitone.Windows` csproj still declares ImageSharp explicitly so the dependency cannot
-  silently disappear with a FreeSO submodule update.
+  `Simitone.Windows` csproj still declared ImageSharp explicitly so the dependency cannot
+  silently disappear with a FreeSO submodule update. (Later removed: the decoder now uses the
+  in-repo `BmpCodec`/`PngCodec`, so there is no image package to pin.)
 
 **Not done, and why**
 - `FSO.Client` pulling the TSO server stack into a singleplayer build: found, not

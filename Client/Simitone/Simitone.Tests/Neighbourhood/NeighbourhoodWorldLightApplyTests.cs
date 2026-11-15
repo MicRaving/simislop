@@ -266,7 +266,10 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Contains("world.Tick(deltaSeconds);", tick);
             Assert.Contains("catch (Exception ex)", tick);
             //and it is the world that is dropped, never an exception that escapes
-            Assert.Contains("NeighbourhoodWorld = null;", tick);
+            Assert.Contains("WorldSession.End();", tick);
+            //while a lot is up its clock is what the world follows, and the wall-clock tick is
+            //only for when there is no lot clock
+            Assert.Contains("world.FollowLotClock(lotClock);", tick);
             Assert.DoesNotContain("throw", tick);
 
             //The call site is a comparison and a call, so a capability that is off costs no frame

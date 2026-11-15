@@ -10,14 +10,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using Microsoft.Xna.Framework;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-
-// ImageSharp also exports a Color, and this file needs its namespace for Image<TPixel> and the
-// SaveAsPng extension. The alias pins the one that matters: this is XNA's Color, the type
-// CityMapData's Color[] arrays are made of, and the type a later renderer hands over without a
-// conversion. Without the alias the bare identifier would not compile.
-using Color = Microsoft.Xna.Framework.Color;
+using Simitone.Client.Utils;
 
 namespace Simitone.Client.Neighbourhood
 {
@@ -176,7 +169,7 @@ namespace Simitone.Client.Neighbourhood
     /// </para>
     /// <para>
     /// Nothing here allocates a graphics resource. <see cref="SavePng"/> writes the same five
-    /// files <c>CityMapData.Save</c> does, with the same names, through ImageSharp - so the debug
+    /// files <c>CityMapData.Save</c> does, with the same names, through <c>PngCodec</c> - so the debug
     /// dump works headless in a test and a player (or M3) can drop the arrays into a
     /// <c>CityMapData</c> and use its own writer instead.
     /// </para>
@@ -385,7 +378,7 @@ namespace Simitone.Client.Neighbourhood
 
         /// <summary>
         /// Writes the five PNGs <c>CityMapData.Save</c> writes, under the same names, into
-        /// <paramref name="directory"/> (created if missing). Pure managed I/O through ImageSharp -
+        /// <paramref name="directory"/> (created if missing). Pure managed I/O through <c>PngCodec</c> -
         /// no <c>Texture2D</c>, no graphics device, no game thread - so it works from a test and
         /// from a headless build server.
         ///
@@ -442,58 +435,43 @@ namespace Simitone.Client.Neighbourhood
             }
             var span = highest - lowest;
 
-            using (var image = new Image<Rgba32>(Width, Height))
+            var pixels = new byte[Width * Height];
+            for (int i = 0; i < pixels.Length; i++)
             {
-                image.ProcessPixelRows(accessor =>
+                var raw = data[i];
+                byte v;
+                if (mode == 1)
                 {
-                    for (int y = 0; y < accessor.Height; y++)
-                    {
-                        var row = accessor.GetRowSpan(y);
-                        for (int x = 0; x < row.Length; x++)
-                        {
-                            var raw = data[y * Width + x];
-                            byte v;
-                            if (mode == 1)
-                            {
-                                // The roadmap holds a nibble pair. Showing only one would hide
-                                // half of it, so the road nibble is expanded across the grey
-                                // channel rather than squashed into it.
-                                v = (byte)((raw & RoadMask.MaskBits) * 17);
-                            }
-                            else if (mode == 255 && span > 0)
-                            {
-                                v = (byte)(((raw - lowest) * 255) / span);
-                            }
-                            else
-                            {
-                                v = raw;
-                            }
-                            row[x] = new Rgba32(v, v, v, 255);
-                        }
-                    }
-                });
-                image.SaveAsPng(path);
+                    // The roadmap holds a nibble pair. Showing only one would hide
+                    // half of it, so the road nibble is expanded across the grey
+                    // channel rather than squashed into it.
+                    v = (byte)((raw & RoadMask.MaskBits) * 17);
+                }
+                else if (mode == 255 && span > 0)
+                {
+                    v = (byte)(((raw - lowest) * 255) / span);
+                }
+                else
+                {
+                    v = raw;
+                }
+                pixels[i] = v;
             }
+            PngCodec.SaveGray(path, Width, Height, pixels);
         }
 
         private void SaveColor(string path, Color[] data)
         {
-            using (var image = new Image<Rgba32>(Width, Height))
+            var pixels = new byte[Width * Height * 4];
+            for (int i = 0; i < Width * Height; i++)
             {
-                image.ProcessPixelRows(accessor =>
-                {
-                    for (int y = 0; y < accessor.Height; y++)
-                    {
-                        var row = accessor.GetRowSpan(y);
-                        for (int x = 0; x < row.Length; x++)
-                        {
-                            var c = data[y * Width + x];
-                            row[x] = new Rgba32(c.R, c.G, c.B, 255);
-                        }
-                    }
-                });
-                image.SaveAsPng(path);
+                var c = data[i];
+                pixels[i * 4] = c.R;
+                pixels[i * 4 + 1] = c.G;
+                pixels[i * 4 + 2] = c.B;
+                pixels[i * 4 + 3] = 255;
             }
+            PngCodec.SaveRgba(path, Width, Height, pixels);
         }
 
         private static void AppendHistogram(StringBuilder sb, string name, byte[] data)

@@ -1513,26 +1513,16 @@ namespace Simitone.Client.UI.Panels
                     PieMenu = null;
                 }
 
-                if (state.NewKeys.Contains(Keys.F11))
+                //Developer keys: off unless DebugKeys=true is set in simitone.ini.
+                if (SimitoneFlags.DebugKeys.Enabled)
                 {
-                    var utils = new FSO.SimAntics.Test.CollisionTestUtils();
-                    utils.VerifyAllCollision(vm);
-                }
-
-                if (state.NewKeys.Contains(Keys.F8))
-                {
-                    UIMobileAlert alert = null;
-                    alert = new UIMobileAlert(new UIAlertOptions()
+                    if (state.NewKeys.Contains(Keys.F11))
                     {
-                        Title = "Debug Lot Thumbnail",
-                        Message = "Arch Value: "+VMArchitectureStats.GetArchValue(vm.Context.Architecture),
-                        Buttons = UIAlertButton.Ok((btn) => UIScreen.RemoveDialog(alert))
-                    });
-                    Texture2D roofless = null;
-                    var thumb = World.GetLotThumb(GameFacade.GraphicsDevice, (tex) => roofless = FSO.Common.Utils.TextureUtils.Decimate(tex, GameFacade.GraphicsDevice, 2, false));
-                    thumb = FSO.Common.Utils.TextureUtils.Decimate(thumb, GameFacade.GraphicsDevice, 2, false);
-                    alert.SetIcon(thumb, thumb.Width, thumb.Height);
-                    UIScreen.GlobalShowDialog(alert, true);
+                        var utils = new FSO.SimAntics.Test.CollisionTestUtils();
+                        utils.VerifyAllCollision(vm);
+                    }
+
+                    if (state.NewKeys.Contains(Keys.F8)) ShowDebugLotThumbnail();
                 }
                 if (LiveMode) LiveModeUpdate(state, scrolled);
                 else if (CustomControl != null)
@@ -1564,6 +1554,35 @@ namespace Simitone.Client.UI.Panels
 
                 if (RMBScrollX == int.MinValue) Dummy(); //cannon fodder for mono AOT compilation: never called but gives these constructors a meaning in life
             }
+        }
+
+        /// <summary>
+        /// Debug (F8): shows the lot thumbnail the save would take, with the architecture value.
+        /// <c>GetLotThumb</c> hands out textures the platform owns; the half-size copy made here is
+        /// this method's, and is disposed when the dialog is dismissed. The roofless picture is
+        /// not shown, so the callback does nothing with it (it used to be decimated into a
+        /// texture nothing ever disposed).
+        /// </summary>
+        private void ShowDebugLotThumbnail()
+        {
+            var gd = GameFacade.GraphicsDevice;
+            var raw = World.GetLotThumb(gd, (tex) => { });
+            if (raw == null) return;
+            var thumb = FSO.Common.Utils.TextureUtils.Decimate(raw, gd, 2, false);
+
+            UIMobileAlert alert = null;
+            alert = new UIMobileAlert(new UIAlertOptions()
+            {
+                Title = "Debug Lot Thumbnail",
+                Message = "Arch Value: " + VMArchitectureStats.GetArchValue(vm.Context.Architecture),
+                Buttons = UIAlertButton.Ok((btn) =>
+                {
+                    UIScreen.RemoveDialog(alert);
+                    if (!ReferenceEquals(thumb, raw)) thumb.Dispose();
+                })
+            });
+            alert.SetIcon(thumb, thumb.Width, thumb.Height);
+            UIScreen.GlobalShowDialog(alert, true);
         }
 
         private void Dummy()

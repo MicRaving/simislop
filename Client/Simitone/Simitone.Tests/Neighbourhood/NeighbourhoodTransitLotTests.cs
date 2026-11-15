@@ -527,12 +527,12 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void AZeroLengthWalkOwnsTheAvatarButIsNeverWalkingSoAnIsWalkingGateCannotFinishIt()
         {
-            // Documents the hazard behind a real defect: TS1GameScreen.TryBeginTransitWalk starts a
-            // walk for a request whose origin door is its destination door (a travel request for the
-            // lot the player is already on), and UpdateTransitWalk only ever advances a walk while
-            // IsWalking. Here is why that never ends: the walk has begun - the avatar is owned by
-            // the transit lot and no numbered lot - but IsWalking is false from the first frame, so
-            // nothing completes or cancels it.
+            // Documents a hazard of the planner for any future caller: a request whose origin door
+            // is its destination door (a travel request for the lot the player is already on)
+            // begins a walk that never ends if the caller advances it only while IsWalking. The walk
+            // has begun - the avatar is owned by the transit lot and no numbered lot - but
+            // IsWalking is false from the first frame, so nothing completes or cancels it. (The
+            // screen that used to start walks was removed with the Walk flag.)
             var transit = TransitLot(BlockQuery(), NorthWestLot);
 
             TransitPath path;

@@ -234,8 +234,8 @@ namespace Simitone.Tests.Neighbourhood
             //the travel capability still performs the very same five steps, behind its flag, and
             //the clock handshake is still the first step of the stash on both paths.
             var travel = text.IndexOf(
-                "else if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Travel))",
-                StringComparison.Ordinal);
+                "if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Travel))",
+                start, StringComparison.Ordinal);
             var handshake = text.IndexOf("HandshakeClockOnSave();", start, StringComparison.Ordinal);
             var end = text.IndexOf("SwitchLot = -1;", start, StringComparison.Ordinal);
             Assert.True(travel > start && end > travel,

@@ -155,7 +155,6 @@ namespace Simitone.Tests.Neighbourhood
 
             Assert.True(on.WorldServicesEnabled);
             Assert.False(off.WorldServicesEnabled);
-            Assert.Null(BareLink().World);
             Assert.DoesNotContain("no world services", on.ToString());
             Assert.Contains("no world services", off.ToString());
         }

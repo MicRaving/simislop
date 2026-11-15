@@ -424,8 +424,14 @@ namespace Simitone.Client.UI.Panels.EODs
 
         private void Place(UIContainer active)
         {
-            var width = GlobalSettings.Default.GraphicsWidth;
-            var height = GlobalSettings.Default.GraphicsHeight;
+            //The live UI size, not the configured window size: it is what every other panel lays
+            //out against (it already accounts for the DPI scale and a windowed or resized window),
+            //whereas the settings value is the size asked for at startup and goes stale on a
+            //resize or a display-scale change. Falls back to the configured size only before a
+            //screen exists, which a placed panel never is in play.
+            var screen = UIScreen.Current;
+            var width = screen != null && screen.ScreenWidth > 0 ? screen.ScreenWidth : GlobalSettings.Default.GraphicsWidth;
+            var height = screen != null && screen.ScreenHeight > 0 ? screen.ScreenHeight : GlobalSettings.Default.GraphicsHeight;
             if (width == LastWidth && height == LastHeight && ReferenceEquals(active, LastPlaced)) return;
             LastWidth = width;
             LastHeight = height;

@@ -112,11 +112,37 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels.Catalog
         {
             foreach (var item in IconCache)
             {
-                item.Value?.Dispose();
+                Retire(item.Value);
             }
             IconCache.Clear();
             _iconOrder.Clear();
         }
+
+        /// <summary>
+        /// Textures that left the cache but may still be referenced by a row that is mid-frame.
+        /// They are disposed once <see cref="RetireGraceMs"/> has passed; by then every row that
+        /// held one has noticed (in <see cref="Draw"/>) that it is no longer the cached texture
+        /// and has re-fetched.
+        /// </summary>
+        private static readonly Queue<KeyValuePair<long, Texture2D>> _retired = new Queue<KeyValuePair<long, Texture2D>>();
+        private const long RetireGraceMs = 2000;
+
+        private static void Retire(Texture2D texture)
+        {
+            if (texture != null) _retired.Enqueue(new KeyValuePair<long, Texture2D>(Environment.TickCount64, texture));
+        }
+
+        private static void DisposeRetired()
+        {
+            var now = Environment.TickCount64;
+            while (_retired.Count > 0 && now - _retired.Peek().Key >= RetireGraceMs)
+            {
+                _retired.Dequeue().Value.Dispose();
+            }
+        }
+
+        private uint _iconGuid;
+        private bool _iconFromCache;
         public Texture2D BG;
         public Texture2D Icon;
         public Texture2D Outline;
@@ -135,6 +161,12 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels.Catalog
             var bgColor = Unaffordable ? BgTint * DisabledOpacity : BgTint;
             DrawLocalTexture(SBatch, BG, null, new Vector2(BG.Width-90, BG.Height-105) / -2, Vector2.One, bgColor);
             var iconSize = 55f;
+            //A cached icon can be evicted (and later disposed) while this row is still built;
+            //only draw the instance the cache currently holds.
+            if (_iconFromCache && (!IconCache.TryGetValue(_iconGuid, out var live) || !ReferenceEquals(live, Icon)))
+            {
+                Icon = GetObjIcon(_iconGuid);
+            }
             if (Icon != null)
             {
                 
@@ -158,7 +190,16 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels.Catalog
         public UICatalogItem(UICatalogElement elem, UIBuyBrowsePanel budgetProvider)
         {
             BG = Content.Get().CustomUI.Get("pswitch_icon_bg.png").Get(GameFacade.GraphicsDevice);
-            Icon = (elem.Special?.Res != null) ? elem.Special.Res.GetIcon(elem.Special.ResID) : GetObjIcon(elem.Item.GUID);
+            if (elem.Special?.Res != null)
+            {
+                Icon = elem.Special.Res.GetIcon(elem.Special.ResID);
+            }
+            else
+            {
+                _iconGuid = elem.Item.GUID;
+                _iconFromCache = true;
+                Icon = GetObjIcon(_iconGuid);
+            }
             Outline = Content.Get().CustomUI.Get("pswitch_icon_sel.png").Get(GameFacade.GraphicsDevice);
 
             PriceLabel = new UILabel();
@@ -274,9 +315,10 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels.Catalog
             foreach (var stale in KeysToEvict(_iconOrder, IconCache.Count, MaxCachedIcons, guid))
             {
                 if (!IconCache.TryGetValue(stale, out var old)) continue;
-                old?.Dispose();
+                Retire(old);
                 IconCache.Remove(stale);
             }
+            DisposeRetired();
 
             //Keep the history from growing without bound. Dequeuing the oldest entries blindly
             //could drop the only entry of a cached key, after which KeysToEvict could never pick

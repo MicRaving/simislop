@@ -9,8 +9,8 @@
 
     What this file is for
     =====================
-    Five numbers were written down more than once, and a TFM bump had to be applied in
-    three unrelated places, one of them a PowerShell script:
+    Numbers that were written down more than once, so a TFM bump had to be applied in
+    several unrelated places, one of them a PowerShell script:
 
       * net10.0            - Simitone.Client.csproj, Simitone.Tests.csproj,
                              Simitone.GenerateMeshes.csproj, Simitone.PackageRemeshes.csproj,
@@ -20,9 +20,6 @@
       * 14.0 (LangVersion) - Simitone.Tests.csproj, which documented why it set it
                              ("matches the rest of the repo" - the rest being the
                              net10.0 default)
-      * SixLabors.ImageSharp 3.1.12 - declared identically in Simitone.Client.csproj and
-                             Simitone.Windows.csproj, on purpose, so the two cannot
-                             drift
       * MonoGame 3.8.5.1   - the version the whole graph actually resolves to, against
                              3.8.4 in fifteen FreeSO project files
 
@@ -51,12 +48,6 @@
     <SimitoneWindowsTargetFramework>net10.0-windows</SimitoneWindowsTargetFramework>
     <SimitoneLangVersion>14.0</SimitoneLangVersion>
 
-    <!-- Declared in both Simitone.Client and Simitone.Windows on purpose: Simitone.Client
-         defines the decoder and Simitone.Windows registers it with FreeSO, so both must
-         agree on the version rather than trusting a transitive resolution. The property
-         is what makes "both declare the same thing" enforceable instead of aspirational. -->
-    <SimitoneImageSharpVersion>3.1.12</SimitoneImageSharpVersion>
-
     <!-- The version the whole restore graph unifies to. Simitone.Windows declares this
          and CopyMonoGameDLLs asserts that what restore resolved matches it, so a
          FreeSO bump to a different MonoGame now fails the build with both version
@@ -66,102 +57,57 @@
 
   <!--
     ============================================================================
-    BuildIde - the B-12 split between the game build and the -ide build
+    BuildIde - whether the game build also compiles FreeSO's TSO online client and IDE host
     ============================================================================
-    Added by the build audit (docs/AUDIT_BUILD_DEPS.md, finding B-12).
+    FreeSO's FSO.IDE (the "Volcanic" IDE host) ProjectReferences FSO.Client (the TSO online
+    client) and FSO.Windows / FSO.SimAntics.JIT.Roslyn; FSO.Client ProjectReferences FSO.Server,
+    FSO.Server.Database, FSO.Server.DataService, FSO.Server.Clients, FSO.Server.Protocol,
+    FSO.Server.Updater, FSO.Server.Common and FSO.Content.TSO, plus VoronoiLib, TargaImage and
+    SimplePaletteQuantizer. That is ~19 projects: The Sims Online's *server*, its ASP.NET Core
+    API host, the watchdog, and the MySQL / SQLite / SqlClient / AWS / Octokit / RestSharp /
+    Portable.JWT / BouncyCastle stack on top - about 200 warnings and most of the build time.
+    Simitone is singleplayer and never loads any of it, with ONE exception: FSO.Content.TSO's
+    *content* (Objects, Globals, Avatar, Patch - cooked food and object-on-object placement
+    depend on it; see the 2026-09-29 note in git history / docs/ADDON_PROGRESSION_PLAN.md).
 
-    THE SITUATION
-    =============
-    Simitone.Windows references FreeSO's FSO.IDE (the "Volcanic" IDE host) and
-    FSO.Client (the TSO online client). FSO.Client ProjectReferences FSO.Server,
-    FSO.Server.Database, FSO.Server.DataService, FSO.Server.Clients,
-    FSO.Server.Protocol, FSO.Server.Updater, FSO.Server.Common and FSO.Content.TSO -
-    which drags in the whole The Sims Online *server*, its ASP.NET Core API host, the
-    server watchdog, and MySQL / SQLite / SqlClient / AWS / Octokit / RestSharp /
-    Portable.JWT / BouncyCastle on top. FSO.IDE adds FSO.Windows and
-    FSO.SimAntics.JIT.Roslyn, and FSO.Client adds VoronoiLib, TargaImage and
-    SimplePaletteQuantizer: nineteen projects in all, nine of which Simitone.sln used
-    to list.
-
-    None of it survives to the game. Simitone.Windows.csproj's TrimSingleplayerOutput
-    target deletes server.dll, watchdog.*, FSO.Server.*, FSO.Common.DataService,
-    MySql.Data, System.Data.SqlClient, System.Data.SQLite, AWSSDK.*, Octokit,
-    RestSharp, JWT, crypto, NLog and the SSPI/GSSAPI/SQLite natives from $(OutDir)
-    immediately after the build. The audit measured 203 of 574 unique warnings (35 %)
-    and most of the 10m39s build in those 19 projects.
-
-    The split exists, but the DEFAULT IS NOW BuildIde=true again (see the REVERTED note
-    on the property below): a plain
+    So since 2026-11-15 the default is BuildIde=false:
 
         dotnet build Client/Simitone/Simitone.sln -c Release
 
-    builds the full closure, FSO.Content.TSO's content included. The fast game-only
-    build is opt-in:
+    Simitone.Windows references FSO.Content.TSO directly (content only, no code dependencies) and
+    does NOT reference FSO.IDE / FSO.Client, so none of the ~19 projects is restored, compiled or
+    shipped. The opt-in
 
-        dotnet build Client/Simitone/Simitone.sln -c Release -p:BuildIde=false
+        dotnet build Client/Simitone/Simitone.sln -c Release -p:BuildIde=true
 
-    which drops the FSO.IDE / FSO.Client references and their closure. A Debug build
-    wants the full closure too - see TrimSingleplayerOutput, which is off outside
-    Release precisely so the IDE host can be stepped into.
+    adds FSO.IDE and FSO.Client back for the `-ide` flag (and Release still trims the server
+    assemblies from the output, unless -p:TrimSingleplayerOutput=false).
 
     WHY A PROPERTY AND NOT A SOLUTION FILTER
-    =======================================
-    A .slnf would have been the smaller change and it does not work here. Building a
-    solution filter still follows ProjectReference edges out of the projects the filter
-    names, and Simitone.Windows -> FSO.IDE is exactly such an edge, so the filter would
-    drag the whole server closure back in and save nothing. Dropping the reference
-    requires the reference to be conditional, which requires the property. The solution
-    itself was pruned to the game closure as well - see Simitone.sln - because a .sln
-    builds every project in its project table whether or not anything references it.
+    ========================================
+    Building a solution filter still follows ProjectReference edges out of the projects the
+    filter names, so dropping the heavy edge requires the reference itself to be conditional.
 
-    THE ONE THING THAT STOPS THIS BEING A PURE PROPERTY
-    ====================================================
-    Program.cs line 268:
+    THE COMPILE SHIM
+    ================
+    Program.cs has one statement that names FSO.IDE - `new FSO.IDE.VolcanicStartProxy()
+    .InitVolcanic(args)` behind the -ide flag - and it is not behind a preprocessor symbol.
+    Without BuildIde=true, Simitone.Windows compiles BuildShims/VolcanicStartProxy.NoIde.cs in its
+    place: same type and method, whose body throws a PlatformNotSupportedException naming the
+    flag that restores the real host.
 
-        if (ide) new FSO.IDE.VolcanicStartProxy().InitVolcanic(args);
-
-    is the only statement in Simitone.Windows that names FSO.IDE or FSO.Client (the two
-    `using FSO.Client;` lines are unused). A one-line call is the whole of the -ide
-    feature, and it is not behind a preprocessor symbol, so the reference cannot simply
-    be switched off without the file not compiling.
-
-    Rather than leave BuildIde=false unimplementable, Simitone.Windows compiles
-    BuildShims/VolcanicStartProxy.NoIde.cs in its place - a type with the same name and
-    the same one method, whose InitVolcanic throws PlatformNotSupportedException saying
-    this build was made without the IDE host and naming the flag that restores it. That
-    turns the failure mode from "the flag silently does nothing" into "the flag tells you
-    exactly why, on the only command line that can reach it".
-
-    The shim is checked in rather than generated so that it is reviewable C#, and it is
-    excluded from the Compile list by default so that BuildIde=true and BuildIde=false
-    can never both be true.
-
-    The residual risk - that something in the shipped closure needed FSO.Client.dll at
-    runtime for a reason no reference records - is closed at build time rather than
-    taken on faith: _SimitoneAssertNoIdeReferences in Simitone.Windows.csproj reads the
-    AssemblyRef/TypeRef names out of every assembly in $(OutDir) and fails the build if
-    anything still points at FSO.Client or FSO.IDE. The same reasoning, and the same
-    "verify the invariant, do not trust the list" shape, as the trim target.
+    Two build-time checks in Simitone.Windows.csproj keep the default honest:
+    _SimitoneAssertNoIdeReferences (the resolved runtime graph in Simitone.deps.json contains none
+    of the IDE / server assemblies) and _SimitoneContentContract (the files the game opens by
+    name, incl. FSO.Content.TSO's folders, are in the output).
 
     SCOPE
     =====
-    Client/Simitone only, and in practice only Simitone.Windows.csproj reads it. The
-    FreeSO subtree is upstream and is left exactly as it is; nothing here requires a
-    FreeSO edit, which is deliberate, so that a submodule bump has nothing to conflict
-    with.
+    Client/Simitone only, and in practice only Simitone.Windows.csproj reads it. The FreeSO
+    subtree is upstream and is left exactly as it is.
   -->
   <PropertyGroup>
-    <!--
-      REVERTED to true (2026-09-29). The game build was defaulting to BuildIde=false, which drops
-      the whole TSO closure - FSO.IDE, FSO.Client, FSO.Content.TSO and the seventeen projects
-      behind them, and with FSO.Content.TSO its 284 MB / 1,405 files of Content. That content drop
-      turned out to cost gameplay: the player reported cooked food losing its interactions and
-      object-on-object placement (coffeemaker on dishwasher) failing. The instruction is to keep
-      every TSO element, so the default is the full closure again. The fast game-only build is
-      still available explicitly with -p:BuildIde=false for anyone who wants it, but it is no
-      longer what a plain build produces.
-    -->
-    <BuildIde Condition=" '$(BuildIde)' == '' ">true</BuildIde>
+    <BuildIde Condition=" '$(BuildIde)' == '' ">false</BuildIde>
   </PropertyGroup>
 
   <!--
@@ -211,28 +157,15 @@
     problem; that is the same line the B-12 split draws.
   -->
   <PropertyGroup>
-    <WarningsAsErrors>$(WarningsAsErrors);NU1702;NU1902;NU1903;NU1904</WarningsAsErrors>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1702</WarningsAsErrors>
   </PropertyGroup>
-
-  <!--
-    ImageSharp advisories, suppressed one by one (2026-11-14 audit).
-    3.2.0 is the first patched 3.x release, but it refuses to build without a Six Labors
-    license key, so 3.1.12 (the last release that builds without one) is pinned until a
-    license is in place or the dependency is replaced. The advisories are TIFF CCITT
-    encode/decode, BigTIFF IFD parsing, ICC CLUT parsing and HistogramEqualization.
-    Simitone never encodes TIFF or equalises histograms, and BitmapDecoder only accepts
-    BMP and PNG, so the TIFF paths are unreachable from game or mod content. Remove these
-    items the moment the version above moves to a patched release: a suppression that
-    outlives its reason hides the next advisory of the same id.
-  -->
-  <ItemGroup>
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-gwg2-r3hj-4w44" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-wmxv-xphr-5c9g" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j3p4-wp97-rph4" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j9gm-c75j-xc9q" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jjfr-hcj7-qf5w" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-v76p-62qx-wwq2" />
-  </ItemGroup>
+  <!-- The advisory gate is for the default build. The opt-in -p:BuildIde=true closure restores
+       FreeSO's own server packages (FSO.Server pins ImageSharp 3.1.11, AWSSDK 3.3.x, Octokit,
+       System.Data.SQLite ...); the advisories on those are upstream's and not fixable from here,
+       so there they stay warnings. -->
+  <PropertyGroup Condition=" '$(BuildIde)' != 'true' ">
+    <WarningsAsErrors>$(WarningsAsErrors);NU1902;NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
 
   <!--
     ============================================================================

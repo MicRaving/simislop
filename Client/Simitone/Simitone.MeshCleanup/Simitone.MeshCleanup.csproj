@@ -14,8 +14,8 @@
 
   <ItemGroup>
     <!-- Same reference shape as Simitone.GenerateMeshes: the tool works on the FSO.Files
-         formats and the generated pack, so it wants the client's resolved FSO + MonoGame +
-         ImageSharp closure rather than its own copies of each version. -->
+         formats and the generated pack, so it wants the client's resolved FSO + MonoGame
+         closure and its PNG codec rather than its own copies of each version. -->
     <ProjectReference Include="..\Simitone.Client\Simitone.Client.csproj" />
   </ItemGroup>
 

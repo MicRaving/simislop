@@ -1267,7 +1267,11 @@ namespace Simitone.Client.Neighbourhood
         /// <summary>Whether a generated world is wanted at all.</summary>
         public static bool WantsWorld
         {
-            get { return RequestedView == NeighbourhoodView.World3D; }
+            get
+            {
+                return NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.World)
+                    || RequestedView == NeighbourhoodView.World3D;
+            }
         }
 
         /// <summary>
@@ -2067,6 +2071,24 @@ namespace Simitone.Client.Neighbourhood
         /// sidecar yet, and any write failure - all of which are logged.</returns>
         public static bool SaveWorldState(string userDir, int slot, NeighbourhoodWorldState world)
         {
+            return SaveWorldState(userDir, slot, world, null);
+        }
+
+        /// <summary>
+        /// <see cref="SaveWorldState(string, int, NeighbourhoodWorldState)"/> that also merges the
+        /// per-lot session fields of <paramref name="live"/> (the layout the running world holds:
+        /// <see cref="NeighbourhoodLot.LotState"/>, <see cref="NeighbourhoodLot.LastSimulated"/>,
+        /// <see cref="NeighbourhoodLot.Entrance"/>) onto the lots of the sidecar read from disk,
+        /// matched by lot number. The disk layout stays the base - a stale in-memory layout must
+        /// never overwrite which lots exist or where they stand - and only session fields move,
+        /// following <see cref="CarryLotSessions"/>'s rules except that a live value only wins
+        /// where it carries information: a later <c>LastSimulated</c>, a state other than
+        /// <see cref="NeighbourhoodLotState.Unloaded"/>, an entrance on a lot that still stands
+        /// where it did at the same size.
+        /// </summary>
+        public static bool SaveWorldState(string userDir, int slot, NeighbourhoodWorldState world,
+            NeighbourhoodLayout live)
+        {
             if (!PersistsWorldState)
             {
                 SimitoneLog.Warn("Neighbourhood " + slot + ": a session was not saved because "
@@ -2086,6 +2108,7 @@ namespace Simitone.Client.Neighbourhood
                 return false;
             }
 
+            MergeLiveLotSessions(cached, live);
             if (!NeighbourhoodLayoutStore.Save(userDir, WithWorldState(cached, world))) return false;
             SimitoneLog.Info("Neighbourhood " + slot + ": the session was saved ("
                 + (world == null ? "none - the sidecar no longer carries one" : world.ToString())
@@ -2155,6 +2178,28 @@ namespace Simitone.Client.Neighbourhood
                     && before.Size == lot.Size)
                 {
                     lot.Entrance = before.Entrance;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Folds the live world's per-lot session fields into <paramref name="disk"/> by lot number;
+        /// see <see cref="SaveWorldState(string, int, NeighbourhoodWorldState, NeighbourhoodLayout)"/>.
+        /// </summary>
+        internal static void MergeLiveLotSessions(NeighbourhoodLayout disk, NeighbourhoodLayout live)
+        {
+            if (disk == null || live == null) return;
+            for (int i = 0; i < disk.Lots.Count; i++)
+            {
+                var lot = disk.Lots[i];
+                var now = live.FindLot(lot.Number);
+                if (now == null) continue;
+                if (now.LastSimulated > lot.LastSimulated) lot.LastSimulated = now.LastSimulated;
+                if (now.LotState != NeighbourhoodLotState.Unloaded) lot.LotState = now.LotState;
+                if (now.Entrance.HasValue && now.WorldX == lot.WorldX && now.WorldY == lot.WorldY
+                    && now.Size == lot.Size)
+                {
+                    lot.Entrance = now.Entrance;
                 }
             }
         }

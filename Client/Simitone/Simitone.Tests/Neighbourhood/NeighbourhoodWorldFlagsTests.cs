@@ -143,14 +143,13 @@ namespace Simitone.Tests.Neighbourhood
             // simitone.ini in an editor. A key that is spelled differently in the file than in the
             // doc is a flag that cannot be turned on by hand.
             Assert.Equal("NeighbourhoodWorld", NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.World));
-            Assert.Equal("NeighbourhoodWorldSurroundings", NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.Surroundings));
+            Assert.Equal("NeighbourhoodWorldSurroundings", NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.NeighbourSubWorlds));
             Assert.Equal("NeighbourhoodWorldTravel", NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.Travel));
-            Assert.Equal("NeighbourhoodWorldWalk", NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.Walk));
             Assert.Equal("NeighbourhoodWorldServices", NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.Services));
             Assert.Equal("NeighbourhoodWorldOffscreen", NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.Offscreen));
             Assert.Equal("NeighbourhoodWorldPersist", NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.Persist));
 
-            Assert.Equal(7, NeighbourhoodWorldFlags.All.Count);
+            Assert.Equal(6, NeighbourhoodWorldFlags.All.Count);
         }
 
         [Fact]
@@ -226,9 +225,8 @@ namespace Simitone.Tests.Neighbourhood
 
         [Theory]
         [InlineData(NeighbourhoodWorldFlag.World)]
-        [InlineData(NeighbourhoodWorldFlag.Surroundings)]
+        [InlineData(NeighbourhoodWorldFlag.NeighbourSubWorlds)]
         [InlineData(NeighbourhoodWorldFlag.Travel)]
-        [InlineData(NeighbourhoodWorldFlag.Walk)]
         [InlineData(NeighbourhoodWorldFlag.Services)]
         [InlineData(NeighbourhoodWorldFlag.Offscreen)]
         [InlineData(NeighbourhoodWorldFlag.Persist)]
@@ -256,9 +254,8 @@ namespace Simitone.Tests.Neighbourhood
 
         [Theory]
         [InlineData(NeighbourhoodWorldFlag.World)]
-        [InlineData(NeighbourhoodWorldFlag.Surroundings)]
+        [InlineData(NeighbourhoodWorldFlag.NeighbourSubWorlds)]
         [InlineData(NeighbourhoodWorldFlag.Travel)]
-        [InlineData(NeighbourhoodWorldFlag.Walk)]
         [InlineData(NeighbourhoodWorldFlag.Services)]
         [InlineData(NeighbourhoodWorldFlag.Offscreen)]
         [InlineData(NeighbourhoodWorldFlag.Persist)]
@@ -343,7 +340,7 @@ namespace Simitone.Tests.Neighbourhood
             Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Travel));
 
             // and one neighbour's garbage does not leak into another's answer
-            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk));
+            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Persist));
         }
 
         [Fact]
@@ -360,26 +357,43 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal("True", Raw("NeighbourhoodWorldFutureStage"));
         }
 
+        [Fact]
+        public void AStoredWalkKeyFromAnOlderBuildIsIgnoredAndLeftAlone()
+        {
+            // B4 (Walk) was cut. A sidecar that still says NeighbourhoodWorldWalk=True must not turn
+            // anything on, must not trip the reader, and must survive a save of some other flag.
+            Seed("# Simitone Settings File", "NeighbourhoodWorldWalk=True");
+            foreach (var flag in NeighbourhoodWorldFlags.All)
+            {
+                Assert.False(NeighbourhoodWorldFlags.IsOn(flag));
+            }
+
+            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Persist, true, save: true);
+
+            Assert.Equal("True", Raw("NeighbourhoodWorldWalk"));
+            Assert.Equal("True", Raw(NeighbourhoodWorldFlags.PersistKey));
+        }
+
         // ---- writing one flag writes one key -------------------------------------------------------
 
         [Fact]
-        public void WritingOneFlagLeavesTheOtherSixAlone()
+        public void WritingOneFlagLeavesTheOtherFiveAlone()
         {
             var on = new[] { NeighbourhoodWorldFlag.World, NeighbourhoodWorldFlag.Travel,
                 NeighbourhoodWorldFlag.Offscreen };
             foreach (var flag in on) NeighbourhoodWorldFlags.Set(flag, true, save: true);
 
-            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Walk, true, save: true);
+            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Services, true, save: true);
 
             foreach (var flag in on)
             {
                 Assert.Equal("True", Raw(NeighbourhoodWorldFlags.KeyFor(flag)));
             }
-            Assert.Equal("True", Raw(NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.Walk)));
+            Assert.Equal("True", Raw(NeighbourhoodWorldFlags.KeyFor(NeighbourhoodWorldFlag.Services)));
 
-            // the three that were never turned on are still off, in memory and on disk
-            foreach (var flag in new[] { NeighbourhoodWorldFlag.Surroundings,
-                NeighbourhoodWorldFlag.Services, NeighbourhoodWorldFlag.Persist })
+            // the two that were never turned on are still off, in memory and on disk
+            foreach (var flag in new[] { NeighbourhoodWorldFlag.NeighbourSubWorlds,
+                NeighbourhoodWorldFlag.Persist })
             {
                 Assert.Null(Raw(NeighbourhoodWorldFlags.KeyFor(flag)));
             }
@@ -387,8 +401,7 @@ namespace Simitone.Tests.Neighbourhood
             NeighbourhoodWorldFlags.Reset();
             foreach (var flag in NeighbourhoodWorldFlags.All)
             {
-                var wanted = flag == NeighbourhoodWorldFlag.Surroundings
-                    || flag == NeighbourhoodWorldFlag.Services
+                var wanted = flag == NeighbourhoodWorldFlag.NeighbourSubWorlds
                     || flag == NeighbourhoodWorldFlag.Persist;
                 Assert.Equal(!wanted, NeighbourhoodWorldFlags.IsOn(flag));
             }
@@ -403,12 +416,12 @@ namespace Simitone.Tests.Neighbourhood
             NeighbourhoodViewSetting.SetAndSave(NeighbourhoodView.Off);
             SunCycleSetting.SetEnabled(true, save: true);
 
-            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Surroundings, true, save: true);
+            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.NeighbourSubWorlds, true, save: true);
             NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Services, true, save: true);
 
             Assert.Equal(NeighbourhoodViewSetting.OffToken, Raw(NeighbourhoodViewSetting.Key));
             Assert.Equal("True", Raw(SunCycleSetting.Key));
-            Assert.Equal("True", Raw(NeighbourhoodWorldFlags.SurroundingsKey));
+            Assert.Equal("True", Raw(NeighbourhoodWorldFlags.NeighbourSubWorldsKey));
             Assert.Equal("True", Raw(NeighbourhoodWorldFlags.ServicesKey));
 
             // the other two settings still answer with what the player chose
@@ -422,7 +435,7 @@ namespace Simitone.Tests.Neighbourhood
 
             Assert.Equal("2d", Raw(NeighbourhoodViewSetting.Key));
             Assert.Equal("False", Raw(SunCycleSetting.Key));
-            Assert.Equal("True", Raw(NeighbourhoodWorldFlags.SurroundingsKey));
+            Assert.Equal("True", Raw(NeighbourhoodWorldFlags.NeighbourSubWorldsKey));
             Assert.Equal("True", Raw(NeighbourhoodWorldFlags.ServicesKey));
         }
 
@@ -450,16 +463,16 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void AllOffWithoutSavingOnlyChangesThisRun()
         {
-            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Walk, true, save: true);
+            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Persist, true, save: true);
 
             NeighbourhoodWorldFlags.AllOff();
 
-            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk));
-            Assert.Equal("True", Raw(NeighbourhoodWorldFlags.WalkKey));
+            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Persist));
+            Assert.Equal("True", Raw(NeighbourhoodWorldFlags.PersistKey));
 
             // which is what makes it safe to call between milestones without touching a file
             NeighbourhoodWorldFlags.Reset();
-            Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk));
+            Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Persist));
         }
 
         // ---- the cache, the unknown, and the absent file --------------------------------------------
@@ -485,9 +498,8 @@ namespace Simitone.Tests.Neighbourhood
 
         [Theory]
         [InlineData(NeighbourhoodWorldFlag.World)]
-        [InlineData(NeighbourhoodWorldFlag.Surroundings)]
+        [InlineData(NeighbourhoodWorldFlag.NeighbourSubWorlds)]
         [InlineData(NeighbourhoodWorldFlag.Travel)]
-        [InlineData(NeighbourhoodWorldFlag.Walk)]
         [InlineData(NeighbourhoodWorldFlag.Services)]
         [InlineData(NeighbourhoodWorldFlag.Offscreen)]
         [InlineData(NeighbourhoodWorldFlag.Persist)]
@@ -518,15 +530,15 @@ namespace Simitone.Tests.Neighbourhood
             //were on disk to begin with.
             HandEdit("# Simitone Settings File",
                 NeighbourhoodWorldFlags.TravelKey + "=True",
-                NeighbourhoodWorldFlags.WalkKey + "=False");
+                NeighbourhoodWorldFlags.PersistKey + "=False");
             Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Travel));
-            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk));
+            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Persist));
 
             HandEdit("# Simitone Settings File",
                 NeighbourhoodWorldFlags.TravelKey + "=False",
-                NeighbourhoodWorldFlags.WalkKey + "=True");
+                NeighbourhoodWorldFlags.PersistKey + "=True");
             Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Travel));
-            Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk));
+            Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Persist));
         }
 
         [Fact]
@@ -557,7 +569,7 @@ namespace Simitone.Tests.Neighbourhood
             //not reached yet, and ticking the master row would save one key and lose six.
             NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.World, true, save: false);
             NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Travel, true, save: false);
-            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk));
+            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Persist));
 
             //one turn of Apply's loop: re-read the flag, record it, write it down
             NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.World,
@@ -576,7 +588,7 @@ namespace Simitone.Tests.Neighbourhood
             //The same trap one call further on, and the reason the re-stamp is not a special case
             //bolted onto Set: "every capability is off" is a decision, and the write that records
             //it is not an outside party coming in and changing the answer.
-            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Walk, true, save: true);
+            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Persist, true, save: true);
 
             NeighbourhoodWorldFlags.AllOff(save: true);
 
@@ -725,7 +737,7 @@ namespace Simitone.Tests.Neighbourhood
             // frame. Many readers, one answer, whatever order they arrive in.
             NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.World, true, save: false);
             NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Persist, true, save: false);
-            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Walk, false, save: false);
+            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Services, false, save: false);
 
             var reads = new Task<bool>[64];
             for (var i = 0; i < reads.Length; i++)
@@ -755,7 +767,7 @@ namespace Simitone.Tests.Neighbourhood
             var text = NeighbourhoodWorldFlags.DescribeSet();
 
             Assert.Contains(NeighbourhoodWorldFlags.TravelKey, text);
-            Assert.Contains("1 of 7", text);
+            Assert.Contains("1 of 6", text);
         }
     }
 }

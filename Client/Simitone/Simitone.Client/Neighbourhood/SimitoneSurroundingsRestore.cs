@@ -172,62 +172,12 @@ namespace Simitone.Client.Neighbourhood
         /// </summary>
         public const sbyte SubWorldLevel = 5;
 
-        /// <summary>
-        /// Whether a neighbour may be attached to the lot the player is standing in as a sub-world
-        /// of that lot's blueprint. <b>False by default</b>, and the default is the point.
-        ///
-        /// <para>
-        /// <b>Why attaching a neighbour to a live lot is gated rather than assumed safe.</b>
-        /// Everything below this line writes to the lot the player is standing in, and it cannot
-        /// all be made not to:
-        /// <list type="bullet">
-        ///   <item><description>
-        ///     <c>Blueprint.SubWorlds.Add</c> puts an object on the <em>live</em> lot's blueprint -
-        ///     the one <c>VMContext.IsUserOutOfBounds</c> and the lot view's own culling and
-        ///     lighting read - and <c>World.InitSubWorlds</c> then rewrites the live lot's
-        ///     <c>SkyBounds</c> from the whole set. That is the design of TSO's own
-        ///     <c>RestoreSurroundings</c>, and it is additive only for as long as the set really is
-        ///     a set of siblings on that one blueprint.
-        ///   </description></item>
-        ///   <item><description>
-        ///     The list is not per-lot in the engine: <c>VMContext</c>'s marshal constructor hands
-        ///     the previous blueprint's <c>SubWorlds</c> to the next one, so the list outlives the
-        ///     lot that first created it and a resume or a blueprint reset re-attaches whatever it
-        ///     still holds. A neighbour built against the wrong blueprint is then drawn, lit and
-        ///     preloaded against lot views that have nothing to do with it.
-        ///   </description></item>
-        ///   <item><description>
-        ///     The lot view draws each sub-world by moving the <em>parent's</em>
-        ///     <c>WorldState</c> - <c>CenterTile</c>, <c>_2D</c>'s scroll, <c>SilentLevel</c>,
-        ///     and the parent light batch through <c>PrepareLighting</c>/<c>ClearLighting</c>.
-        ///     Every one of those is the live lot's own state, and the restores are not in a
-        ///     position to know whether the frame they ran in had already left one of them moved.
-        ///   </description></item>
-        /// </list>
-        /// With the gate off none of that is reached: <see cref="TryRestore"/> refuses with a
-        /// sentence before it reads a field of the live lot, the caller withholds no facades
-        /// because nothing was built, and the surrounding lots are drawn the Part A way - which is
-        /// the behaviour that was already known not to break the lot.
-        /// </para>
-        /// <para>
-        /// <b>It is a plain field rather than an ini key on purpose.</b> The seven
-        /// <see cref="NeighbourhoodWorldFlag"/>s are a product's feature switches and are meant to
-        /// be flipped by a player; this one is an engineering safety switch for a write into a live
-        /// lot that has not been shown to be contained, so it is deliberately not something a
-        /// hand-edited <c>simitone.ini</c> turns on by accident.
-        /// </para>
-        /// </summary>
-        public static bool SubWorldAttachEnabled { get; set; }
-
-        /// <summary>
-        /// The sentence <see cref="TryRestore"/> refuses with while
-        /// <see cref="SubWorldAttachEnabled"/> is off. A named constant so a caller can recognise
-        /// this particular refusal and stay quiet about it rather than logging one line per lot.
-        /// </summary>
-        public const string SubWorldAttachDisabledReason =
-            "neighbour sub-worlds are not attached to a live lot, so the surrounding lots are drawn"
-            + " as facades - this is the whole of the street the lot view draws, and the lot itself"
-            + " is untouched";
+        // There is no static kill switch here any more. Whether neighbours are stood up as real
+        // sub-worlds is decided by exactly one thing: NeighbourhoodWorldFlag.NeighbourSubWorlds, which
+        // the screen reads before it calls TryRestore. (A second, process-wide gate used to sit
+        // beside it, was only ever set to true by the screen and never reset, and so was never a
+        // switch.) What attaching writes to the live lot - Blueprint.SubWorlds and the sky bounds
+        // World.InitSubWorlds rewrites - is undone by DisposeSubWorlds and by the unwind in TryRestore.
 
         /// <summary>
         /// Stands up every neighbour in <paramref name="plan"/> as a sub-world of
@@ -306,16 +256,6 @@ namespace Simitone.Client.Neighbourhood
                 return false;
             }
 
-            // The live-lot gate, and it is asked before a single field of the lot the player is
-            // standing in is read, let alone written. See SubWorldAttachEnabled for why attaching
-            // a neighbour to a live lot is not on by default; off, the caller keeps its facades,
-            // which is the whole of Part A and the whole of a lot that behaves.
-            if (!SubWorldAttachEnabled)
-            {
-                reason = SubWorldAttachDisabledReason;
-                return false;
-            }
-
             var world = vm.Context.World;
             if (world == null || world.State == null || world.State.Device == null)
             {
@@ -351,7 +291,10 @@ namespace Simitone.Client.Neighbourhood
                 var source = loader;
                 if (source == null && plan.NeedsHollows())
                 {
-                    source = new NeighbourHollowLoader(device);
+                    //the time allowance as well as the count: a pass that is over it stops
+                    //starting builds and the rest are topped up on later frames
+                    source = new NeighbourHollowLoader(device, NeighbourHollowLoader.DefaultMaxBuilds,
+                        NeighbourHollowLoader.DefaultMaxMilliseconds);
                 }
                 var resolved = ResolveHollows(plan, source);
                 built = resolved;
@@ -441,6 +384,94 @@ namespace Simitone.Client.Neighbourhood
                             + "neighbour sub-world built before the failure was taken back down");
                     }
                 }
+                reason = ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Replaces one blank neighbour's sub-world with a real one built from
+        /// <paramref name="marshal"/>. The later-frame half of the restore: a neighbour past the
+        /// first pass's build budget was stood up blank, and this swaps it once its contents have
+        /// been read.
+        /// </summary>
+        /// <remarks>
+        /// Everything that is already built is left alone. The new sub-world is built first and
+        /// only then takes the old one's place in the blueprint's list (same index, so the draw
+        /// order is unchanged), so a build that throws leaves the blank neighbour standing. The
+        /// sky bounds are re-measured once afterwards, as <see cref="TryRestore"/> does.
+        /// </remarks>
+        /// <param name="vm">The live lot.</param>
+        /// <param name="plan">The plan as the restore resolved it.</param>
+        /// <param name="lotNumber">The neighbour to upgrade.</param>
+        /// <param name="marshal">Its contents.</param>
+        /// <param name="upgraded">The plan with the neighbour now hollow; <paramref name="plan"/> on failure.</param>
+        /// <param name="reason">Why nothing changed, when nothing did.</param>
+        public static bool TryUpgradeBlank(VM vm, SimitoneSurroundingsPlan plan, short lotNumber,
+            VMHollowMarshal marshal, out SimitoneSurroundingsPlan upgraded, out string reason)
+        {
+            upgraded = plan;
+            var blueprint = vm?.Context?.Blueprint;
+            var world = vm?.Context?.World;
+            if (blueprint?.SubWorlds == null || world?.State?.Device == null)
+            {
+                reason = "the lot has no blueprint or lot view to put the neighbour into";
+                return false;
+            }
+            if (plan == null || !plan.IsValid || marshal == null)
+            {
+                reason = "there is no plan or no contents to build the neighbour from";
+                return false;
+            }
+            var blank = plan.NeighbourFor(lotNumber);
+            if (!blank.IsValid || blank.IsHollow)
+            {
+                reason = "lot " + lotNumber + " is not a blank neighbour of this plan";
+                return false;
+            }
+
+            var oldIndex = -1;
+            for (int i = 0; i < blueprint.SubWorlds.Count; i++)
+            {
+                if (blueprint.SubWorlds[i] != null
+                    && blueprint.SubWorlds[i].GlobalPosition == blank.SubWorldPosition)
+                {
+                    oldIndex = i;
+                    break;
+                }
+            }
+            if (oldIndex < 0)
+            {
+                reason = "lot " + lotNumber + " has no blank sub-world standing to replace";
+                return false;
+            }
+
+            SubWorldComponent fresh = null;
+            try
+            {
+                var candidate = plan.WithHollows(
+                    new Dictionary<short, VMHollowMarshal> { { lotNumber, marshal } });
+                var neighbour = candidate.NeighbourFor(lotNumber);
+                fresh = BuildOne(world, candidate, neighbour,
+                    SimitoneSurroundingsPlacement.LotGroundAltitudeFor(blueprint));
+                if (fresh == null)
+                {
+                    reason = "lot " + lotNumber + " has nothing to build";
+                    return false;
+                }
+                var old = blueprint.SubWorlds[oldIndex];
+                blueprint.SubWorlds[oldIndex] = fresh;
+                TryDispose(old);
+                world.InitSubWorlds();
+                upgraded = candidate;
+                reason = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                //the blank one is still in the list unless the swap itself threw, in which case
+                //the fresh one is the only holder and has to go
+                if (fresh != null && !blueprint.SubWorlds.Contains(fresh)) TryDispose(fresh);
                 reason = ex.Message;
                 return false;
             }

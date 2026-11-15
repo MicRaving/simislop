@@ -14,13 +14,14 @@ using Simitone.Client.Utils;
 namespace Simitone.Client.Neighbourhood
 {
     /// <summary>
-    /// One capability of the Part B neighbourhood world, as a value. The seven members are the
-    /// seven rows of the handoff's §7 flag table, B1 to B7, and nothing else may be added without
+    /// One capability of the Part B neighbourhood world, as a value. The six members are the
+    /// six rows of the handoff's §7 flag table, B1 to B7 less the cut B4, and nothing else may be added without
     /// a milestone to switch on.
     ///
     /// <para>
     /// <b>Why the member names are not the key names.</b> The ini key is the capability's own
-    /// name - <c>NeighbourhoodWorldSurroundings</c>, not <c>Surroundings</c> - because a settings
+    /// name - <c>NeighbourhoodWorldSurroundings</c> for <c>NeighbourSubWorlds</c>, which kept its
+    /// pre-rename key so existing files still apply - because a settings
     /// file is read by a human with an editor, and because the handoff, the milestone notes and the
     /// build log all name the flag the same way. The mapping is in
     /// <see cref="NeighbourhoodWorldFlags.KeyFor"/> and nowhere else.
@@ -41,9 +42,14 @@ namespace Simitone.Client.Neighbourhood
 
         /// <summary>
         /// B2. The neighbours you can see are real hollow lots rather than Part A's facades. Off,
-        /// facades only.
+        /// facades only. This gates the neighbour sub-worlds <em>only</em>: the drawn surround
+        /// (ground, streets and facades) follows the 3D neighbourhood view setting, not this flag.
         /// </summary>
-        Surroundings = 1,
+        /// <remarks>
+        /// Named <c>Surroundings</c> until the audit of November 2026, which was misleading for
+        /// exactly that reason. The ini key kept its old text so existing settings files still apply.
+        /// </remarks>
+        NeighbourSubWorlds = 1,
 
         /// <summary>
         /// B3. Discrete cross-lot travel through the world. Off, today's <c>SwitchLot</c> path.
@@ -51,35 +57,29 @@ namespace Simitone.Client.Neighbourhood
         Travel = 2,
 
         /// <summary>
-        /// B4. Continuous walkable streets between lots, with a following camera. Off, B3's
-        /// discrete travel, which is the shippable result.
+        /// B5. Leave-lot and the local architecture queue go through <c>SimitoneGlobalLink</c>
+        /// (the family-authority half was cut, 2026-11). Off, <c>VMTS1GlobalLinkStub</c>.
         /// </summary>
-        Walk = 3,
-
-        /// <summary>
-        /// B5. Build/buy, lot ownership, jobs and leave-a-lot go through the world. Off,
-        /// <c>VMTS1GlobalLinkStub</c>.
-        /// </summary>
-        Services = 4,
+        Services = 3,
 
         /// <summary>
         /// B6. The world moves on while the player is elsewhere. Off, world time frozen off-lot.
         /// </summary>
-        Offscreen = 5,
+        Offscreen = 4,
 
         /// <summary>
         /// B7. World state is persisted, migrated and recovered. Off, Part A's layout sidecar.
         /// </summary>
-        Persist = 6
+        Persist = 5
     }
 
     /// <summary>
-    /// The Part B capability switches: seven booleans, one ini key each, every one of them
+    /// The Part B capability switches: six booleans, one ini key each, every one of them
     /// <b>off</b> unless something has been recorded.
     ///
     /// <para>
     /// <b>Why a flag per capability and not one "part B" switch.</b> The handoff's §7 is a
-    /// dependency graph - B2 needs B1, B4 needs B3, B6 needs B1 and B3 - and each milestone's
+    /// dependency graph - B2 needs B1, B6 needs B1 and B3 - and each milestone's
     /// acceptance test is stated as "with the flag off, the previous stage's behaviour is
     /// byte-identical". A single switch cannot be turned on halfway, so a half-built milestone
     /// could only be tested by breaking the stage before it, which is the one thing the graph is
@@ -89,7 +89,7 @@ namespace Simitone.Client.Neighbourhood
     /// </para>
     ///
     /// <para>
-    /// <b>All seven default off, and that is a promise rather than a starting value.</b> The
+    /// <b>All six default off, and that is a promise rather than a starting value.</b> The
     /// default is <c>false</c> for every flag because "nothing has asked for this" and "a player
     /// turned it off" must give the same answer, and because the alternative - a feature that is
     /// on because nobody looked at the value - is how a world that is not finished reaches a
@@ -126,7 +126,7 @@ namespace Simitone.Client.Neighbourhood
     /// <b>is this the same file I read?</b> - and only reopens the sidecar when the answer is no.
     /// The question is a single stat: the file's last-write time and its length, compared against
     /// the two numbers the cached values were read at. That is orders of magnitude cheaper than
-    /// parsing seven keys out of a file, it cannot be wrong about a file that has not changed, and
+    /// parsing six keys out of a file, it cannot be wrong about a file that has not changed, and
     /// it costs nothing to be wrong about one that has: the reload happens on the next read rather
     /// than at some ticker's discretion. See <see cref="SidecarStamp"/> and
     /// <see cref="Refresh"/>.
@@ -154,14 +154,11 @@ namespace Simitone.Client.Neighbourhood
         /// <summary>The ini key for <see cref="NeighbourhoodWorldFlag.World"/>.</summary>
         public const string WorldKey = "NeighbourhoodWorld";
 
-        /// <summary>The ini key for <see cref="NeighbourhoodWorldFlag.Surroundings"/>.</summary>
-        public const string SurroundingsKey = "NeighbourhoodWorldSurroundings";
+        /// <summary>The ini key for <see cref="NeighbourhoodWorldFlag.NeighbourSubWorlds"/>.</summary>
+        public const string NeighbourSubWorldsKey = "NeighbourhoodWorldSurroundings";
 
         /// <summary>The ini key for <see cref="NeighbourhoodWorldFlag.Travel"/>.</summary>
         public const string TravelKey = "NeighbourhoodWorldTravel";
-
-        /// <summary>The ini key for <see cref="NeighbourhoodWorldFlag.Walk"/>.</summary>
-        public const string WalkKey = "NeighbourhoodWorldWalk";
 
         /// <summary>The ini key for <see cref="NeighbourhoodWorldFlag.Services"/>.</summary>
         public const string ServicesKey = "NeighbourhoodWorldServices";
@@ -176,7 +173,7 @@ namespace Simitone.Client.Neighbourhood
 
         /// <summary>
         /// The live values, indexed by <see cref="NeighbourhoodWorldFlag"/>; <c>null</c> until the
-        /// first read, which is when the sidecar is opened once for all seven keys. Always
+        /// first read, which is when the sidecar is opened once for all six keys. Always
         /// <see cref="stamp"/>'s companion: a value and the file it was read out of, or neither.
         /// </summary>
         private static bool[] cached;
@@ -196,9 +193,8 @@ namespace Simitone.Client.Neighbourhood
                 return new[]
                 {
                     NeighbourhoodWorldFlag.World,
-                    NeighbourhoodWorldFlag.Surroundings,
+                    NeighbourhoodWorldFlag.NeighbourSubWorlds,
                     NeighbourhoodWorldFlag.Travel,
-                    NeighbourhoodWorldFlag.Walk,
                     NeighbourhoodWorldFlag.Services,
                     NeighbourhoodWorldFlag.Offscreen,
                     NeighbourhoodWorldFlag.Persist
@@ -213,7 +209,7 @@ namespace Simitone.Client.Neighbourhood
         /// <remarks>
         /// The cache is not for ever, and that is the whole of the difference between a switch and
         /// a rumour: before every read the sidecar is asked whether it is the same file the cached
-        /// values came from, and if it is not, it is reopened and the seven keys are read again.
+        /// values came from, and if it is not, it is reopened and the six keys are read again.
         /// So editing <c>simitone.ini</c> in an editor while the game is running takes effect on
         /// the next read rather than at the next launch, and the cost of noticing is one stat -
         /// see the class remarks and <see cref="SidecarStamp"/>.
@@ -230,7 +226,7 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// The seven values, reopening the sidecar only if it is not the file the cache came from.
+        /// The six values, reopening the sidecar only if it is not the file the cache came from.
         /// The one place the read path goes through, so "when does a read touch the disk" has a
         /// single answer in this class rather than one per caller.
         /// </summary>
@@ -315,12 +311,12 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// Records every flag off, and optionally writes all seven keys in one read-merge-write.
+        /// Records every flag off, and optionally writes all six keys in one read-merge-write.
         ///
         /// <para>
         /// <b>Why this exists.</b> Turning a capability <em>off</em> has to be as cheap and as
         /// complete as turning it on, and "off" is the state every flag starts and must return to
-        /// between milestones. A per-key loop would be correct and would rewrite the sidecar seven
+        /// between milestones. A per-key loop would be correct and would rewrite the sidecar six
         /// times, so the keys go down together and the file is written once.
         /// </para>
         /// </summary>
@@ -360,7 +356,7 @@ namespace Simitone.Client.Neighbourhood
             }
         }
 
-        /// <summary>Whether a value is one of the seven flags this build knows.</summary>
+        /// <summary>Whether a value is one of the six flags this build knows.</summary>
         /// <param name="flag">The value to check.</param>
         public static bool IsKnown(NeighbourhoodWorldFlag flag)
         {
@@ -369,7 +365,7 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// The ini key a flag is stored under, or <c>null</c> for a value outside the seven.
+        /// The ini key a flag is stored under, or <c>null</c> for a value outside the six.
         /// </summary>
         /// <param name="flag">The capability to name.</param>
         public static string KeyFor(NeighbourhoodWorldFlag flag)
@@ -377,9 +373,8 @@ namespace Simitone.Client.Neighbourhood
             switch (flag)
             {
                 case NeighbourhoodWorldFlag.World: return WorldKey;
-                case NeighbourhoodWorldFlag.Surroundings: return SurroundingsKey;
+                case NeighbourhoodWorldFlag.NeighbourSubWorlds: return NeighbourSubWorldsKey;
                 case NeighbourhoodWorldFlag.Travel: return TravelKey;
-                case NeighbourhoodWorldFlag.Walk: return WalkKey;
                 case NeighbourhoodWorldFlag.Services: return ServicesKey;
                 case NeighbourhoodWorldFlag.Offscreen: return OffscreenKey;
                 case NeighbourhoodWorldFlag.Persist: return PersistKey;
@@ -430,14 +425,12 @@ namespace Simitone.Client.Neighbourhood
             {
                 case NeighbourhoodWorldFlag.World:
                     return "B1 world state - off means Part A behaviour";
-                case NeighbourhoodWorldFlag.Surroundings:
+                case NeighbourhoodWorldFlag.NeighbourSubWorlds:
                     return "B2 hollow neighbours - off means Part A facades only";
                 case NeighbourhoodWorldFlag.Travel:
                     return "B3 discrete travel - off means today's SwitchLot path";
-                case NeighbourhoodWorldFlag.Walk:
-                    return "B4 walkable streets - off means B3 discrete travel";
                 case NeighbourhoodWorldFlag.Services:
-                    return "B5 world services - off means VMTS1GlobalLinkStub";
+                    return "B5 leave-lot and local architecture - off means VMTS1GlobalLinkStub";
                 case NeighbourhoodWorldFlag.Offscreen:
                     return "B6 off-screen simulation - off means world time frozen off-lot";
                 case NeighbourhoodWorldFlag.Persist:
@@ -539,7 +532,7 @@ namespace Simitone.Client.Neighbourhood
             //The write above moved the file's last-write time, so the cache is now describing a
             //file that no longer exists. Re-stamping is what stops the next read from treating
             //this class's own save as somebody else's edit and reloading - which matters most
-            //exactly where it would hurt: NeighbourhoodWorldRow.Apply writes all seven keys in a
+            //exactly where it would hurt: NeighbourhoodWorldRow.Apply writes all six keys in a
             //loop, and without this the second key's write would reload the file and throw away
             //the in-memory values the loop had not reached yet.
             Restamp();
@@ -559,7 +552,7 @@ namespace Simitone.Client.Neighbourhood
 
         /// <summary>
         /// Writes every flag's key in one read-merge-write, so <see cref="AllOff"/> touches the
-        /// file once rather than seven times.
+        /// file once rather than six times.
         /// </summary>
         private static void TryWriteAll(bool[] values)
         {
@@ -631,7 +624,7 @@ namespace Simitone.Client.Neighbourhood
             }
         }
 
-        /// <summary>Seven <see cref="Default"/>s, so no array is ever shared between two callers.</summary>
+        /// <summary>Six <see cref="Default"/>s, so no array is ever shared between two callers.</summary>
         private static bool[] DefaultAll()
         {
             var result = new bool[All.Count];
@@ -662,7 +655,7 @@ namespace Simitone.Client.Neighbourhood
     /// <b>An absent file is a real value, not a missing one.</b> <see cref="None"/> is the stamp of
     /// a sidecar that is not there, and it is deliberately equal to itself: every read of a game
     /// with no <c>simitone.ini</c> produces the same stamp, so the cache holds and nothing is
-    /// retried seven keys deep on a file that does not exist. The flags read from it are
+    /// retried six keys deep on a file that does not exist. The flags read from it are
     /// <see cref="NeighbourhoodWorldFlags.Default"/>, which is the contract the whole class rests
     /// on: no sidecar, no capability, and no error.
     /// </para>

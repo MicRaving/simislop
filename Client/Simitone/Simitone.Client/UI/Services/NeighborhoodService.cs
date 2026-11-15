@@ -636,7 +636,7 @@ namespace Simitone.Client.UI.Services
         /// <para>
         /// Nothing about the picker's own situation changes by using it. The neighbourhood screen
         /// has no <c>VM</c>, so the host reports lot 0 and there is nothing to stash and no
-        /// <c>SavedLots</c> entry to resume - the same numbers the old adapter reported, reached
+        /// session-stash entry to resume - the same numbers the old adapter reported, reached
         /// the same way. The destination is in any case the family's own house, which is the one
         /// lot <c>TryRestoreTravelSlot</c> declines to restore from. What is new is only what was
         /// missing: a hop from lot 0 to the picked lot is a hop, and the world's transit table and

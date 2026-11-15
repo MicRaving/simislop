@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36518.9
@@ -28,30 +28,21 @@ MinimumVisualStudioVersion = 10.0.40219.1
 # select: `dotnet build -p:Platform=x64` fails immediately with MSB4126 naming the
 # valid configurations, which is the correct outcome for a configuration nobody defined.
 #
-# B-12: the -ide host and the TSO server closure are out
-# =====================================================
-# FSO.Client (the TSO online client) ProjectReferences FSO.Server, FSO.Server.Database,
-# FSO.Server.DataService, FSO.Server.Clients, FSO.Server.Protocol, FSO.Server.Updater
-# and FSO.Server.Common, and FSO.IDE (the Volcanic IDE host) ProjectReferences FSO.Client,
-# FSO.Windows and FSO.SimAntics.JIT.Roslyn. So one edge - Simitone.Windows -> FSO.IDE -
-# used to reach 19 projects, 9 of which are the ones dropped from the list below. None
-# of it survived into the game: TrimSingleplayerOutput in Simitone.Windows.csproj
-# deletes server.dll, watchdog.*, FSO.Server.*, FSO.Common.DataService, MySql.Data,
-# System.Data.SqlClient, System.Data.SQLite, AWSSDK.*, Octokit, RestSharp, JWT, crypto,
-# NLog and the SSPI/GSSAPI/SQLite natives from $(OutDir) seconds after the build has
-# spent ten minutes producing them. The audit measured 203 of 574 unique warnings -
-# 35 % - in those projects.
+# B-12: the -ide host and the TSO server closure are out of the default build
+# ==========================================================================
+# FSO.IDE (the Volcanic IDE host) and FSO.Client (the TSO online client) reach ~19 projects:
+# FSO.Server*, server, watchdog, the ASP.NET Core API host, FSO.Windows,
+# FSO.SimAntics.JIT.Roslyn ... None of them is listed here, and a default build no longer
+# references them either (BuildIde defaults to false - see Directory.Build.props). Both halves
+# are needed: a solution builds every project in its table whether or not anything references
+# it, and a project reference is followed whether or not the target is listed.
 #
-# They are no longer listed here, and Simitone.Windows no longer references them
-# (see the BuildIde comment block in Directory.Build.props). Both halves are needed:
-# a solution builds every project in its project table whether or not anything
-# references it, and a project reference is followed whether or not the target is
-# listed. Dropping one without the other would have changed nothing.
+# Simitone.Windows references FSO.Content.TSO directly instead: it is content only (no code),
+# and its Content folder is the one thing from that world the game needs. It is built through
+# that reference, so it is not listed here either.
 #
-# Consequence worth knowing before you file a bug: `dotnet msbuild <one of them>`,
-# opening them in an IDE, and `-p:BuildIde=true` on this solution all still work. The
-# projects have not been deleted and have not been edited; they are simply not part of
-# the game build any more. To get an -ide-capable Simitone.exe:
+# `dotnet msbuild <one of them>` and opening them in an IDE still work; they are simply not part
+# of the game build. To get an -ide-capable Simitone.exe:
 #
 #     dotnet build Client/Simitone/Simitone.sln -c Release -p:BuildIde=true
 #

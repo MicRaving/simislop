@@ -409,7 +409,7 @@ namespace Simitone.Tests.Neighbourhood
         {
             // CityMapData.Save writes exactly these five files under exactly these names, through
             // a Texture2D on the game thread - which is why this cannot be the only way to look at
-            // a map from a test. Doing it headlessly through ImageSharp means the same files are
+            // a map from a test. Doing it headlessly through PngCodec means the same files are
             // available to a build server and to a developer with no GPU.
             var input = NeighbourhoodTestInput.FourFlatLots();
             var map = NeighbourhoodMapGenerator.Generate(input);

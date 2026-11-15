@@ -113,62 +113,18 @@ namespace Simitone.Tests.Neighbourhood
             return source.Substring(at);
         }
 
-        // ---- the sub-world attach is gated off on a live lot -----------------------------------------
+        // ---- the sub-world attach has one gate, and it is the flag -----------------------------------
 
         /// <summary>
-        /// The gate is off unless a build turns it on, so a lot is never written into by default.
+        /// There used to be a process-wide static beside the NeighbourSubWorlds flag. The screen only
+        /// ever set it to true and nothing reset it, so it was never a switch; the flag is the gate.
         /// </summary>
         [Fact]
-        public void TheSubWorldAttachGateIsOffByDefault()
-        {
-            //A static default: the field's initialiser, read from the source, because a test
-            //process that has already run another test in this class may have set it.
-            var source = RestoreSource();
-            Assert.Contains("public static bool SubWorldAttachEnabled { get; set; }", source);
-            Assert.DoesNotContain("SubWorldAttachEnabled { get; set; } = true", source);
-        }
-
-        /// <summary>
-        /// The gate is asked before the restore reads any field of the live lot, so "off" really
-        /// means untouched rather than "off after some writes".
-        /// </summary>
-        [Fact]
-        public void TheGateIsAskedBeforeTheLiveLotIsRead()
+        public void TheSubWorldAttachHasNoSecondStaticGateBesideTheFlag()
         {
             var source = RestoreSource();
-            var gate = source.IndexOf("if (!SubWorldAttachEnabled)", StringComparison.Ordinal);
-            Assert.True(gate > 0, "TryRestore no longer asks the sub-world attach gate");
-
-            //Everything below these three lines is the first read of the live lot's own state.
-            foreach (var firstRead in new[]
-            {
-                "var world = vm.Context.World;",
-                "var blueprint = vm.Context.Blueprint;",
-                "world.InitSubWorlds();",
-                "blueprint.SubWorlds.Add(subworld);"
-            })
-            {
-                var at = source.IndexOf(firstRead, StringComparison.Ordinal);
-                Assert.True(at > gate,
-                    "'" + firstRead + "' is reached before the gate is asked");
-            }
-        }
-
-        /// <summary>
-        /// The refusal is a named sentence, so a caller can recognise this one refusal and stay
-        /// quiet about it rather than writing a line per lot.
-        /// </summary>
-        [Fact]
-        public void TheGateRefusalIsANamedSentenceAndSaysTheLotIsUntouched()
-        {
-            Assert.False(string.IsNullOrWhiteSpace(
-                SimitoneSurroundingsRestore.SubWorldAttachDisabledReason));
-            Assert.Contains("facades", SimitoneSurroundingsRestore.SubWorldAttachDisabledReason);
-            Assert.Contains("untouched", SimitoneSurroundingsRestore.SubWorldAttachDisabledReason);
-
-            //And it is the sentence TryRestore hands back, not a log line of its own.
-            var source = RestoreSource();
-            Assert.Contains("reason = SubWorldAttachDisabledReason;", source);
+            Assert.DoesNotContain("SubWorldAttachEnabled", source);
+            Assert.DoesNotContain("SubWorldAttachDisabledReason", source);
         }
 
         /// <summary>

@@ -2,8 +2,6 @@ using FSO.Files.FAR1;
 using FSO.Files.FAR3;
 using FSO.Files.Formats.IFF;
 using FSO.Files.Formats.IFF.Chunks;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -274,35 +272,15 @@ namespace Simitone.MeshCleanup
         public static SpriteTexture FromPng(string path)
         {
             if (!File.Exists(path)) return null;
-            using (var image = Image.Load<Rgba32>(path))
-            {
-                var tex = new SpriteTexture { Width = image.Width, Height = image.Height, Pixels = new Rgba32[image.Width * image.Height] };
-                image.ProcessPixelRows(acc =>
-                {
-                    for (int y = 0; y < image.Height; y++)
-                    {
-                        var row = acc.GetRowSpan(y);
-                        for (int x = 0; x < image.Width; x++) tex.Pixels[y * image.Width + x] = row[x];
-                    }
-                });
-                return tex;
-            }
+            var image = PixelImage.LoadPng(path);
+            return new SpriteTexture { Width = image.Width, Height = image.Height, Pixels = image.Pixels };
         }
 
         public void SavePng(string path)
         {
-            using (var image = new Image<Rgba32>(Width, Height))
-            {
-                image.ProcessPixelRows(acc =>
-                {
-                    for (int y = 0; y < Height; y++)
-                    {
-                        var row = acc.GetRowSpan(y);
-                        for (int x = 0; x < Width; x++) row[x] = Pixels[y * Width + x];
-                    }
-                });
-                image.SaveAsPng(path);
-            }
+            var image = new PixelImage(Width, Height);
+            Array.Copy(Pixels, image.Pixels, image.Pixels.Length);
+            image.SavePng(path);
         }
     }
 

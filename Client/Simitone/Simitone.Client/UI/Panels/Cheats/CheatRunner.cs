@@ -55,7 +55,13 @@ namespace Simitone.Client.UI.Panels.Cheats
             VMPersonDataVariable.BodySkill
         };
 
-        /// <summary>The five personality traits <c>killtraits</c> clears, as their person data slots.</summary>
+        /// <summary>
+        /// The six personality slots <c>killtraits</c> clears, as their person data slots. TS1's
+        /// character screen shows five bars (Neat, Outgoing, Active, Playful, Nice); the sixth,
+        /// Generous (slot 4), is a real person data field the engine still reads for autonomy
+        /// (<c>VMAvatar</c> exposes it to behaviours), so the cheat clears it as well. Every entry
+        /// is the slot the game stores that value in, pinned by <c>CheatConsoleTests</c>.
+        /// </summary>
         public static readonly VMPersonDataVariable[] TraitSlots =
         {
             VMPersonDataVariable.NicePersonality,

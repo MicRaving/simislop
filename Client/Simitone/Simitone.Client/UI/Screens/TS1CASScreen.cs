@@ -1899,7 +1899,6 @@ namespace Simitone.Client.UI.Screens
 
             //clear our cache too, if the setting lets us do that
             TimedReferenceController.Clear();
-            TimedReferenceController.Clear();
 
             vm.Context.Ambience.Kill();
             foreach (var ent in vm.Entities)

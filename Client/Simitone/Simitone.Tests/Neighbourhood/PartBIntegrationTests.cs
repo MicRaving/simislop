@@ -72,8 +72,8 @@ namespace Simitone.Tests.Neighbourhood
     ///
     /// <para>
     /// <b>And the last four seams.</b> The near-sub-world / far-facade decision asked of the facade
-    /// cache the surround actually hands it; the walk's hand-over asked of the switch that actually
-    /// adopts the walked sim; the slot-wide world planner over five generated maps; and the two
+    /// cache the surround actually hands it; the walk planner asked of the switch that actually
+    /// places the arrival; the slot-wide world planner over five generated maps; and the two
     /// opt-in off-screen models over the world's own simulator. Each is a wiring claim rather than
     /// a type claim, which is why no per-type suite can make it: "the plan selects the near lots"
     /// and "the cache withholds a facade for exactly those" are two assertions about two objects,
@@ -207,6 +207,21 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         /// <summary>
+        /// A source file read without taking an exclusive claim on it: an editor or another build
+        /// holding the file open for write must not turn a source-wiring assertion into an
+        /// IOException that has nothing to do with what the assertion checks.
+        /// </summary>
+        private static string ReadSource(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream))
+            {
+                return reader.ReadToEnd();
+            }
+        }
+
+        /// <summary>
         /// C# with comments removed, so an assertion about what a file <em>does</em> cannot be
         /// satisfied - or broken - by what it explains. The prose around this feature names
         /// <c>AttachSubWorlds</c> several times, and a check that counted those would pass on a
@@ -256,7 +271,7 @@ namespace Simitone.Tests.Neighbourhood
         {
             var path = ClientSource("UI", "Screens", "TS1GameScreen.cs");
             Assert.NotNull(path);
-            var source = CommentsRemoved(File.ReadAllText(path));
+            var source = CommentsRemoved(ReadSource(path));
 
             //(1) the guard exists and is one method
             Assert.Contains("private void RestoreSpeedAfterFailedLotSwitch()", source);
@@ -275,12 +290,12 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Contains("_switchPausedVm = vm;", switchBody);
             Assert.Contains("_switchResumeSpeed = resuming;", switchBody);
 
-            //(3) every consumer of SwitchLot without a switch ends the pause
+            //(3) every consumer of SwitchLot without a switch ends the pause: the travel path
+            //does it inside PerformLotSwitch, and the inline path cannot refuse
             var blockBody = MethodBody(source, "if (SwitchLot > 0)");
-            Assert.Contains("if (walkRefusal != null) RestoreSpeedAfterFailedLotSwitch();", blockBody);
+            Assert.Contains("PerformLotSwitch(SwitchLot);", blockBody);
 
-            var travelBody = MethodBody(source,
-                "private bool PerformLotSwitch(int houseId, VMAvatarMarshal arriving)");
+            var travelBody = MethodBody(source, "private bool PerformLotSwitch(int houseId)");
             Assert.Contains("if (!switched) RestoreSpeedAfterFailedLotSwitch();", travelBody);
             Assert.Contains("return switched;", travelBody);
         }
@@ -295,7 +310,7 @@ namespace Simitone.Tests.Neighbourhood
         {
             var path = ClientSource("UI", "Screens", "TS1GameScreen.cs");
             Assert.NotNull(path);
-            var source = CommentsRemoved(File.ReadAllText(path));
+            var source = CommentsRemoved(ReadSource(path));
 
             var body = MethodBody(source, "private void LogLotDiagnostics(string cause)");
             Assert.Contains("vm?.SpeedMultiplier", body);
@@ -366,18 +381,6 @@ namespace Simitone.Tests.Neighbourhood
                 if (calls[i] == call) count++;
             }
             return count;
-        }
-
-        /// <summary>
-        /// Everything a host was asked after the first <paramref name="from"/> calls. A test that
-        /// reads a growing call log has to be able to say which stretch of it it means, and
-        /// <see cref="string.Join(string, IEnumerable{string})"/> says so in one line.
-        /// </summary>
-        private static List<string> Since(IList<string> calls, int from)
-        {
-            var since = new List<string>();
-            for (int i = from; i < calls.Count; i++) since.Add(calls[i]);
-            return since;
         }
 
         // ================================================== layout + map -> query -> plan (B2)
@@ -670,13 +673,6 @@ namespace Simitone.Tests.Neighbourhood
 
             public string LastLoadedPath { get; private set; }
 
-            /// <summary>
-            /// Every door the service has asked this screen to put a sim at, in order. A screen
-            /// cannot answer this without a live <c>VM</c>; recording it is the whole of the fake,
-            /// and it is the same list the ordering assertions below are read against.
-            /// </summary>
-            public readonly List<LotEntrance> Placed = new List<LotEntrance>();
-
             public WorldBackedTravelHost(SimitoneNeighbourhoodWorld world, int currentHouseId)
             {
                 World = world;
@@ -737,29 +733,6 @@ namespace Simitone.Tests.Neighbourhood
                 LastLoadedPath = null;
                 CurrentHouseId = houseId;
                 World.SetActiveLotWith(houseId, marshal);
-            }
-
-            public void AdoptArrivalAvatar(VMAvatarMarshal avatar)
-            {
-                //B4 task 2's half on this side of the seam: the sim that walked here is adopted as
-                //the lot's controlled sim rather than letting the load spawn one. The instance is
-                //recorded rather than copied, because "the same sim" is the whole claim and a copy
-                //would satisfy an equality and hide a rehydration.
-                Calls.Add("adopt:" + (avatar == null ? 0 : avatar.PersistID));
-                AdoptedAvatar = avatar;
-            }
-
-            /// <summary>
-            /// The sim the last switch adopted, or <c>null</c>. A real screen loads it into the
-            /// lot's own VM here, which needs a content manager; recording it is the whole of the
-            /// fake, and it is the same instance the caller handed over.
-            /// </summary>
-            public VMAvatarMarshal AdoptedAvatar { get; private set; }
-
-            public void PlaceArrival(LotEntrance entrance)
-            {
-                Calls.Add("place:" + entrance.LotNumber + "@" + entrance.X + "," + entrance.Y);
-                Placed.Add(entrance);
             }
 
             public Action<NeighbourhoodTransitRecord> RecordTransit
@@ -936,53 +909,7 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal(neighbour, world.ActiveLotNumber);
         }
 
-        // ================================================ the arrival that walked here (B4)
-
-        [Fact]
-        public void AWalkedArrivalIsHandedToTheDestinationLotAndRecordedAsTheSameHop()
-        {
-            //B4 task 2 across the seam between B3's switch and B1's world: the traveller crosses
-            //the street, the destination is told to adopt the sim that walked, and the hop the
-            //world ends up holding is the same hop a switched arrival writes - the same origin,
-            //destination and completion, with the crossing's own mode code saying which kind of
-            //arrival it was. A hop that reads as discrete when a walk happened is the one way this
-            //feature could be invisible in the log and visible to nobody.
-            var world = World();
-            var home = world.Lots[0].Number;
-            var neighbour = world.Lots[1].Number;
-            world.SetActiveLotWith(home, new VMMarshal());
-
-            var host = new WorldBackedTravelHost(world, home);
-            var service = new LotTravelService();
-            var walked = new VMAvatarMarshal
-            {
-                PersistID = 65537,
-                ObjectID = 1,
-                TS1 = true,
-                MotiveData = new short[16],
-                PersonData = new short[101],
-                MotiveDecay = new VMTS1MotiveDecay()
-            };
-
-            string reason;
-            Assert.True(service.TryTransition(host, new LotTransitionRequest(neighbour,
-                TransitionReason.Walk, null, walked), out reason), reason);
-
-            //the destination is told, after its load and before its hop
-            Assert.Same(walked, host.AdoptedAvatar);
-            Assert.True(IndexOf(host.Calls, "adopt:" + walked.PersistID)
-                > IndexOf(host.Calls, "load-file:" + neighbour), string.Join(", ", host.Calls));
-            Assert.True(IndexOf(host.Calls, "adopt:" + walked.PersistID)
-                < IndexOf(host.Calls, "hop:" + home + "->" + neighbour), string.Join(", ", host.Calls));
-
-            //and the world holds one hop, complete, in the walking mode
-            var hop = Assert.Single(world.Transit.Active);
-            Assert.Equal(home, hop.Origin);
-            Assert.Equal(neighbour, hop.Destination);
-            Assert.Equal(LotTravelService.WalkTravelMode, hop.Mode);
-            Assert.True(hop.IsComplete);
-            Assert.Contains("adopted the walked sim", reason);
-        }
+        // ================================================ a plain switch carries no arriving sim
 
         [Fact]
         public void ATeleportedSwitchStillLeavesTheWorldWithNoArrivingSimAndADiscreteHop()
@@ -1002,8 +929,6 @@ namespace Simitone.Tests.Neighbourhood
             Assert.True(service.TryTransition(host,
                 new LotTransitionRequest(neighbour, TransitionReason.Picker), out reason), reason);
 
-            Assert.Null(host.AdoptedAvatar);
-            Assert.DoesNotContain("adopt:", string.Join(", ", host.Calls));
             Assert.Equal(LotTravelService.DiscreteTravelMode, Assert.Single(world.Transit.Active).Mode);
         }
 
@@ -1033,7 +958,7 @@ namespace Simitone.Tests.Neighbourhood
         {
             var file = ClientSource("UI", "Screens", "TS1GameScreen.cs");
             Assert.NotNull(file);
-            var source = CommentsRemoved(File.ReadAllText(file));
+            var source = CommentsRemoved(ReadSource(file));
             var bridge = source.IndexOf("private void AttachHollowNeighbours", StringComparison.Ordinal);
             Assert.True(bridge >= 0, "no AttachHollowNeighbours in " + file);
             //the body is from the method's declaration to the brace that closes it at the file's
@@ -1458,7 +1383,7 @@ namespace Simitone.Tests.Neighbourhood
             });
             NeighbourhoodWorldFlags.Reset();
 
-            Assert.Equal(7, NeighbourhoodWorldFlags.All.Count);
+            Assert.Equal(6, NeighbourhoodWorldFlags.All.Count);
             foreach (var flag in NeighbourhoodWorldFlags.All)
             {
                 Assert.False(NeighbourhoodWorldFlags.IsOn(flag), flag.ToString());
@@ -1986,7 +1911,7 @@ namespace Simitone.Tests.Neighbourhood
             return record;
         }
 
-        // ================================================ the walk and the camera (B4) ===================
+        // ================================================ the walk planner (B4) ===================
 
         [Fact]
         public void AWalkOverTheWorldsOwnQueryReachesTheDestinationsDoorAndNamesNoLotWhileItWalks()
@@ -2096,108 +2021,14 @@ namespace Simitone.Tests.Neighbourhood
                 world.ActiveLotNumber, out reason), reason);
         }
 
-        [Fact]
-        public void ACameraChasingThatWalkLandsOnTheDoorAtOneTwoOrSixtyFramesASecond()
-        {
-            //B4's two halves together, because either alone is a claim about arithmetic. The
-            //transit lot plans a walk and the world camera follows the avatar down it, six tiles a
-            //second, at six frame rates over the same elapsed time - and every one of them has to
-            //end up looking at the door the walk ended on.
-            //
-            //The two halves are asked for at the strengths the camera actually promises. While the
-            //goal is moving it is a <em>bound</em>, not an equality: a frame rate can only sample the
-            //walker where it happens to be, so all that is claimed is that the camera never loses
-            //its sim. Once the avatar is standing still on the door the goal is constant and the
-            //frame-rate independence is exact, so that half is an equality.
-            var world = World();
-            var origin = world.Lots[0].Number;
-            var destination = world.Lots[2].Number;
-
-            var planner = new NeighbourhoodTransitLot(world.Query, ActiveLotKind.Active, origin);
-            TransitPath path;
-            string reason;
-            Assert.True(planner.TryPlanPath(origin, destination, out path, out reason), reason);
-            Assert.True(path.Length > 0, path.Describe());
-
-            const double TilesPerSecond = 6.0;
-            const double SettleSeconds = 3.0;
-            const float OnTheDoor = 0.05f;
-            const float SamePlace = 0.02f;
-
-            //A whole number of seconds of walk, so no frame rate is handed a longer or a shorter
-            //walk than any other and the comparison is of the frame rate alone.
-            var duration = path.Length / TilesPerSecond;
-            var landed = new List<Vector3>();
-
-            foreach (var framesPerSecond in new[] { 1, 2, 4, 8, 16, 60 })
-            {
-                var transit = new NeighbourhoodTransitLot(world.Query, ActiveLotKind.Active, origin);
-                TransitPath here;
-                Assert.True(transit.TryBeginTransit(origin, destination, out here, out reason), reason);
-                Assert.Equal(path.Length, here.Length);
-
-                var camera = new NeighbourhoodWorldCamera(world.Layout.MapSize);
-                Assert.Equal(NeighbourhoodWorldCameraMode.Follow, camera.Mode);
-
-                var frame = 1.0 / framesPerSecond;
-                var remaining = duration;
-                while (remaining > 1e-9)
-                {
-                    var delta = Math.Min(frame, remaining);
-                    remaining -= delta;
-
-                    transit.Advance(TilesPerSecond * delta);
-                    var avatar = new Vector3(
-                        (float)transit.State.PositionX, 0f, (float)transit.State.PositionY);
-                    camera.Follow(avatar);
-                    camera.Update(delta);
-
-                    //A follow camera that has lost its sim, and a per-frame integrator that
-                    //overshoots at a low frame rate, both fail exactly here.
-                    var lag = Vector3.Distance(camera.Target, avatar);
-                    Assert.True(lag <= NeighbourhoodWorldCamera.DefaultFollowDistance,
-                        framesPerSecond + " fps: the camera ended a frame "
-                        + lag.ToString("0.###") + " tiles from the sim it is following (" + camera + ")");
-                }
-
-                //The final frame can land a rounding error short of the door, and arrival is
-                //claimed on the next step rather than on the frame.
-                if (!transit.State.IsArrived) transit.Advance(TilesPerSecond);
-                Assert.True(transit.State.IsArrived, framesPerSecond + " fps: " + transit.State.Describe());
-                Assert.Equal(path.End.X, transit.State.Current.X);
-
-                //The goal is now still, and this is the case the half-life is exact in.
-                for (double t = 0; t < SettleSeconds; t += frame) camera.Update(frame);
-                Assert.True(camera.IsSettled(OnTheDoor),
-                    framesPerSecond + " fps: the camera never settled (" + camera + ")");
-                landed.Add(camera.Target);
-            }
-
-            var door = new Vector3(path.End.X, 0f, path.End.Y);
-            for (int i = 0; i < landed.Count; i++)
-            {
-                Assert.True(Vector3.Distance(landed[i], door) <= OnTheDoor,
-                    "camera " + i + " settled " + Vector3.Distance(landed[i], door)
-                    + " tiles from the door it followed a sim to");
-            }
-            for (int i = 1; i < landed.Count; i++)
-            {
-                Assert.True(Vector3.Distance(landed[i], landed[0]) <= SamePlace,
-                    "two frame rates left their cameras " + Vector3.Distance(landed[i], landed[0])
-                    + " tiles apart, and a frame rate is not a save file");
-            }
-        }
-
-        // ============================================ the door, from both sides (B3 + B4) ================
+        // ============================================ the door the planner ends on (B4) ================
 
         [Fact]
-        public void TheDoorTheWalkerArrivesAtIsTheDoorTheLotSwitchCarries()
+        public void TheDoorTheWalkerArrivesAtIsTheDoorTheMapStates()
         {
-            //§B3 task 2 and §B4 task 1 meet on one tile, and the tile is not an argument anybody
-            //supplies. The door a sim is placed at on arrival, the tile the transit lot's path ends
-            //on, and the entrance the map states for that lot have to be one fact, read from the
-            //world's own query - because the alternative is a caller who types a coordinate and a
-            //player who arrives inside a wall.
+            //The tile the transit lot's path ends on and the entrance the map states for that lot
+            //have to be one fact, read from the world's own query - because the alternative is a
+            //caller who types a coordinate and a player who arrives inside a wall.
             var world = World();
             var origin = world.Lots[0].Number;
             var destination = world.Lots[2].Number;
@@ -2218,67 +2049,6 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal(door.X, path.End.X);
             Assert.Equal(door.Y, path.End.Y);
             Assert.Equal(destination, path.End.LotNumber);
-
-            //3. the door the switch carries
-            world.SetActiveLotWith(origin, new VMMarshal());
-            var host = new WorldBackedTravelHost(world, origin);
-            var service = new LotTravelService();
-            var placeCall = "place:" + destination + "@" + door.X + "," + door.Y;
-
-            var placed = new LotTransitionRequest(destination, TransitionReason.Picker, door);
-            Assert.True(placed.Arrival.HasValue);
-            Assert.Equal(door, placed.Arrival.Value);
-            Assert.Contains("at " + door, placed.ToString());
-            Assert.True(service.TryTransition(host, placed, out reason), reason);
-            Assert.Equal(destination, world.ActiveLotNumber);
-
-            //It is placed, at exactly the door the walk ended on, after the load that made the lot
-            //exist and before the hop that claims the sim arrived - all three in one ordering, so a
-            //reordering cannot pass on any single pair.
-            Assert.Equal(new[] { door }, host.Placed);
-            Assert.True(IndexOf(host.Calls, "load-file:" + destination) < IndexOf(host.Calls, placeCall),
-                string.Join(", ", host.Calls));
-            Assert.True(IndexOf(host.Calls, placeCall)
-                    < IndexOf(host.Calls, "hop:" + origin + "->" + destination),
-                string.Join(", ", host.Calls));
-            Assert.Contains("placed at the entrance: " + door, reason);
-
-            //A switch that names no door is a different request rather than a worse one: the switch
-            //still happens, the host is not asked to place anybody, and the centre the load picked
-            //stands. A null here is not "put them in the middle of the lot" - it is "I have nothing
-            //to say about it", and the difference is already in the log line.
-            var afterFirst = host.Calls.Count;
-            host.CurrentHouseId = destination;
-            var blind = new LotTransitionRequest(origin, TransitionReason.Picker);
-            Assert.False(blind.Arrival.HasValue);
-            Assert.Contains("no arrival door", blind.ToString());
-            Assert.True(service.TryTransition(host, blind, out reason), reason);
-            Assert.Equal(origin, world.ActiveLotNumber);
-            Assert.Equal(new[] { door }, host.Placed);
-            Assert.DoesNotContain("place:", string.Join(", ", Since(host.Calls, afterFirst)));
-            Assert.Contains("no arrival door, lot centre", reason);
-
-            //And a door that names a different lot is handed over as given rather than vetoing a
-            //switch that is otherwise valid: spotting one needs the lot's own grid, and only the
-            //host has that. A traveller who lands a tile out is in a far better state than one who
-            //did not arrive at all.
-            host.CurrentHouseId = origin;
-            var mismatched = new LotTransitionRequest(destination, TransitionReason.Picker,
-                new LotEntrance(origin, door.X, door.Y, door.FacingX, door.FacingY));
-            Assert.True(service.TryTransition(host, mismatched, out reason), reason);
-            Assert.Equal(destination, world.ActiveLotNumber);
-            Assert.Equal(2, host.Placed.Count);
-            Assert.Equal(origin, host.Placed[1].LotNumber);
-            Assert.Equal(door.X, host.Placed[1].X);
-
-            //and the lot the player is not in is the one the store holds, keyed by its own number
-            Assert.Equal(NeighbourhoodLotState.Active, world.LotStore.StateOf(origin));
-            Assert.Equal(NeighbourhoodLotState.Unloaded, world.LotStore.StateOf(destination));
-
-            //None of which touched the time: the clock is the world's, and a lot switch is not a
-            //reason to move it. That is the other half of the handshake, and it is why the screen
-            //has to do the pull itself.
-            Assert.Equal(0L, world.Clock.Ticks);
         }
 
         // ==================================== the world's own features (B8) ============================
@@ -2794,13 +2564,6 @@ namespace Simitone.Tests.Neighbourhood
             var drawn = first.CurrentLighting;
             Assert.Equal(drawn, first.CurrentLighting);
             Assert.Equal(drawn, NeighbourhoodWorldLighting.From(first.Lighting, first.Weather));
-            Assert.True(NeighbourhoodWorldLighting.From(WorldLightingState.FromClock(
-                    new WorldClock()), first.Weather) != drawn,
-                "swapping the lighting in for a clock that has never been told the time was not "
-                + "noticed: " + drawn);
-            Assert.Equal(first.Features.DayPhase, drawn.Phase);
-            Assert.InRange(drawn.FogDistance, 0.0, NeighbourhoodWorldLighting.ClearFogDistance);
-            Assert.InRange(drawn.Overcast, 0.0, 1.0);
             Assert.False(drawn.IsSunUp, "half past eight in the evening has no sun up: " + drawn);
 
             //The fourth run is the same neighbourhood under the same seed, arrived at in forty-
@@ -2825,9 +2588,6 @@ namespace Simitone.Tests.Neighbourhood
             //finally folded in.
             Assert.Equal(first.Lighting, other.Lighting);
             Assert.NotEqual(first.Weather, other.Weather);
-            Assert.NotEqual(drawn, other.CurrentLighting);
-            Assert.Equal(drawn.Phase, other.CurrentLighting.Phase);
-            Assert.Equal(drawn.IsNight, other.CurrentLighting.IsNight);
             Assert.Equal(drawn.IsSunUp, other.CurrentLighting.IsSunUp);
 
             //--- and with the capability off, nothing is built -----------------------------------
@@ -2875,16 +2635,9 @@ namespace Simitone.Tests.Neighbourhood
             //the zeroed value, and the adapter asked with nothing to fold in answers with a clear
             //sky. They are two different "no", and neither is the other one by accident.
             Assert.Equal(default(NeighbourhoodWorldLighting), off.CurrentLighting);
-            Assert.NotEqual(nothing, off.CurrentLighting);
             Assert.NotEqual(drawn, nothing);
-            Assert.Equal(0.0, nothing.Overcast);
-            Assert.Equal(NeighbourhoodWorldLighting.ClearFogDistance, nothing.FogDistance);
             //Fog shortens the view, so the clear-sky default is the furthest of the two and
             //the evening's own number is inside the published range whatever its weather is.
-            Assert.InRange(drawn.FogDistance, NeighbourhoodWorldLighting.ObscuredFogDistance,
-                nothing.FogDistance);
-            Assert.InRange(nothing.SunIntensity, 0.0, 1.0);
-            Assert.InRange(nothing.AmbientIntensity, 0.0, 1.0);
 
             //And with the world itself switched off there is no clock to read at all, which is
             //the last state the three gates can be in.
@@ -2896,7 +2649,6 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal(0L, dead.Clock.Ticks);
             Assert.Equal(0L, dead.FeatureTicks);
             Assert.Equal(frozenReading, dead.Lighting);
-            Assert.Equal(WorldDayPhase.Dawn, dead.CurrentLighting.Phase);
         }
 
         /// <summary>
@@ -3171,7 +2923,7 @@ namespace Simitone.Tests.Neighbourhood
             NeighbourhoodWorldFlags.Reset();
             Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.World));
             Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Offscreen));
-            Assert.Equal("1 of 7 neighbourhood world capability on: " + NeighbourhoodWorldFlags.WorldKey,
+            Assert.Equal("1 of 6 neighbourhood world capability on: " + NeighbourhoodWorldFlags.WorldKey,
                 NeighbourhoodWorldFlags.DescribeSet());
 
             //The world the screen would build, built from the flag rather than from a literal:
@@ -3223,7 +2975,7 @@ namespace Simitone.Tests.Neighbourhood
                 }
                 Assert.False(NeighbourhoodWorldFlags.IsOn(flag), flag.ToString());
             }
-            Assert.Equal("2 of 7 neighbourhood world capabilities on: "
+            Assert.Equal("2 of 6 neighbourhood world capabilities on: "
                 + NeighbourhoodWorldFlags.WorldKey + ", " + NeighbourhoodWorldFlags.OffscreenKey,
                 NeighbourhoodWorldFlags.DescribeSet());
 
@@ -3248,7 +3000,7 @@ namespace Simitone.Tests.Neighbourhood
             //made is never read back as somebody else having edited the file over it.
             NeighbourhoodWorldFlags.AllOff(save: true);
             Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Offscreen));
-            Assert.Equal("no neighbourhood world capability is on (7 off)",
+            Assert.Equal("no neighbourhood world capability is on (6 off)",
                 NeighbourhoodWorldFlags.DescribeSet());
 
             var quiet = MotivesOf(StoredMarshal(world, world.Lots[1].Number));
@@ -3277,7 +3029,7 @@ namespace Simitone.Tests.Neighbourhood
             Assert.False(NeighbourhoodWorldFlags.ReadFrom(path, NeighbourhoodWorldFlag.Persist));
             Assert.True(NeighbourhoodWorldFlags.Refresh());
             Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Persist));
-            Assert.Equal("no neighbourhood world capability is on (7 off)",
+            Assert.Equal("no neighbourhood world capability is on (6 off)",
                 NeighbourhoodWorldFlags.DescribeSet());
 
             //And the world a screen builds <em>now</em> is off and frozen - but this one, built
@@ -3633,154 +3385,6 @@ namespace Simitone.Tests.Neighbourhood
             //refusals and the owner - so a VM behind it would have nothing left to decide.
         }
 
-        [Fact]
-        public void TheBlueprintAPlanWouldBuildIsAPureFunctionOfTheSameWalkAndTheHandoverAgreesWithTheWorld()
-        {
-            //The seam between B4's decision half and its VM half, and the only part of the VM
-            //half that is reachable without one. <see cref="NeighbourhoodTransitLotVm"/> builds
-            //its <c>World</c> + <c>VM</c> from a <see cref="TransitBlueprintPlan"/>, and the plan
-            //is derived from the very <see cref="TransitPath"/> the planner produced - so if the
-            //two ever read different walks, the avatar is placed on a pavement the route never
-            //crosses. The same three claims a caller needs before it may spend a World on this:
-            //the plan is a function of the walk and the map, it contains every tile of the walk,
-            //and the handover at the end of the walk names the same lot the world's own switch
-            //does - and both of those are headless.
-            var world = World();
-            var origin = world.Lots[0].Number;
-            var destination = world.Lots[3].Number;
-            NeighbourhoodLot originLot;
-            Assert.True(world.TryGetLot(origin, out originLot));
-
-            var transit = new NeighbourhoodTransitLot(world.Query, ActiveLotKind.Active, origin);
-            TransitPath path;
-            string reason;
-            Assert.True(transit.TryBeginTransit(origin, destination, out path, out reason), reason);
-
-            //--- the plan, from the walk and nothing else ----------------------------------------
-            TransitBlueprintPlan plan;
-            Assert.True(TransitBlueprintPlan.TryCreate(world.Map, originLot, path,
-                TransitStreetRegion.DefaultMarginTiles, out plan, out reason), reason);
-            Assert.True(plan.IsValid, plan.Describe());
-            Assert.Equal(origin, plan.OriginLotNumber);
-            Assert.Equal(destination, plan.DestinationLot);
-            Assert.Equal(originLot.Number, plan.OriginLot.Number);
-            Assert.Equal(TransitStreetRegion.DefaultMarginTiles, plan.MarginTiles);
-            Assert.True(plan.Side >= TransitStreetRegion.MinSideTiles, plan.Describe());
-            Assert.True(plan.Side <= TransitStreetRegion.MaxSideTiles, plan.Describe());
-            Assert.True(plan.Region.IsValid, plan.Describe());
-            Assert.True(plan.Terrain.IsValid, plan.Describe());
-
-            //The whole walk is inside the blueprint, tile for tile, in the lot's own frame -
-            //which is the claim the margin exists for and the one that is easy to be out by one.
-            Assert.True(plan.ContainsWholeWalk(path), plan.Describe());
-            for (int i = 0; i < path.Waypoints.Count; i++)
-            {
-                var waypoint = path.Waypoints[i];
-                Assert.True(plan.Region.Contains(waypoint.X, waypoint.Y),
-                    "waypoint " + i + " (" + waypoint + ") fell outside " + plan.Describe());
-                var local = plan.LocalTileFor(waypoint);
-                Assert.InRange(local.TileX, (short)0, (short)(plan.Side - 1));
-                Assert.InRange(local.TileY, (short)0, (short)(plan.Side - 1));
-            }
-
-            //The sub-world hangs off the lot the player left, measured from that lot's own
-            //corner, so the walk starts and ends in the same storey the player's house is on -
-            //and a blueprint hung off the wrong lot would be a walk that steps up or down a
-            //storey at the front door.
-            Assert.Equal(plan.Region.MinX - originLot.WorldX, (int)plan.SubWorldOrigin.X);
-            Assert.Equal(plan.Region.MinZ - originLot.WorldY, (int)plan.SubWorldOrigin.Y);
-            var start = plan.LocalTileFor(path.Start);
-            Assert.Equal((short)(path.Start.X - plan.Region.MinX), start.TileX);
-            Assert.Equal((short)(path.Start.Y - plan.Region.MinZ), start.TileY);
-            Assert.True(start.Level == SimitoneSurroundingsRestore.SubWorldLevel,
-                "the walk starts on a different storey than the lot the player left");
-
-            //--- the same three inputs, the same plan ---------------------------------------------
-            //Pure, and over the same map, so a caller may build the plan at any point in the
-            //walk and get the blueprint the walk is on rather than one that moved underneath it.
-            TransitBlueprintPlan repeated;
-            Assert.True(TransitBlueprintPlan.TryCreate(world.Map, originLot, path,
-                TransitStreetRegion.DefaultMarginTiles, out repeated, out reason), reason);
-            Assert.Equal(plan.Side, repeated.Side);
-            Assert.Equal(plan.SubWorldOrigin, repeated.SubWorldOrigin);
-            Assert.Equal(plan.BaseAltitude, repeated.BaseAltitude);
-            Assert.Equal(plan.LotDirection, repeated.LotDirection);
-            Assert.Equal(plan.Describe(), repeated.Describe());
-
-            //And the refusals are answers, each naming its case, so a caller that cannot build
-            //one falls back to a lot switch - which is B3's behaviour and what the capability's
-            //own description promises.
-            TransitBlueprintPlan none;
-            Assert.False(TransitBlueprintPlan.TryCreate(world.Map, originLot, TransitPath.None,
-                TransitStreetRegion.DefaultMarginTiles, out none, out reason));
-            Assert.Null(none);
-            Assert.Contains("no planned walk", reason);
-            Assert.False(TransitBlueprintPlan.TryCreate(world.Map, null, path,
-                TransitStreetRegion.DefaultMarginTiles, out none, out reason));
-            Assert.Contains("not in this neighbourhood's layout", reason);
-            Assert.False(TransitBlueprintPlan.TryCreate(null, originLot, path,
-                TransitStreetRegion.DefaultMarginTiles, out none, out reason));
-            Assert.Contains("no generated map", reason);
-            Assert.False(plan.ContainsWholeWalk(null));
-            Assert.False(plan.ContainsWholeWalk(TransitPath.None));
-
-            //--- the handover, and the world's own agreement --------------------------------------
-            //Mid-street the handover is refused, and a refusal preserves the owner: the avatar is
-            //on the pavement, which is a state the exactly-one-active-lot predicate allows.
-            var early = TransitHandover.For(transit.State, true);
-            Assert.False(early.Allowed);
-            Assert.False(early.IsValid);
-            Assert.False(early.ArrivesInLot);
-            Assert.True(early.PreservesOwner);
-            Assert.Equal(NeighbourhoodTransitLot.NoLot, early.Destination);
-            Assert.Equal(ActiveLotKind.Transit, early.ResultingKind);
-            Assert.False(early.DisposesWorld);
-            Assert.Contains("short of lot " + destination, early.Reason);
-            Assert.True(NeighbourhoodTransitLot.IsExactlyOneActiveLot(early.ResultingKind,
-                early.ResultingLot, out reason), reason);
-
-            //Arrived but with nobody in hand: refused too, because handing the world over would
-            //leave a destination lot with no sim in it.
-            while (!transit.State.IsArrived) transit.Advance(4.0);
-            var abandoned = TransitHandover.For(transit.State, false);
-            Assert.False(abandoned.Allowed);
-            Assert.Contains("does not hold the travelling avatar", abandoned.Reason);
-            Assert.True(abandoned.PreservesOwner);
-
-            //Carried and arrived: the world names the destination, the transit lot's own world
-            //comes down, and the result is the same pair the world's own switch would be given.
-            var handover = TransitHandover.For(transit.State, true);
-            Assert.True(handover.Allowed, handover.Reason);
-            Assert.Null(handover.Reason);
-            Assert.True(handover.ArrivesInLot);
-            Assert.True(handover.PreservesOwner);
-            Assert.True(handover.DisposesWorld);
-            Assert.Equal(destination, handover.Destination);
-            Assert.Equal(ActiveLotKind.Active, handover.ResultingKind);
-            Assert.Equal(destination, handover.ResultingLot);
-            Assert.True(NeighbourhoodTransitLot.IsExactlyOneActiveLot(handover.ResultingKind,
-                handover.ResultingLot, out reason), reason);
-
-            //And the world agrees, on the same frame: the walk ends, the transit lot gives the
-            //avatar up, and the switch puts the avatar in the lot the handover named.
-            Assert.True(transit.CompleteTransit(out reason), reason);
-            Assert.Equal(destination, transit.ActiveLotNumber);
-            Assert.Equal(ActiveLotKind.Active, transit.Kind);
-            world.SetActiveLot(destination);
-            Assert.Equal(handover.ResultingLot, world.ActiveLotNumber);
-            Assert.Equal(ActiveLotKind.Active, transit.Kind);
-            Assert.True(NeighbourhoodTransitLot.IsExactlyOneActiveLot(transit.Kind,
-                world.ActiveLotNumber, out reason), reason);
-
-            //--- the half that needs a device, named rather than faked ---------------------------
-            //Building the transit lot's <c>World</c> and <c>VM</c>, binding the traveller's sim
-            //into it and ticking it needs a graphics device, a content manager and game content -
-            //<c>TransitAvatarBinder</c> asks for the avatar template by name and there is no
-            //headless answer to that. So that half is not asserted here and not faked: what is
-            //asserted is that everything it would have to decide is already decided, and decided
-            //twice, by the two pure types above.
-        }
-
         // ====================================================================================
         // The last four seams: one rendered decision per lot (B2), the walk's hand-over (B4), the
         // slot-wide world planner (Part B §13), and the two opt-in off-screen models (B6).
@@ -3963,7 +3567,7 @@ namespace Simitone.Tests.Neighbourhood
                 world.Layout, world.Map, active, out placement, out reason), reason);
 
             NeighbourhoodWorldFlags.Reset();
-            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Surroundings));
+            Assert.False(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.NeighbourSubWorlds));
 
             //The screen's gate, restated: with the flag off it builds no plan and hands the cache
             //none, so the cache is in the state it is constructed in.
@@ -3997,10 +3601,10 @@ namespace Simitone.Tests.Neighbourhood
 
             //And turning it on is the *only* thing that changes: the same lot, the same plan, the
             //same cache, one switch.
-            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Surroundings, true, save: false);
+            NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.NeighbourSubWorlds, true, save: false);
             try
             {
-                Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Surroundings));
+                Assert.True(NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.NeighbourSubWorlds));
                 var plan = SimitoneSurroundingsPlan.ForQuery(placement, world.Map, world.Query,
                     world.Layout, world.LotStore, SubWorldRadius, SubWorldBudget);
                 var withheld = cache.UseSubWorlds(plan);
@@ -4014,7 +3618,7 @@ namespace Simitone.Tests.Neighbourhood
             }
             finally
             {
-                NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.Surroundings, false, save: false);
+                NeighbourhoodWorldFlags.Set(NeighbourhoodWorldFlag.NeighbourSubWorlds, false, save: false);
             }
         }
 
@@ -4038,16 +3642,9 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void TheWalkedSimIsCarriedOntoTheSwitchAndACancelPutsTheWorldBackWhereItWas()
         {
-            //§B4 task 2 at the seam it is written for: the walk ends, the traveller comes back as
-            //a marshal, and the *same* switch B3 uses is handed that marshal so the arriving sim is
-            //the one that walked rather than whatever the destination's load spawns. Three claims
-            //that are only meaningful together, because a hand-over that dropped the avatar would
-            //still produce a lot switch that looked perfect:
-            //
-            //  - adoption happens, and only for a request that carried a sim;
-            //  - it happens *after* the load and *before* the placement, because the lot does not
-            //    exist before the load and the placement is about the sim that was adopted;
-            //  - a cancelled walk restores the origin's own bookkeeping, including its kind.
+            //The pure planner's walk against B3's switch: a cancelled walk puts the world back
+            //(the origin's own bookkeeping, including its kind), and an arrived one is followed
+            //by the same switch B3 uses, with the hop written after the load.
             var world = World();
             var origin = world.Lots[0].Number;
             var destination = world.Lots[3].Number;
@@ -4086,77 +3683,24 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal(origin, world.ActiveLotNumber);
             Assert.Same(originState, world.ActiveMarshal);
 
-            //--- the arrived walk hands its sim over ----------------------------------------------
+            //--- the arrived walk, then the switch with a door ----------------------------------
             var transit = new NeighbourhoodTransitLot(world.Query, ActiveLotKind.Active, origin);
             Assert.True(transit.TryBeginTransit(origin, destination, out path, out reason), reason);
             while (!transit.State.IsArrived) transit.Advance(path.Length);
-
-            //The decision is the pure half of the hand-over, and it is refused while the sim is
-            //still short of the door - which is the only thing that would let a walk teleport.
-            var early = TransitHandover.For(new TransitState(origin, destination, path, 0.5), true);
-            Assert.False(early.Allowed);
-            Assert.Contains("short of lot " + destination, early.Reason);
-
-            var handover = TransitHandover.For(transit.State, true);
-            Assert.True(handover.Allowed, handover.Reason);
-            Assert.Equal(destination, handover.Destination);
-            Assert.Equal(destination, handover.ResultingLot);
-            Assert.True(NeighbourhoodTransitLot.IsExactlyOneActiveLot(handover.ResultingKind,
-                handover.ResultingLot, out reason), reason);
-
             Assert.True(transit.CompleteTransit(out reason), reason);
             Assert.Equal(destination, transit.ActiveLotNumber);
 
-            //The sim the walk carried. A marshal, not a persist id: the thing that crosses is the
-            //entity's own state, and a marshal is the form the destination lot adopts.
-            var traveller = new VMAvatarMarshal { PersistID = 4242 };
-            Assert.Equal(4242u, traveller.PersistID);
-            var door = world.Query.EntranceFor(destination);
-            Assert.NotNull(door);
-            var arrival = new LotEntrance(door.LotNumber, door.X, door.Y, door.FacingX, door.FacingY);
-
-            var request = new LotTransitionRequest(handover.Destination, TransitionReason.Walk,
-                arrival, traveller);
-            Assert.Same(traveller, request.IncomingAvatar);
+            var request = new LotTransitionRequest(destination, TransitionReason.VmRequest);
             Assert.True(service.TryTransition(host, request, out reason), reason);
 
-            //The whole order in one assertion. Adoption between the load and the placement is the
-            //part this test exists for; a reordering cannot pass on any single pair.
-            var adoptCall = "adopt:" + traveller.PersistID;
-            var placeCall = "place:" + destination + "@" + arrival.X + "," + arrival.Y;
-            Assert.True(IndexOf(host.Calls, "load-file:" + destination) < IndexOf(host.Calls, adoptCall),
-                string.Join(", ", host.Calls));
-            Assert.True(IndexOf(host.Calls, adoptCall) < IndexOf(host.Calls, placeCall),
-                string.Join(", ", host.Calls));
-            Assert.True(IndexOf(host.Calls, placeCall)
+            //the hop is the last word on a switch that happened, so it follows the load
+            Assert.True(IndexOf(host.Calls, "load-file:" + destination)
                     < IndexOf(host.Calls, "hop:" + origin + "->" + destination),
                 string.Join(", ", host.Calls));
-            Assert.Equal(1, CountOf(host.Calls, adoptCall));
-            Assert.Contains("adopted the walked sim (persist 4242)", reason);
-
-            //The host was handed *this* instance and not a copy, and the lot is the one the
-            //handover named: the arriving sim is the sim that walked.
-            Assert.Same(traveller, host.AdoptedAvatar);
             Assert.Equal(destination, world.ActiveLotNumber);
             Assert.Equal(1, world.Transit.Count);
-            Assert.Equal(LotTravelService.WalkTravelMode, world.Transit.Active[0].Mode);
-            Assert.True(world.Transit.Active[0].IsComplete);
-
-            //--- and the walk-less switch is byte-for-byte what it was --------------------------
-            //A request with no arriving sim is not an instruction to spawn or not to spawn: the
-            //host is not called at all, and the hop is recorded as the discrete crossing it is.
-            //That is what makes adding the field a non-change for the picker, a move-in and a
-            //VM's own lot-switch request.
-            var plain = new LotTransitionRequest(origin, TransitionReason.Picker, arrival);
-            Assert.Null(plain.IncomingAvatar);
-            var beforePlain = host.Calls.Count;
-            Assert.True(service.TryTransition(host, plain, out reason), reason);
-            Assert.DoesNotContain("adopt:", string.Join(", ", Since(host.Calls, beforePlain)));
-            Assert.DoesNotContain("adopted the walked sim", reason);
-            //A real hop - back to the lot the player left - and recorded as the discrete crossing
-            //it is, because nobody walked this one.
-            Assert.Contains("hop recorded", reason);
             Assert.Equal(LotTravelService.DiscreteTravelMode, world.Transit.Active[0].Mode);
+            Assert.True(world.Transit.Active[0].IsComplete);
         }
 
         /// <summary>

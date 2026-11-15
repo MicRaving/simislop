@@ -130,6 +130,7 @@ namespace Simitone.Client.Neighbourhood
         private readonly Dictionary<short, uint> _hashes = new Dictionary<short, uint>();
         private readonly Dictionary<short, VMHollowMarshal> _marshals =
             new Dictionary<short, VMHollowMarshal>();
+        private readonly HashSet<short> _failedLots = new HashSet<short>();
 
         //Runs across a pass rather than across the loader's life: the budget is "what this lot
         //load may spend", and a loader a caller keeps for the whole session would otherwise stop
@@ -233,6 +234,17 @@ namespace Simitone.Client.Neighbourhood
         {
             _hashes.Clear();
             _marshals.Clear();
+            _failedLots.Clear();
+        }
+
+        /// <summary>
+        /// Whether a build for this lot was started and produced nothing. Unlike a lot refused
+        /// on the budget, such a lot would fail the same way again, so nothing should ask twice.
+        /// </summary>
+        /// <param name="lot">The lot number.</param>
+        public bool HasFailed(short lot)
+        {
+            return _failedLots.Contains(lot);
         }
 
         // ==================================================================== the decisions
@@ -703,9 +715,13 @@ namespace Simitone.Client.Neighbourhood
             if (marshal == null)
             {
                 _blank++;
+                //remembered, so a later-frame top-up can tell "this lot cannot be read" from "this
+                //lot was only past the budget" and does not stand a world up for it again
+                _failedLots.Add(lot.Number);
                 reason = failure;
                 return false;
             }
+            _failedLots.Remove(lot.Number);
             _built++;
             Remember(lot.Number, lot.HouseHash, marshal);
             return true;

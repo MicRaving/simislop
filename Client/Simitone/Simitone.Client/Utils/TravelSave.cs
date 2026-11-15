@@ -27,7 +27,7 @@ namespace Simitone.Client.Utils
     ///
     /// <para>
     /// Precedence, stated once here because both halves of the flow depend on it: the in-session
-    /// <c>TS1GameScreen.SavedLots</c> dictionary is checked <em>first</em> by the travel switch, so
+    /// <c>TS1GameScreen.SessionLots</c> stash is checked <em>first</em> by the travel switch, so
     /// a lot that is being held in memory in this session is always resumed from memory; this
     /// on-disk slot is only consulted when no in-memory copy exists, i.e. on a first visit in a
     /// later session. Saving on a travel lot refreshes the slot but never touches the template.

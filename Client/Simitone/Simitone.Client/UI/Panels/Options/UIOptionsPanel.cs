@@ -94,6 +94,18 @@ namespace Simitone.Client.UI.Panels.Options
         /// <summary>Y offset of the status line from the row's top.</summary>
         public const int UpdateStatusOffsetY = 26;
 
+        /// <summary>Width of the Credits button, on the same row as the update button.</summary>
+        public const int CreditsButtonWidth = 160;
+
+        /// <summary>
+        /// X of the Credits button: right-aligned in the page width, so it sits clear of the
+        /// version stamp and status line, which run from <see cref="UpdateTextX"/> rightwards.
+        /// </summary>
+        public const int CreditsButtonX = DefaultContentWidth - CreditsButtonWidth - 40;
+
+        /// <summary>Opens the credits roll (<see cref="UICreditsPanel"/>), which closes itself.</summary>
+        public UITwoStateButton CreditsButton { get; }
+
         private readonly UITwoStateButton UpdateButton;
         private readonly UILabel UpdateVersionLabel;
         private readonly UILabel UpdateStatusLabel;
@@ -170,6 +182,16 @@ namespace Simitone.Client.UI.Panels.Options
             UpdateStatusLabel.CaptionStyle.Size = 12;
             UpdateStatusLabel.CaptionStyle.Color = UIStyle.Current.SecondaryText;
             Add(UpdateStatusLabel);
+
+            // ---- the credits button -------------------------------------------------------------
+            CreditsButton = new UITwoStateButton(Content.Get().CustomUI.Get("blank_blue.png").Get(gd))
+            {
+                Position = new Vector2(CreditsButtonX, UpdateRowY),
+                Width = CreditsButtonWidth,
+                Caption = SimitoneStrings.Get("1", "Credits")
+            };
+            CreditsButton.OnButtonClick += (btn) => UICreditsPanel.Show(UIScreen.Current as TS1GameScreen);
+            Add(CreditsButton);
 
             //The page is deliberately not opened here. The dialog this lives in sets a tab once it
             //has a parent to measure against, which is why GameResized below has to be re-run
@@ -255,6 +277,7 @@ namespace Simitone.Client.UI.Panels.Options
             AudioTabButton.Position = new Vector2(left, 186);
             GraphicsTabButton.Position = new Vector2(left, 93);
             UpdateButton.Position = new Vector2(left, UpdateRowY);
+            CreditsButton.Position = new Vector2(CreditsButtonX, UpdateRowY);
             UpdateVersionLabel.Position = new Vector2(UpdateTextX, UpdateRowY + UpdateVersionOffsetY);
             UpdateStatusLabel.Position = new Vector2(UpdateTextX, UpdateRowY + UpdateStatusOffsetY);
             if (SubpanelContent != null)

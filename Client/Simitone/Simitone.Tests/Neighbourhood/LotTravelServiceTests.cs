@@ -119,32 +119,6 @@ namespace Simitone.Tests.Neighbourhood
                 LastLoadedHouseId = houseId;
             }
 
-            /// <summary>
-            /// The door the last switch asked to be placed at, or null when it asked for no
-            /// placement at all - which is what "no arrival door" has to look like from here, so
-            /// that the null case is a thing that is asserted rather than assumed.
-            /// </summary>
-            public LotEntrance? LastArrival { get; private set; }
-
-            public void PlaceArrival(LotEntrance entrance)
-            {
-                Calls.Add("place:" + entrance);
-                LastArrival = entrance;
-            }
-
-            /// <summary>
-            /// The state of a sim that walked here, recorded rather than applied: this fake has no
-            /// VM to load a marshal into, so "the host was told to adopt it" is the whole of what
-            /// it can observe - and it is what the ordering assertions are about.
-            /// </summary>
-            public VMAvatarMarshal LastAdoptedAvatar { get; private set; }
-
-            public void AdoptArrivalAvatar(VMAvatarMarshal avatar)
-            {
-                Calls.Add("adopt:" + avatar.PersistID);
-                LastAdoptedAvatar = avatar;
-            }
-
             public Action<NeighbourhoodTransitRecord> RecordTransit
             {
                 get { return record => { Calls.Add("hop:" + record.Origin + "->" + record.Destination); Hops.Add(record); }; }
@@ -528,17 +502,6 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
-        public void TheWalkIsNamedAndHasItsOwnCrossingMode()
-        {
-            //the fourth reason and the second mode code, pinned together: they are what lets a
-            //reader of the world's transit table tell a walked arrival from a teleported one.
-            Assert.Equal("walk", LotTravelService.ReasonName(TransitionReason.Walk));
-            Assert.Equal(0, LotTravelService.DiscreteTravelMode);
-            Assert.Equal(1, LotTravelService.WalkTravelMode);
-            Assert.NotEqual(LotTravelService.DiscreteTravelMode, LotTravelService.WalkTravelMode);
-        }
-
-        [Fact]
         public void LotNumbersAreOneThroughNinetyEight()
         {
             Assert.False(LotTravelService.IsLotNumber(0));
@@ -548,275 +511,47 @@ namespace Simitone.Tests.Neighbourhood
             Assert.True(LotTravelService.IsLotNumber(LotTravelService.MaxLotNumber));
         }
 
-        // ---- arrival placement -----------------------------------------------------------------------
+        // ---- the hop ----------------------------------------------------------------------------
 
         [Fact]
-        public void AnArrivalDoorIsHandedToTheHostSoTheSimLandsAtTheDoor()
+        public void TheHopIsRecordedAfterTheLoad()
         {
-            //B3 task 2. the door is in neighbourhood map-tile space and only the host knows the
-            //destination lot's own grid, so the service's whole part is to hand the five facts
-            //over - the lot number, the two tiles and the outward normal - rather than to place
-            //the sim itself
+            //the record claims arrival, so it may not be written ahead of the lot coming up
             var host = Host(Home);
-            var door = new LotEntrance(Neighbour, 12, 34, 0, -1);
-
-            string reason;
-            Assert.True(Service.TryTransition(
-                host, new LotTransitionRequest(Neighbour, TransitionReason.Picker, door), out reason));
-
-            Assert.Equal(door, host.LastArrival.Value);
-            Assert.Contains("door at (12,34) facing (0,-1)", reason);
-        }
-
-        [Fact]
-        public void ArrivalIsPlacedAfterTheLoadAndBeforeTheHop()
-        {
-            //a sim cannot be placed in a lot that has not loaded, and the hop record claims
-            //arrival - so it may not be written ahead of the sim being there. one sequence,
-            //asserted once, because both of those are order properties
-            var host = Host(Home);
-            var door = new LotEntrance(Neighbour, 12, 34, 0, -1);
 
             string reason;
             Service.TryTransition(
-                host, new LotTransitionRequest(Neighbour, TransitionReason.VmRequest, door), out reason);
+                host, new LotTransitionRequest(Neighbour, TransitionReason.VmRequest), out reason);
 
             Assert.Equal(
-                new[] { "save:21", "downtown:on", "restore:26", "getpath:26", "load-file:26",
-                    "place:lot 26 door at (12,34) facing (0,-1)", "hop:21->26" },
+                new[] { "save:21", "downtown:on", "restore:26", "getpath:26", "load-file:26", "hop:21->26" },
                 host.Calls);
         }
 
         [Fact]
-        public void AResumedLotIsPlacedAtItsDoorToo()
+        public void ARefusedTransitionRecordsNothing()
         {
-            //placement follows the load, not the file: arriving somewhere you have been before is
-            //still arriving, and a sim that appeared in the middle of a resumed lot would be
-            //standing where it was left rather than where it walked in
+            //a refused switch never loaded a lot, so there is nothing to claim arrival at
             var host = Host(Home);
-            host.Saved[(short)Neighbour] = new VMMarshal();
-            var door = new LotEntrance(Neighbour, 12, 34, 0, -1);
-
-            string reason;
-            Service.TryTransition(
-                host, new LotTransitionRequest(Neighbour, TransitionReason.Picker, door), out reason);
-
-            Assert.True(IndexOf(host.Calls, "load-state:26") < IndexOf(host.Calls, "place:" + door),
-                string.Join(", ", host.Calls));
-            Assert.Equal(door, host.LastArrival.Value);
-        }
-
-        [Fact]
-        public void ARequestWithNoDoorLeavesTheCentrePlacementAlone()
-        {
-            //not every caller knows a door and not every lot has one recorded, so the null case
-            //must be the centre the load already picks. asking the host to "use the centre"
-            //instead would make the seam responsible for a second, worse centre
-            var host = Host(Home);
-
-            string reason;
-            Assert.True(Service.TryTransition(
-                host, new LotTransitionRequest(Neighbour, TransitionReason.Picker), out reason));
-
-            Assert.Null(host.LastArrival);
-            Assert.DoesNotContain("place:", string.Join(", ", host.Calls));
-            Assert.Contains("no arrival door", reason);
-        }
-
-        [Fact]
-        public void ARefusedTransitionPlacesNothing()
-        {
-            //a refused switch never loaded a lot, so there is nothing to place a sim into, and
-            //the player is still standing on the lot the last load centred for them
-            var host = Host(Home);
-            var door = new LotEntrance(Neighbour, 12, 34, 0, -1);
-            var request = new LotTransitionRequest(Neighbour, TransitionReason.Picker, door);
+            var request = new LotTransitionRequest(Neighbour, TransitionReason.Picker);
 
             string reason;
             //not a lot number, and no host at all: both refused before the first call
             Assert.False(Service.TryTransition(
-                host, new LotTransitionRequest(0, TransitionReason.Picker, door), out reason));
+                host, new LotTransitionRequest(0, TransitionReason.Picker), out reason));
             Assert.False(Service.TryTransition(null, request, out reason));
 
             //the one refusal that follows a stash, and it stops before a lot comes up
             host.PathPrefix = null;
             Assert.False(Service.TryTransition(host, request, out reason));
 
-            Assert.Null(host.LastArrival);
-            Assert.DoesNotContain("place:", string.Join(", ", host.Calls));
             Assert.Empty(host.Hops);
         }
 
         [Fact]
-        public void ADoorForADifferentLotDoesNotBlockAnOtherwiseValidSwitch()
+        public void ARequestToStringNamesTheLotAndTheReason()
         {
-            //travel is not conditional on a tile the caller happens to know. the door goes over
-            //as given - only the host holds the destination's number and the lot's own grid, so
-            //only the host could tell - and a switch that loaded the lot is not undone by it
-            var host = Host(Home);
-            var wrongDoor = new LotEntrance(Vacation, 12, 34, 0, -1);
-
-            string reason;
-            Assert.True(Service.TryTransition(
-                host, new LotTransitionRequest(Neighbour, TransitionReason.Picker, wrongDoor), out reason));
-
-            Assert.Contains("load-file:26", host.Calls);
-            Assert.Equal(wrongDoor, host.LastArrival.Value);
-            Assert.Contains("lot 42", reason);
-        }
-
-        // ---- the walked arrival (B4) --------------------------------------------------------
-
-        /// <summary>
-        /// A sim that walked here, as the engine's own state type. Never deserialised, exactly as
-        /// the <see cref="VMMarshal"/> above stands in for a marshalled lot: what the switch has
-        /// to be handed is a value, and what it must do with it is the host's.
-        /// </summary>
-        private static VMAvatarMarshal WalkedSim(uint persist)
-        {
-            return new VMAvatarMarshal
-            {
-                PersistID = persist,
-                ObjectID = 1,
-                TS1 = true,
-                MotiveData = new short[16],
-                PersonData = new short[101],
-                MotiveDecay = new VMTS1MotiveDecay()
-            };
-        }
-
-        [Fact]
-        public void ASwitchWithNoArrivingSimNeverAsksTheHostToAdoptOne()
-        {
-            //the flag-off guarantee, as a test: a picker switch, a move-in and a VM's own lot
-            //request must be the same five host calls they were before AdoptArrivalAvatar existed.
-            //"Not called" rather than "called with null" - a host told "there is no arriving sim"
-            //would have to re-derive the load's own spawn to obey it.
-            foreach (TransitionReason why in new[]
-            {
-                TransitionReason.VmRequest, TransitionReason.Picker, TransitionReason.MoveIn })
-            {
-                var host = Host(Home);
-
-                string reason;
-                Assert.True(Service.TryTransition(
-                    host, new LotTransitionRequest(Neighbour, why), out reason));
-
-                Assert.Null(host.LastAdoptedAvatar);
-                Assert.DoesNotContain("adopt:", string.Join(", ", host.Calls));
-            }
-        }
-
-        [Fact]
-        public void TheWalkedSimIsHandedToTheHostAfterTheLoadAndBeforeItIsPlaced()
-        {
-            //the two constraints that fix its position: a lot cannot hold a sim before it exists,
-            //and the arrival has to be placed on the sim that was adopted rather than on whatever
-            //the load spawned. One sequence, asserted once, because both are order properties.
-            var host = Host(Home);
-            var walked = WalkedSim(65537);
-            var door = new LotEntrance(Neighbour, 12, 34, 0, -1);
-
-            string reason;
-            Assert.True(Service.TryTransition(host, new LotTransitionRequest(Neighbour,
-                TransitionReason.Walk, door, walked), out reason), reason);
-
-            Assert.Equal(
-                new[] { "save:21", "downtown:on", "restore:26", "getpath:26", "load-file:26",
-                    "adopt:65537", "place:lot 26 door at (12,34) facing (0,-1)", "hop:21->26" },
-                host.Calls);
-            Assert.Same(walked, host.LastAdoptedAvatar);
-        }
-
-        [Fact]
-        public void TheWalkedSimIsAdoptedEvenWhenTheLotIsResumedFromTheStore()
-        {
-            //precedence is orthogonal: a lot the player has been in before is still a lot the
-            //walked sim has to arrive in, so the adoption does not hang off which source the load
-            //read its state from.
-            var host = Host(Home);
-            host.Saved[(short)Neighbour] = new VMMarshal();
-            var walked = WalkedSim(65537);
-
-            string reason;
-            Assert.True(Service.TryTransition(host, new LotTransitionRequest(Neighbour,
-                TransitionReason.Walk, null, walked), out reason), reason);
-
-            Assert.Contains("load-state:26", host.Calls);
-            Assert.True(IndexOf(host.Calls, "adopt:65537") > IndexOf(host.Calls, "load-state:26"),
-                string.Join(", ", host.Calls));
-            Assert.Same(walked, host.LastAdoptedAvatar);
-        }
-
-        [Fact]
-        public void AWalkedHopIsRecordedAsAWalkAndATeleportedOneIsNot()
-        {
-            //§5.4's table is keyed on the crossing's mode, and a hop that was walked to is a
-            //different fact about the same pair of doors than one that was switched to. Recorded
-            //last either way, so an arrived hop never precedes its own load.
-            var host = Host(Home);
-            var walked = WalkedSim(65537);
-
-            string reason;
-            Service.TryTransition(host, new LotTransitionRequest(Neighbour,
-                TransitionReason.Walk, null, walked), out reason);
-            var hopped = Assert.Single(host.Hops);
-            Assert.Equal(LotTravelService.WalkTravelMode, hopped.Mode);
-            Assert.True(hopped.IsComplete);
-            Assert.NotEqual(LotTravelService.DiscreteTravelMode, hopped.Mode);
-
-            //and the same pair of doors the other way, as a switch: still a hop, still complete,
-            //and a different mode
-            host.Hops.Clear();
-            host.CurrentHouseId = Neighbour;
-            Service.TryTransition(host, new LotTransitionRequest(Home,
-                TransitionReason.Picker), out reason);
-            Assert.Equal(LotTravelService.DiscreteTravelMode, Assert.Single(host.Hops).Mode);
-        }
-
-        [Fact]
-        public void ARefusedSwitchAdoptsNothing()
-        {
-            //a refusal is before the first call on the host, so the walking sim is still the
-            //player's own in the lot they are standing in - adopting it into a lot that never came
-            //up would be putting a sim somewhere the player was not.
-            var host = Host(Home);
-            var walked = WalkedSim(65537);
-            var request = new LotTransitionRequest(Neighbour, TransitionReason.Walk, null, walked);
-
-            string reason;
-            Assert.False(Service.TryTransition(
-                host, new LotTransitionRequest(0, TransitionReason.Walk, null, walked), out reason));
-            Assert.Null(host.LastAdoptedAvatar);
-
-            //and the one refusal that follows a stash: no house file, so no lot, so no adoption
-            host.PathPrefix = null;
-            Assert.False(Service.TryTransition(host, request, out reason));
-            Assert.Null(host.LastAdoptedAvatar);
-            Assert.Empty(host.Hops);
-        }
-
-        [Fact]
-        public void AWalkedRequestNamesTheSimItIsCarrying()
-        {
-            var walked = WalkedSim(65537);
-            Assert.Equal("26 via walk, no arrival door, arriving as the walked sim (persist 65537)",
-                new LotTransitionRequest(26, TransitionReason.Walk, null, walked).ToString());
-
-            //and the two-argument form is unchanged, because the picker and a move-in must keep
-            //saying exactly what they said before this field existed
-            Assert.Equal("26 via picker, no arrival door",
-                new LotTransitionRequest(26, TransitionReason.Picker).ToString());
-        }
-
-        [Fact]
-        public void ARequestToStringNamesTheLotTheReasonAndTheDoor()
-        {
-            Assert.Equal("26 via picker, no arrival door",
-                new LotTransitionRequest(26, TransitionReason.Picker).ToString());
-            Assert.Equal("26 via vm request at lot 26 door at (12,34) facing (0,-1)",
-                new LotTransitionRequest(26, TransitionReason.VmRequest,
-                    new LotEntrance(26, 12, 34, 0, -1)).ToString());
+            Assert.Equal("26 via picker", new LotTransitionRequest(26, TransitionReason.Picker).ToString());
         }
 
         // ---- helpers ----------------------------------------------------------------------------

@@ -521,12 +521,15 @@ namespace Simitone.Tests.Neighbourhood
             // rather than being a wait that always succeeds because the work is instant.
             NeighbourhoodRefreshJob job;
             using (var release = new ManualResetEventSlim(false))
+            using (var afterSignal = new ManualResetEventSlim(false))
             {
-                var layoutSignalled = false;
                 job = NeighbourhoodRefreshJob.Start(Slot, onLayoutWritten =>
                 {
                     onLayoutWritten();
-                    layoutSignalled = true;
+                    //the worker is past the signal and into the held-open build. A plain bool set
+                    //here raced with the waiter waking up on the signal (the assertion could run
+                    //before the worker's next statement), so the test waits on this instead.
+                    afterSignal.Set();
                     //now the expensive half, which the layout wait must not care about
                     release.Wait(TimeSpan.FromSeconds(5));
                     return null;
@@ -535,7 +538,7 @@ namespace Simitone.Tests.Neighbourhood
                 try
                 {
                     Assert.True(job.WaitForLayout(TimeSpan.FromSeconds(5)));
-                    Assert.True(layoutSignalled);
+                    Assert.True(afterSignal.Wait(TimeSpan.FromSeconds(5)));
                 }
                 finally
                 {

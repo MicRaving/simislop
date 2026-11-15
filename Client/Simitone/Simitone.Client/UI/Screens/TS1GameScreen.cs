@@ -17,6 +17,7 @@ using FSO.LotView.Model;
 using FSO.SimAntics;
 using FSO.SimAntics.Engine.TSOTransaction;
 using FSO.SimAntics.Marshals;
+using FSO.SimAntics.Marshals.Hollow;
 using FSO.SimAntics.Model;
 using FSO.SimAntics.NetPlay;
 using FSO.SimAntics.NetPlay.Drivers;
@@ -593,9 +594,8 @@ namespace Simitone.Client.UI.Screens
                     if (world == null || !world.HasWorld) return;
                     //A private source, not the map view's shared one - see AttachSurroundings. The
                     //two modes are independent, so the lot never borrows the neighbourhood's world.
-                    //Kept when it already is this neighbourhood's: TryGetNeighbourhoodWorld compares
-                    //sources by reference, so a new object for every landing would discard the live
-                    //world and its clock.
+                    //Kept when it already is this neighbourhood's, so a landing does not replace a
+                    //surround source that a lot is already drawn from.
                     if (SurroundingsWorld == null || SurroundingsWorldSlot != slot)
                     {
                         SurroundingsWorld = new NeighbourhoodSceneSource(world.Layout, world.Map);
@@ -638,6 +638,7 @@ namespace Simitone.Client.UI.Screens
             //share an answer.
             HollowNeighboursAttached = false;
             HollowNeighboursWaitingLogged = false;
+            ClearHollowTopUp();
 
             //And B8's map-screen line: the player is about to be sent back to the neighbourhood
             //view, so the next time they are standing on it the policy is worth saying again.
@@ -768,153 +769,317 @@ namespace Simitone.Client.UI.Screens
         private bool HollowNeighboursWaitingLogged;
 
         /// <summary>
-        /// The one authority for this neighbourhood's time, its stored lots and its transit table:
-        /// B1's <see cref="SimitoneNeighbourhoodWorld"/>. Null whenever B1 is off, and also while
-        /// there is no generated world for this lot to build it over - which is the honest answer,
-        /// because a world over no layout has no lots and a clock nothing is reading.
+        /// The neighbours the first restore built blank because its build budget ran out, and
+        /// what becomes of each on later frames. Null when there is nothing deferred. Cleared with
+        /// the surround.
         /// </summary>
-        private SimitoneNeighbourhoodWorld NeighbourhoodWorld;
+        private SimitoneHollowTopUp HollowTopUp;
+
+        /// <summary>The loader the first restore used, kept for its cache and the later builds.</summary>
+        private NeighbourHollowLoader HollowTopUpLoader;
+
+        /// <summary>The plan as the first restore resolved it, updated as neighbours are topped up.</summary>
+        private SimitoneSurroundingsPlan HollowTopUpPlan;
+
+        /// <summary>Frames the top-up has been pumped for, which is the clock its delays are in.</summary>
+        private long HollowTopUpFrame;
 
         /// <summary>
-        /// The generated world <see cref="NeighbourhoodWorld"/> was built over, so a cache hit can
-        /// be told from a cache miss exactly as <see cref="SurroundingsWorldSlot"/> tells them for
-        /// the surround. A world is not rebuilt per lot, and it is rebuilt at all when the player
-        /// walks into a different neighbourhood.
+        /// The one authority for this neighbourhood's time and transit table: the session object
+        /// that holds <see cref="SimitoneNeighbourhoodWorld"/>, keyed by the neighbourhood slot of
+        /// the lot being played. It is built from the neighbourhood lifecycle's own layout and map,
+        /// not from the 3D surround, so it exists whenever a capability needs it and a lot with a
+        /// known number is up - whatever the 2D/3D view setting says and whether or not any
+        /// surround was ever attached. Empty when no lot is up.
         /// </summary>
-        private NeighbourhoodSceneSource NeighbourhoodWorldSource;
+        private readonly NeighbourhoodWorldSession WorldSession = new NeighbourhoodWorldSession();
 
         /// <summary>
-        /// Set once the world has been found not to be buildable, so the answer is not recomputed
-        /// every frame. A flag rather than a null check because "no generated world yet" and "a
-        /// generated world that could not back a world" are different: the first is retried as soon
-        /// as a surround lands, the second is not retried until the source changes.
+        /// Every lot the player has left during this session and not yet gone back to, keyed by lot
+        /// number: the one stash, which used to be a private dictionary of this screen's and is now
+        /// the <see cref="LotStore"/> the world reads. It outlives any one world - lot numbers are
+        /// global, and home -> downtown -> vacation crosses neighbourhoods - so the world is built
+        /// over it rather than owning it.
         /// </summary>
-        private bool NeighbourhoodWorldUnavailable;
+        private readonly LotStore SessionLots = new LotStore();
 
         /// <summary>
-        /// B1's per-frame upkeep: hand the world this frame's length and let it advance the
-        /// neighbourhood clock.
+        /// The lot being played, or 0 when none is up or its number is not known. Set by every lot
+        /// load before anything asks for the world, and what the world's active lot follows.
+        /// </summary>
+        private int PlayedLot;
+
+        /// <summary>The neighbourhood slot <see cref="PlayedLot"/> belongs to, or no slot.</summary>
+        private int PlayedSlot
+        {
+            get
+            {
+                return PlayedLot > 0
+                    ? SurroundingsSlotFor(PlayedLot)
+                    : NeighbourhoodWorldSession.NoSlot;
+            }
+        }
+
+        /// <summary>
+        /// A lot load has named the lot now being played. A world held for another neighbourhood is
+        /// saved and dropped, and the world, if there is one, is told which lot the player is in so
+        /// the off-screen simulator leaves that lot alone.
+        /// </summary>
+        /// <param name="lot">The lot number, or 0 when the load named none.</param>
+        private void SetPlayedLot(int lot)
+        {
+            PlayedLot = lot;
+            var held = WorldSession.Slot;
+            var ended = WorldSession.Retarget(PlayedSlot);
+            if (ended != null)
+            {
+                SimitoneLog.Info("The neighbourhood world for slot " + held + " was dropped: the lot"
+                    + " now being played (" + (lot > 0 ? lot.ToString() : "none") + ") is in another"
+                    + " neighbourhood.");
+                SaveNeighbourhoodWorld(ended, held);
+            }
+
+            var world = WorldSession.World;
+            if (world != null) world.SetActiveLot(lot);
+        }
+
+        /// <summary>
+        /// The player is leaving the lot for the neighbourhood screen: the lot's time goes to the
+        /// world, the world's session is written, and the world is dropped along with the stash.
+        /// Called before the lot is torn down, while there is still a clock to read.
+        /// </summary>
+        private void EndNeighbourhoodWorld()
+        {
+            var world = WorldSession.World;
+            if (world != null)
+            {
+                var slot = WorldSession.Slot;
+                try
+                {
+                    var lotClock = vm?.Context?.Clock;
+                    if (lotClock != null) world.PullClockFrom(lotClock);
+                    //not in any lot any more, so the session is saved as resting on the map
+                    world.SetActiveLot(SimitoneNeighbourhoodWorld.NoActiveLot);
+                }
+                catch (Exception ex)
+                {
+                    SimitoneLog.Warn("The neighbourhood world could not take the lot's last reading"
+                        + " on the way out, so it is saved as it was.", ex);
+                }
+                SaveNeighbourhoodWorld(world, slot);
+                SimitoneLog.Info("The neighbourhood world for slot " + slot + " was dropped: the"
+                    + " player left the lot (" + world + ").");
+            }
+            WorldSession.End();
+            PlayedLot = 0;
+        }
+
+        /// <summary>
+        /// Writes a world's session into its neighbourhood's sidecar (B7). Nothing happens unless
+        /// the persist capability is on, and a failure is a log line: the lot has already been
+        /// saved or left, and a session that did not reach the disk is not worth a dialog.
+        /// </summary>
+        private static void SaveNeighbourhoodWorld(SimitoneNeighbourhoodWorld world, int slot)
+        {
+            if (world == null || !NeighbourhoodLifecycle.PersistsWorldState) return;
+            try
+            {
+                NeighbourhoodWorldPersistence.Save(FSOEnvironment.UserDir, slot, world);
+            }
+            catch (Exception ex)
+            {
+                SimitoneLog.Warn("The neighbourhood world for slot " + slot + " could not be saved,"
+                    + " so the stored session is the one from before.", ex);
+            }
+        }
+
+        /// <summary>
+        /// A lot has been taken out of the stash to be played again: forget it there, and tell the
+        /// world, so the off-screen simulator starts its next absence from now.
+        /// </summary>
+        private void TakeStashedLot(short lot)
+        {
+            SessionLots.Remove(lot);
+            WorldSession.World?.NoteLotRestored(lot);
+        }
+
+        /// <summary>
+        /// B1's per-frame upkeep. While a lot is up its clock is the authority and the world
+        /// follows it (see <see cref="SimitoneNeighbourhoodWorld.FollowLotClock"/>); the world ticks
+        /// by wall-clock time only when there is no lot clock to follow.
         /// </summary>
         /// <remarks>
-        /// <para>
         /// Nothing here logs. This runs on every frame of every lot, so a log line would be a
-        /// per-frame cost with a body that says the same thing sixty times a second; the world
-        /// itself says nothing either, and the only two lines this feature writes are the two
-        /// refusals below, which are one-shot because each of them stops the attempt.
-        /// </para>
-        /// <para>
-        /// The frame length comes from <see cref="FrameSeconds"/> rather than from the engine's
-        /// fixed-step clock, for the reason that method gives the weather: the neighbourhood's
-        /// time is wall-clock time, and a clock that stops with the game is not the one B6 wants to
-        /// fast-forward.
-        /// </para>
+        /// per-frame cost; the only lines this feature writes are the one-shot refusals.
         /// </remarks>
         /// <param name="deltaSeconds">How long this frame was.</param>
         private void UpdateNeighbourhoodWorld(float deltaSeconds)
         {
-            //The capability is asked at the call site, next to the other three, so that all seven
+            //The capability is asked at the call site, next to the other three, so that all six
             //flags are read in one place a reader can see. This method therefore assumes it is on
             //and has one private caller.
             if (!TryGetNeighbourhoodWorld(out var world)) return;
 
             try
             {
-                //A cold neighbourhood's world is built after the lot loaded, so the load's handshake
-                //found no world and was skipped. Ticking an unseeded clock reads as available at
-                //1 June 1997 midnight, so the lot's time seeds it first.
                 var lotClock = vm?.Context?.Clock;
-                if (!world.Clock.IsAvailable && lotClock != null) world.PullClockFrom(lotClock);
-                world.Tick(deltaSeconds);
+                if (lotClock != null) world.FollowLotClock(lotClock);
+                else world.Tick(deltaSeconds);
             }
             catch (Exception ex)
             {
-                // A world that will not tick is dropped rather than retried every frame: the clock
-                // is the only thing it has, and a neighbourhood whose time is stuck is a far
-                // smaller problem than a lot load that throws sixty times a second.
-                // NeighbourhoodWorldSource is deliberately kept: TryGetNeighbourhoodWorld clears the
-                // Unavailable latch whenever the source differs, so nulling it here re-armed the
-                // rebuild and the throw (and this warning) on every following frame.
-                NeighbourhoodWorld = null;
-                NeighbourhoodWorldUnavailable = true;
+                // A world that will not advance is dropped rather than retried every frame: a
+                // neighbourhood whose time is stuck is a far smaller problem than a lot load that
+                // throws sixty times a second. The slot stays refused until the session ends.
+                var slot = WorldSession.Slot;
+                WorldSession.End();
+                WorldSession.Refuse(slot, "the world threw while advancing: " + ex.Message);
                 SimitoneLog.Warn("The neighbourhood world could not be advanced, so this session's"
                     + " neighbourhood time is not being kept. The lot itself is unaffected.", ex);
             }
         }
 
         /// <summary>
-        /// The neighbourhood world for the generated world this lot is being drawn from, building it
-        /// the first time it is asked for and reusing it for every lot in the same neighbourhood.
+        /// The neighbourhood world for the lot being played, asking the lifecycle for it the first
+        /// time it is wanted for a slot.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// Built from <see cref="SurroundingsWorld"/> rather than generated again, because that is
-        /// the same packed layout and the same map the surround and the neighbourhood map are
-        /// drawn from, and §7.4's rule is that a player's lot and their map are two views of one
-        /// neighbourhood. Building a second world over a second generation would be two
-        /// neighbourhoods that happen to agree.
+        /// A cache hit builds the world on this call; a cold neighbourhood is generated on a worker
+        /// and the world appears on the frame it lands, so this answers false until then. Every
+        /// reason it is missing is logged once - see <see cref="RequestNeighbourhoodWorld"/>.
         /// </para>
         /// <para>
         /// Lazy, because the world constructs a <see cref="NeighbourhoodQuery"/> - which rasterises
-        /// the layout and flood-fills its road network - and a session with B1 off must not pay for
-        /// any of that.
+        /// the layout and flood-fills its road network - and a session with every capability off
+        /// must not pay for any of that: the capabilities ask, nothing else does.
         /// </para>
         /// </remarks>
         /// <param name="world">The world, or null when there is not one to use.</param>
         /// <returns>Whether a world was available.</returns>
         private bool TryGetNeighbourhoodWorld(out SimitoneNeighbourhoodWorld world)
         {
-            world = null;
-            var source = SurroundingsWorld;
-            if (source == null || source.Layout == null || source.Map == null)
-            {
-                //not a failure: the surround may still be generating, and the frame it lands on this
-                //succeeds. Nothing is logged because a lot with no generated world is the ordinary
-                //shape of a lot load, and it is already reported by AttachSurroundings.
-                return false;
-            }
+            world = WorldSession.World;
+            if (world != null) return true;
 
-            if (NeighbourhoodWorld != null)
+            RequestNeighbourhoodWorld();
+            world = WorldSession.World;
+            return world != null;
+        }
+
+        /// <summary>
+        /// Asks the lifecycle for the layout and map of the slot being played and builds the world
+        /// from them, once per slot. The view is asked for as 3D whatever the setting says: the
+        /// world needs a layout and a road map, and the 2D/3D choice is about what the map screen
+        /// draws, not about whether the neighbourhood exists.
+        /// </summary>
+        private void RequestNeighbourhoodWorld()
+        {
+            if (vm == null) return;
+
+            var slot = PlayedSlot;
+            if (slot == NeighbourhoodWorldSession.NoSlot)
             {
-                if (ReferenceEquals(NeighbourhoodWorldSource, source))
+                if (WorldSession.NoteUnavailable("the lot being played has no number"))
                 {
-                    //The cached world is the one to hand back - assigning it here is the whole
-                    //point of the out parameter, and returning true without it handed every
-                    //caller a null world (the clock handshake and the picker travel both NRE'd
-                    //on the second lot of a neighbourhood).
-                    world = NeighbourhoodWorld;
-                    return true;
+                    SimitoneLog.Info("There is no neighbourhood world for this lot: it was loaded"
+                        + " without a lot number, so there is no neighbourhood to place it in.");
                 }
-                //a different neighbourhood: the old world's lots are not this one's, and its
-                //clock is a different neighbourhood's time. Dropped whole - it holds no device
-                //resources, so there is nothing to dispose.
-                NeighbourhoodWorld = null;
-                NeighbourhoodWorldSource = null;
+                return;
             }
-            else if (!ReferenceEquals(NeighbourhoodWorldSource, source))
-            {
-                //a new neighbourhood is a new question, so a previous refusal is forgotten with the
-                //old source. Latched per source rather than for the session, because "this
-                //generated world could not back a world" says nothing about the next one.
-                NeighbourhoodWorldUnavailable = false;
-            }
-            if (NeighbourhoodWorldUnavailable) return false;
+            if (!WorldSession.NeedsRequest(slot)) return;
+            WorldSession.MarkRequested(slot);
+            var epoch = WorldSession.Epoch;
 
+            NeighbourhoodGeneratedWorld generated;
             try
             {
-                //Enabled, because the flag has already been asked and said yes; a world built
-                //disabled would be inert for a reason the caller cannot see from here.
-                world = new SimitoneNeighbourhoodWorld(source.Layout, source.Map, true);
-                NeighbourhoodWorld = world;
-                NeighbourhoodWorldSource = source;
-                return true;
+                generated = NeighbourhoodLifecycle.RefreshNow(
+                    FSOEnvironment.UserDir, slot, slot, NeighbourhoodView.World3D,
+                    new TS1LotContentSource(Content.Get().Neighborhood, slot));
             }
             catch (Exception ex)
             {
-                NeighbourhoodWorldUnavailable = true;
-                SimitoneLog.Warn("A neighbourhood world could not be built for the generated"
-                    + " neighbourhood this lot is standing in, so its time will not be kept. The"
-                    + " lot itself is unaffected.", ex);
-                return false;
+                WorldSession.Refuse(slot, "the neighbourhood could not be generated: " + ex.Message);
+                SimitoneLog.Warn("There is no neighbourhood world for slot " + slot + ": the layout"
+                    + " could not be requested. The lot itself is unaffected.", ex);
+                return;
+            }
+
+            if (generated != null && generated.HasWorld)
+            {
+                AdoptNeighbourhoodWorld(slot, generated, false);
+                return;
+            }
+            if (generated == null || !generated.Pending)
+            {
+                var why = generated?.Failure ?? generated?.Plan.Selection.Reason
+                    ?? "the generated world could not be built";
+                if (WorldSession.Refuse(slot, why))
+                {
+                    SimitoneLog.Warn("There is no neighbourhood world for slot " + slot + ": " + why + ".");
+                }
+                return;
+            }
+
+            //Still being generated on a worker: join it, and build the world on the frame it lands.
+            //The epoch says whether the answer is still wanted - leaving the lot or moving to
+            //another neighbourhood in the meantime ends the request.
+            NeighbourhoodLifecycle.Ensure(
+                FSOEnvironment.UserDir, slot, slot, NeighbourhoodView.World3D,
+                () => new TS1LotContentSource(Content.Get().Neighborhood, slot),
+                landed =>
+                {
+                    if (epoch != WorldSession.Epoch) return;
+                    if (landed == null || !landed.HasWorld)
+                    {
+                        var why = landed?.Failure ?? "the generation finished without a world";
+                        if (WorldSession.Refuse(slot, why))
+                        {
+                            SimitoneLog.Warn("There is no neighbourhood world for slot " + slot + ": "
+                                + why + ".");
+                        }
+                        return;
+                    }
+                    AdoptNeighbourhoodWorld(slot, landed, true);
+                });
+        }
+
+        /// <summary>
+        /// Builds the session's world from a finished generation, applies the stored session (B7)
+        /// before anything reads the clock, and tells it which lot the player is in.
+        /// </summary>
+        /// <param name="slot">The neighbourhood slot.</param>
+        /// <param name="generated">The generated world, which has a layout and a map.</param>
+        /// <param name="seedFromLot">
+        /// Whether to take the played lot's time now. True for a generation that landed after the
+        /// lot was up - the lot is the authority from then on; false when the world is built inside
+        /// the load itself, where the clock handshake that follows decides.
+        /// </param>
+        private void AdoptNeighbourhoodWorld(int slot, NeighbourhoodGeneratedWorld generated, bool seedFromLot)
+        {
+            SimitoneNeighbourhoodWorld replaced;
+            bool created;
+            var world = WorldSession.Adopt(slot, generated.Layout, generated.Map, SessionLots,
+                out replaced, out created);
+            if (replaced != null) SaveNeighbourhoodWorld(replaced, slot);
+            if (!created) return;
+
+            try
+            {
+                var restored = NeighbourhoodWorldPersistence.Restore(world, generated.WorldState);
+                //after the stored session: it names whichever lot was active when it was saved
+                world.SetActiveLot(PlayedLot);
+                var lotClock = vm?.Context?.Clock;
+                if (seedFromLot && lotClock != null) world.FollowLotClock(lotClock);
+                SimitoneLog.Info("The neighbourhood world for slot " + slot + " is up, playing lot "
+                    + PlayedLot + (restored ? ", stored session applied" : string.Empty) + " (" + world + ").");
+            }
+            catch (Exception ex)
+            {
+                //the world is built and usable; what failed is reading the stored session into it
+                SimitoneLog.Warn("The neighbourhood world for slot " + slot + " is up, but the stored"
+                    + " session could not be applied to it.", ex);
             }
         }
 
@@ -944,12 +1109,11 @@ namespace Simitone.Client.UI.Screens
         ///
         /// <remarks>
         /// <para>
-        /// The engine's own expression, over the neighbourhood's clock rather than the lot's: see
+        /// The engine's own expression, over the neighbourhood's clock: see
         /// <c>VMArchitecture.SetTimeOfDay()</c>, which does exactly this with a
-        /// <c>VMClock</c>. Restated here rather than reaching for the lot's clock because the lot's
-        /// clock is seeded once by the §5.2 handshake and then runs on its own, so it is not the
-        /// clock the neighbourhood is keeping and the lot would drift a minute at a time away from
-        /// every other lot in the neighbourhood.
+        /// <c>VMClock</c>. While a lot is up the world follows that lot's clock minute by minute
+        /// (<see cref="SimitoneNeighbourhoodWorld.FollowLotClock"/>), so the two agree to the minute
+        /// and the world's clock is also the one every other lot in the neighbourhood is handed.
         /// </para>
         /// <para>
         /// <b>Read, never written into the lot.</b> This used to be handed straight to
@@ -1273,29 +1437,14 @@ namespace Simitone.Client.UI.Screens
         /// </remarks>
         private void AttachHollowNeighbours()
         {
-            if (!NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Surroundings)) return;
+            if (!NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.NeighbourSubWorlds)) return;
             if (vm == null) return;
             if (HollowNeighboursAttached) return;
 
-            //B2's live-lot gate. Attaching a neighbour writes to the blueprint and the sky bounds
-            //of the lot the player is standing in. That write used to be held off behind a plain
-            //field (SimitoneSurroundingsRestore.SubWorldAttachEnabled) that nothing ever set, so
-            //even with B2 on the player still got facades - the "stand-in houses" around the
-            //active house. But B2's own contract is exactly "the neighbours you can see are real
-            //hollow lots rather than Part A's facades" (NeighbourhoodWorldFlags.Describe), so the
-            //capability the player turned on is the switch: B2 on builds the neighbours as real
-            //sub-worlds. The field is kept as an engineering kill switch a build can still set to
-            //false. See SimitoneSurroundingsRestore.SubWorldAttachEnabled.
-            if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Surroundings))
-                SimitoneSurroundingsRestore.SubWorldAttachEnabled = true;
-            if (!SimitoneSurroundingsRestore.SubWorldAttachEnabled)
-            {
-                HollowNeighboursAttached = true;
-                SimitoneLog.Info("B2: neighbour sub-worlds are not attached to this lot, so the"
-                    + " surrounding lots are drawn as facades. The lot itself is untouched.");
-                return;
-            }
-
+            //The flag is the one gate: attaching a neighbour writes to the blueprint and the sky
+            //bounds of the lot the player is standing in, and B2's contract is exactly "the
+            //neighbours you can see are real hollow lots rather than Part A's facades". There is
+            //no second static switch beside it.
             var surround = Surroundings;
             if (surround == null || !surround.Placement.IsValid)
             {
@@ -1358,11 +1507,19 @@ namespace Simitone.Client.UI.Screens
 
             string reason;
             SimitoneSurroundingsPlan resolvedPlan;
-            var built = SimitoneSurroundingsRestore.TryRestore(vm, plan, out reason, out resolvedPlan);
-            //One attempt per lot whatever the answer, because neither the plan nor the restore
-            //depends on anything that will change under it: the placement, the map, the lot store
-            //and the blueprint are all the same objects on the next frame.
+            //The loader is kept for the lot, not made and dropped inside the restore: the first
+            //pass builds as many neighbours as its budget allows and the rest are topped up on
+            //later frames (TopUpHollowNeighbours) from the same loader and its cache.
+            var device = vm.Context?.World?.State?.Device;
+            var loader = device == null ? null : new NeighbourHollowLoader(device,
+                NeighbourHollowLoader.DefaultMaxBuilds, NeighbourHollowLoader.DefaultMaxMilliseconds);
+            var built = SimitoneSurroundingsRestore.TryRestore(vm, plan, out reason, out resolvedPlan, loader);
+            //The restore itself is one attempt per lot whatever the answer, because neither the
+            //plan nor the restore depends on anything that will change under it: the placement,
+            //the map, the lot store and the blueprint are all the same objects on the next frame.
+            //What was deferred is tracked per neighbour from here (HollowTopUp).
             HollowNeighboursAttached = true;
+            if (built && loader != null) BeginHollowTopUp(resolvedPlan, loader);
 
             //The other half of the same decision, asked only once the neighbours are actually
             //standing up. This is the call that stops a lot being drawn twice: the surround's
@@ -1391,7 +1548,7 @@ namespace Simitone.Client.UI.Screens
             //because "the lot has no blueprint" used to be the whole of what this logged, and the
             //only way to tell that fix apart from the old one is to see what it was hung on.
             SimitoneLog.Info("Lot " + surround.ActiveLot + " hollow neighbours ("
-                + NeighbourhoodWorldFlags.Describe(NeighbourhoodWorldFlag.Surroundings) + "): "
+                + NeighbourhoodWorldFlags.Describe(NeighbourhoodWorldFlag.NeighbourSubWorlds) + "): "
                 + plan.Describe() + ", onto this lot's " + blueprint.Width + "x" + blueprint.Height
                 + " blueprint. " + (built ? "built." : "not built: " + reason));
 
@@ -1410,287 +1567,122 @@ namespace Simitone.Client.UI.Screens
             }
         }
 
+        /// <summary>
+        /// Starts tracking the neighbours the first restore built blank because its build budget
+        /// ran out, so <see cref="TopUpHollowNeighbours"/> can build them on later frames. A
+        /// neighbour that has no house file, or whose build already failed, is not tracked: no
+        /// later frame would read it either.
+        /// </summary>
+        private void BeginHollowTopUp(SimitoneSurroundingsPlan resolved, NeighbourHollowLoader loader)
+        {
+            var pending = new List<short>();
+            for (int i = 0; i < resolved.Neighbours.Count; i++)
+            {
+                var neighbour = resolved.Neighbours[i];
+                if (!neighbour.IsValid || neighbour.IsHollow) continue;
+                if (NeighbourHollowLoader.BuildRefusalFor(neighbour.Lot) != null) continue;
+                if (loader.HasFailed(neighbour.Lot.Number)) continue;
+                pending.Add(neighbour.Lot.Number);
+            }
+            if (pending.Count == 0) return;
+
+            //one real build per pass from here on, each with the time allowance the first pass had
+            loader.MaxBuilds = 1;
+            HollowTopUpLoader = loader;
+            HollowTopUpPlan = resolved;
+            HollowTopUp = new SimitoneHollowTopUp();
+            HollowTopUp.Begin(pending);
+            SimitoneLog.Info("Lot " + Surroundings?.ActiveLot + " hollow neighbours: " + pending.Count
+                + " built blank on the first pass are topped up one at a time on later frames.");
+        }
+
+        /// <summary>
+        /// One later-frame build of a blank neighbour, at most one every few frames: reads its
+        /// contents, swaps its blank sub-world for a real one and withholds its facade. Nothing is
+        /// rebuilt - a lot the loader has cached is answered from the cache and a built one is not
+        /// offered again - and a lot that fails is retried once after a delay and then left blank,
+        /// never once per frame.
+        /// </summary>
+        private void TopUpHollowNeighbours()
+        {
+            var topUp = HollowTopUp;
+            if (topUp == null) return;
+            var surround = Surroundings;
+            var loader = HollowTopUpLoader;
+            var plan = HollowTopUpPlan;
+            if (vm == null || surround == null || loader == null || plan == null
+                || vm.Context?.Blueprint == null || topUp.IsComplete)
+            {
+                if (topUp.IsComplete) EndHollowTopUp(topUp);
+                return;
+            }
+
+            HollowTopUpFrame++;
+            short lotNumber;
+            if (!topUp.TryNext(HollowTopUpFrame, out lotNumber)) return;
+            var neighbour = plan.NeighbourFor(lotNumber);
+            if (!neighbour.IsValid || neighbour.IsHollow)
+            {
+                topUp.MarkUnreadable(lotNumber, HollowTopUpFrame);
+                return;
+            }
+
+            loader.BeginPass();
+            VMHollowMarshal marshal;
+            string why;
+            if (!loader.TryLoad(neighbour.Lot, out marshal, out why))
+            {
+                //a fresh pass always has budget for one build, so a refusal here is the lot itself
+                topUp.MarkUnreadable(lotNumber, HollowTopUpFrame);
+                SimitoneLog.Warn("Lot " + surround.ActiveLot + " hollow neighbour " + lotNumber
+                    + " stays blank: " + why);
+                return;
+            }
+            loader.Publish(plan.Store, lotNumber, marshal);
+
+            SimitoneSurroundingsPlan upgraded;
+            if (!SimitoneSurroundingsRestore.TryUpgradeBlank(vm, plan, lotNumber, marshal, out upgraded, out why))
+            {
+                var again = topUp.MarkFailed(lotNumber, HollowTopUpFrame);
+                SimitoneLog.Warn("Lot " + surround.ActiveLot + " hollow neighbour " + lotNumber
+                    + " could not be built" + (again ? ", trying once more later" : ", leaving it blank")
+                    + ": " + why);
+            }
+            else
+            {
+                topUp.MarkBuilt(lotNumber, HollowTopUpFrame);
+                HollowTopUpPlan = upgraded;
+                //withhold its facade now that it is real, from the one plan the two halves share
+                surround.AttachSubWorlds(upgraded.WithoutBlankNeighbours());
+            }
+
+            if (topUp.IsComplete) EndHollowTopUp(topUp);
+        }
+
+        private void EndHollowTopUp(SimitoneHollowTopUp topUp)
+        {
+            SimitoneLog.Info("Lot " + Surroundings?.ActiveLot + " hollow neighbours: " + topUp.Describe() + ".");
+            ClearHollowTopUp();
+        }
+
+        private void ClearHollowTopUp()
+        {
+            HollowTopUp?.Clear();
+            HollowTopUp = null;
+            HollowTopUpLoader = null;
+            HollowTopUpPlan = null;
+            HollowTopUpFrame = 0;
+        }
+
         // -------------------------------------------------------------------------------------
-        // §5.2's clock handshake, and B4's walk between two doors.
+        // §5.2's clock handshake.
         //
-        // Both are behind their flag, both refuse to touch anything with the capability off, and
-        // neither allocates until the flag is asked. §5.2's rule is the whole of the handshake: a
+        // It is behind its flag, refuses to touch anything with the capability off, and does not
+        // allocate until the flag is asked. §5.2's rule is the whole of the handshake: a
         // lot's clock is seeded from the world on load and the lot pushes back on the way out, so
         // the minutes a player spends inside a house are the neighbourhood's minutes rather than
         // a number that dies with the VM.
         // -------------------------------------------------------------------------------------
-
-        /// <summary>
-        /// Whether an avatar is on the generated street between two doors right now, which is what
-        /// the switch block asks before it offers to start a second walk.
-        /// </summary>
-        public bool IsWalkingBetweenLots
-        {
-            get { return TransitLot != null && TransitLot.IsWalking; }
-        }
-
-        /// <summary>
-        /// B4's walk, at the size the screen plans it at. Lazily built per walk (see
-        /// <see cref="TryBeginTransitWalk"/>) and dropped by <see cref="CancelTransitWalk"/>.
-        /// </summary>
-        private NeighbourhoodTransitLot TransitLot;
-
-        /// <summary>
-        /// The transit lot's own <c>World</c> and <c>VM</c> for the walk in progress, or null when
-        /// the walk is a position on the map rather than a sim in a lot. Opened by
-        /// <see cref="OpenTransitLotVm"/>, advanced by <see cref="UpdateTransitWalk"/>, taken down
-        /// by <see cref="CancelTransitWalk"/> and by the handover on arrival.
-        /// </summary>
-        ///
-        /// <remarks>
-        /// Optional on purpose rather than best-effort: a refusal is a sentence in the log and the
-        /// walk carries on as a position, which is the first cut B4 shipped and the fallback the
-        /// capability's own description promises. It is null on the whole of a session with the
-        /// capability off, because nothing ever asks for it.
-        /// </remarks>
-        private NeighbourhoodTransitLotVm TransitLotVm;
-
-        /// <summary>
-        /// The travelling sim's own state, waiting for the lot that is loading to be able to hold
-        /// it, or null when there is nothing to adopt. Written by
-        /// <see cref="AdoptTransitArrival"/> (through <c>ILotTravelHost.AdoptArrivalAvatar</c>) and
-        /// cleared by <see cref="ApplyPendingTransitArrival"/>, or by the next lot load when it
-        /// never got that far.
-        ///
-        /// <remarks>
-        /// <para>
-        /// <b>It is pending rather than applied, because the lot the switch just loaded cannot hold
-        /// it yet.</b> <c>LotTravelService</c> asks the host to adopt after the load and before it
-        /// places the arrival at the door, which on a template path is several frames before the
-        /// net driver's join command has run and put a controlled sim in the lot at all. Adopting
-        /// then would either put two sims in the lot or, worse, put a walked sim in a lot whose
-        /// own spawn had not happened and be joined by a second one a frame later.
-        /// </para>
-        /// <para>
-        /// <b>Nothing here runs with the walk capability off.</b> This field is only ever written
-        /// from a walk's handover, so in a default session it is null forever and both the field
-        /// read and the pump that reads it are a comparison against null.
-        /// </para>
-        /// </remarks>
-        /// </summary>
-        private VMAvatarMarshal PendingTransitAvatar;
-
-        /// <summary>
-        /// The lot <see cref="PendingTransitAvatar"/> is being taken into, for one log line. Set
-        /// by <see cref="PerformLotSwitch(int, VMAvatarMarshal)"/> before it asks the service,
-        /// which is the only moment the destination is known.
-        /// </summary>
-        private int PendingTransitLot = TransitPath.NoLot;
-
-        /// <summary>
-        /// The door <see cref="PlaceArrivalAtDoor"/> was asked for while the arrival was still
-        /// pending, so the adopted sim lands outside the door rather than in the middle of the lot.
-        /// Null whenever nothing is pending, which is every frame of every load that was not a
-        /// walk's arrival.
-        /// </summary>
-        private LotEntrance? PendingTransitDoor;
-
-        /// <summary>
-        /// How many frames <see cref="PendingTransitAvatar"/> has waited for the destination lot to
-        /// become able to hold it, so a lot that never will is one line in the log rather than one
-        /// per frame for the rest of the session.
-        /// </summary>
-        private int PendingTransitFrames;
-
-        /// <summary>
-        /// How long an arrival waits for its lot before it is given up on, in frames.
-        /// </summary>
-        /// <remarks>
-        /// A ceiling rather than an open end, because a pending arrival that is never adopted is
-        /// indistinguishable from one that is: the lot has silently spawned its own controlled sim
-        /// and the walked sim's state is sitting in a field nothing reads. Two seconds is three
-        /// orders of magnitude longer than any of this path needs - a queued blueprint restore and
-        /// one driver tick - and short enough that a player is never left holding a lot they did
-        /// not expect.
-        /// </remarks>
-        private const int PendingTransitFrameLimit = 120;
-
-        /// <summary>
-        /// What this screen does with the sim's own state after a walk hands it over: it keeps it
-        /// until the lot that is loading can hold it, then puts it in.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>What changed and why it is here at all.</b> This used to hold the marshal and say so
-        /// in the log, because <c>ILotTravelHost</c> declared no member that adopts an incoming
-        /// avatar and <c>LotTransitionRequest</c> had no field for one - so a walked arrival was a
-        /// fresh spawn that happened to be standing in the right lot. Both now exist
-        /// (<see cref="LotTransitionRequest.IncomingAvatar"/> and
-        /// <see cref="ILotTravelHost.AdoptArrivalAvatar"/>), so the destination lot is told to
-        /// adopt the sim that walked, and this is the screen's half of that: the destination
-        /// decides when it can, and the loading of a marshal into a live <c>VM</c> is engine work
-        /// that belongs beside the VM.
-        /// </para>
-        /// <para>
-        /// <b>It cannot veto the switch.</b> The traveller is standing on the destination's
-        /// doorstep by now; a lot that cannot be given the walked sim still has to be entered, so
-        /// the arrival falls back to the lot's own spawn exactly as it does for a picker switch.
-        /// That is strictly better than a refused switch, which would leave the player on a
-        /// pavement that belongs to no lot at all.
-        /// </para>
-        /// </remarks>
-        /// <param name="avatar">The travelling sim's own state. Never null.</param>
-        private void AdoptTransitArrival(VMAvatarMarshal avatar)
-        {
-            PendingTransitAvatar = avatar;
-            PendingTransitFrames = 0;
-            SimitoneLog.Info("B4: the walked sim (persist " + (avatar == null ? 0 : avatar.PersistID)
-                + ") has been handed to lot " + PendingTransitLot + ", and is adopted as soon as"
-                + " that lot can hold it.");
-        }
-
-        /// <summary>
-        /// Puts <see cref="PendingTransitAvatar"/> into the lot that is loading, on the first frame
-        /// that lot can take it, and applies the door it was given while it waited.
-        ///
-        /// <remarks>
-        /// <para>
-        /// <b>Two things have to exist, and neither arrives on the switch's own frame.</b> The
-        /// lot's blueprint - a template load queues its restore as a VM command - and the lot's own
-        /// controlled sim, which the net driver's join command creates on a driver tick after the
-        /// load. The first frame both are there is this method's, and it is the same deferral the
-        /// hollow-neighbour bridge uses for the same two facts, for the same reason: the pump in
-        /// <see cref="Update"/> is the only code running on the frame a queued command lands.
-        /// </para>
-        /// <para>
-        /// <b>Waiting is bounded, and giving up is loud.</b> A pending arrival that is never adopted
-        /// is the same as one that is not: the lot has silently spawned its own controlled sim and
-        /// the walked state is sitting in a field nothing reads. So the wait is capped and the cap
-        /// says so.
-        /// </para>
-        /// <para>
-        /// <b>A no-op in every session that has not walked anywhere.</b> The first line is a null
-        /// test on a field that only a walk's handover writes.
-        /// </para>
-        /// </remarks>
-        private void ApplyPendingTransitArrival()
-        {
-            var avatar = PendingTransitAvatar;
-            if (avatar == null) return;
-
-            var context = vm?.Context;
-            if (context?.Blueprint == null)
-            {
-                //Still loading: a queued blueprint restore has not written one yet. Asked again on
-                //the next frame, without a log line - this is the ordinary shape of a load.
-                if (++PendingTransitFrames > PendingTransitFrameLimit)
-                {
-                    GiveUpPendingTransitArrival("that lot never got a blueprint");
-                }
-                return;
-            }
-
-            //The destination's own controlled sim, if it has one: waited for rather than assumed,
-            //because the join command is what creates it and that is a tick away. Its absence is
-            //not a reason to refuse - a resumed marshal lot spawns none - it only tells us whether
-            //this lot is going to end up with two.
-            var spawned = vm.GetAvatarByPersist(vm.MyUID);
-            if (spawned != null && spawned.PersistID != avatar.PersistID)
-            {
-                //give the join its frame
-                if (++PendingTransitFrames <= PendingTransitFrameLimit) return;
-                GiveUpPendingTransitArrival("that lot's own controlled sim never stopped being one");
-                return;
-            }
-
-            PendingTransitAvatar = null;
-            var door = PendingTransitDoor;
-            PendingTransitDoor = null;
-
-            VMEntity bound;
-            string reason;
-            if (!TransitAvatarBinder.Default.TryRebind(vm, avatar, LotTilePos.OUT_OF_WORLD,
-                out bound, out reason))
-            {
-                //The walk still ends: the player is at the door and the lot is playable. What is
-                //lost is the walked sim's own state, which is named here because "my sim forgot
-                //what it was carrying" is otherwise invisible.
-                SimitoneLog.Warn("B4: the sim that walked to lot " + PendingTransitLot
-                    + " could not be adopted by that lot (" + reason + "), so the lot spawns its"
-                    + " own controlled sim as it does for any other arrival. The lot itself is"
-                    + " unaffected.");
-                return;
-            }
-
-            SimitoneLog.Info("B4: lot " + PendingTransitLot + " adopted the sim that walked to it"
-                + " (persist " + avatar.PersistID + "); the sim the lot's own load spawned stays in"
-                + " the lot as one more of its household rather than being deleted.");
-
-            //The door, now that there is a sim to put there. Placed by the same arithmetic and
-            //through the same refusal rules as any other arrival; see PlaceArrivalAtDoor.
-            if (door.HasValue) PlaceArrivalAtDoor(door.Value);
-        }
-
-        /// <summary>
-        /// Drops a pending arrival that will never be adopted, saying so once.
-        /// </summary>
-        /// <param name="why">Why it cannot be adopted, in one clause.</param>
-        private void GiveUpPendingTransitArrival(string why)
-        {
-            var avatar = PendingTransitAvatar;
-            PendingTransitAvatar = null;
-            PendingTransitDoor = null;
-            PendingTransitFrames = 0;
-            if (avatar == null) return;
-            SimitoneLog.Warn("B4: the sim that walked to lot " + PendingTransitLot
-                + " was not adopted, because " + why + ". That lot keeps the controlled sim its own"
-                + " load spawned, and the walked sim's own state is dropped.");
-        }
-
-        /// <summary>
-        /// The camera following <see cref="TransitLot"/>, built with the lot and dropped with it.
-        /// Held rather than borrowed from the panel because the walk advances it every frame here
-        /// - the panel is not running while the player is inside a lot.
-        /// </summary>
-        private NeighbourhoodWorldCamera TransitCamera;
-
-        /// <summary>
-        /// The neighbourhood <see cref="TransitLot"/> and <see cref="TransitCamera"/> were planned
-        /// over, so a walk into a different neighbourhood cannot be advanced against the previous
-        /// one's road network. The same "one slot, and the slot names itself" shape as
-        /// <see cref="NeighbourhoodWorldSource"/>.
-        /// </summary>
-        private SimitoneNeighbourhoodWorld TransitWorld;
-
-        /// <summary>
-        /// The lot a walk is heading for, or <see cref="TransitPath.NoLot"/> when there is no
-        /// walk. Its own field because the transit lot forgets its destination once a walk is
-        /// completed, and this screen has to still know where to send the player afterwards.
-        /// </summary>
-        private int TransitDestination = TransitPath.NoLot;
-
-        /// <summary>
-        /// How fast B4's avatar crosses the generated street, in tiles a second.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// A first cut, and a named one so the next person to change it is making a decision
-        /// rather than editing a literal. What it has to be is slow enough that a sim is a person
-        /// crossing a street rather than a dot teleporting along a road, and fast enough that the
-        /// doors either side of a house - the commonest walk there is - are a couple of seconds
-        /// apart. Anything that reads this screen for "how far has the avatar got" should read
-        /// <see cref="TransitState"/> instead and not know the rate.
-        /// </para>
-        /// </remarks>
-        private const double TransitWalkTilesPerSecond = 4.0;
-
-        /// <summary>
-        /// The longest route still taken as a walk, in tiles - a minute of walking at
-        /// <see cref="TransitWalkTilesPerSecond"/>.
-        /// </summary>
-        /// <remarks>
-        /// A cap rather than an open end because the first cut has no way to abort a walk once it
-        /// has started: a request for the far side of a large map would put the player on a
-        /// pavement for a minute with no progress bar and no way out, which is a worse answer than
-        /// the switch they would have got. It is a documented first cut rather than a design
-        /// position - a walk that can be cancelled and shown wants no cap at all.
-        /// </remarks>
-        private const int TransitWalkMaxTiles = 240;
 
         /// <summary>
         /// The two things the handshake needs before either half of it can run: a lot whose clock
@@ -1790,537 +1782,6 @@ namespace Simitone.Client.UI.Screens
                 SimitoneLog.Warn("The lot's time could not be handed to the neighbourhood, so the"
                     + " neighbourhood's own clock is being kept. The lot itself is unaffected.", ex);
             }
-        }
-
-        /// <summary>
-        /// Moves the controlled sim onto the tile <paramref name="entrance"/> names, so a traveller
-        /// arrives at the door rather than in the middle of the lot.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>The translation is the screen's, and that is the whole reason this method is here.</b>
-        /// A door is in generated-map tile space and a sim is in the lot's own grid, and the
-        /// arithmetic between them is <see cref="SimitoneSurroundingsPlacement.ToLotView"/> - the
-        /// same conversion the surround mesh is placed with, and the only one that knows where
-        /// this lot sits in the generated map. <see cref="LotTravelService"/> deliberately cannot
-        /// do it, because the layout is what carries the answer and the layout is a content
-        /// dependency that makes a switch unrunnable without a game.
-        /// </para>
-        /// <para>
-        /// <b>Every refusal leaves the sim where the load put it</b>, which is the interface's own
-        /// stated contract and the safe direction: a door with no lot behind it, a lot with no
-        /// surround and therefore no translation, a lot with no blueprint yet, and a lot whose
-        /// controlled sim has not been spawned yet (a queued blueprint restore creates it some
-        /// frames after this call). Each is one reason in the log, not a failed lot load - the
-        /// switch has already happened by the time this runs, and a traveller who arrived in a
-        /// slightly wrong tile is in a far better state than one who did not arrive.
-        /// </para>
-        /// <para>
-        /// <b>The one refusal that is not final is a walk's arrival.</b> The service places the
-        /// arrival immediately after it asks this screen to adopt the walking sim, and on a
-        /// template path there is no sim to place yet - the net driver's join command has not run.
-        /// So in that one case the door is remembered and <see cref="ApplyPendingTransitArrival"/>
-        /// places the adopted sim with this same method, once there is one. The test is the
-        /// pending arrival being non-null, which is only ever true of a walk, so with the walk
-        /// capability off this method behaves exactly as it always has.
-        /// </para>
-        /// <para>
-        /// <b>Clamped into the lot's own footprint</b>, because the door is on the lot's boundary
-        /// in map space and a tile one step outside it is solid ground rather than somewhere to
-        /// stand. One tile of clamping is also what stops a half-placed or mis-generated lot from
-        /// putting a sim at a coordinate the lot has no tile for.
-        /// </para>
-        /// </remarks>
-        /// <param name="entrance">The destination's door, in generated-map tile space.</param>
-        private void PlaceArrivalAtDoor(LotEntrance entrance)
-        {
-            //a default(LotEntrance) claims lot 0, which is not a lot: there is no door to walk
-            //into and nothing to place anybody at
-            if (!entrance.IsSet) return;
-
-            var architecture = vm?.Context?.Architecture;
-            var avatar = vm == null ? null : vm.GetAvatarByPersist(vm.MyUID);
-            if (architecture == null || avatar == null)
-            {
-                //A walk's arrival: the sim this door is for is not in this lot yet - it is still
-                //pending adoption - so the door is held for it rather than lost. Every other
-                //arrival takes the line below, unchanged.
-                if (PendingTransitAvatar != null)
-                {
-                    PendingTransitDoor = entrance;
-                    return;
-                }
-                SimitoneLog.Info("The arriving sim was left where the lot load put it: this lot"
-                    + " has no blueprint yet ("
-                    + (architecture == null ? "no architecture" : "no controlled sim") + ").");
-                return;
-            }
-
-            var surround = Surroundings;
-            if (surround == null || !surround.Placement.IsValid)
-            {
-                SimitoneLog.Info("The arriving sim was left where the lot load put it: this lot"
-                    + " has no generated neighbourhood placement, so a door at (" + entrance.X
-                    + "," + entrance.Y + ") cannot be turned into a tile of this lot.");
-                return;
-            }
-
-            var lotView = surround.Placement.ToLotView(new Vector3(entrance.X, 0f, entrance.Y));
-            var x = Math.Max(0, Math.Min(architecture.Width - 1, (int)Math.Round(lotView.X)));
-            var y = Math.Max(0, Math.Min(architecture.Height - 1, (int)Math.Round(lotView.Z)));
-
-            //LotTilePos is in sixteenths of a tile, which is the same scale VMEntity.VisualPosition
-            //divides by; the level is the lot's own rather than a floor the door happened to name,
-            //because a generated map carries no floors at all.
-            avatar.Position = new LotTilePos((short)(x * 16), (short)(y * 16),
-                vm.Context.World?.State?.Level ?? (sbyte)1);
-            SimitoneLog.Info("The arriving sim was placed at lot " + entrance.LotNumber + "'s door:"
-                + " map tile (" + entrance.X + "," + entrance.Y + ") is lot tile (" + x + "," + y + ").");
-        }
-
-        /// <summary>
-        /// Plans a walk from the lot the player is standing in to <paramref name="houseId"/> and
-        /// starts it, if the neighbourhood can answer with a route.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>Refusals are answers, and every one of them falls back to a switch.</b> No generated
-        /// neighbourhood, no query, a lot that is not in this neighbourhood, a door that carries
-        /// no road, two doors on different networks, a walk already in progress, and a route
-        /// longer than <see cref="TransitWalkMaxTiles"/> are all "this is a switch, not a walk" -
-        /// which is exactly the B3 behaviour the capability's own description says it falls back
-        /// to. <paramref name="reason"/> names which, so the log says why a player did not walk.
-        /// </para>
-        /// <para>
-        /// <b>Built per walk rather than held.</b> The transit lot plans over the world's query,
-        /// so one that outlived its world would walk a street network that is no longer this
-        /// neighbourhood's; and it holds a walk in progress, so one that outlived its walk would
-        /// refuse the next one. Two assignments and an A* on a request is cheaper than the class
-        /// of bug that holding it invites.
-        /// </para>
-        /// <para>
-        /// <b>What this plans, and what <see cref="OpenTransitLotVm"/> then stands up.</b> The
-        /// transit lot here is the pure half - the route, the progress and the exactly-one-owner
-        /// assertion - and it is what decides whether a request is a walk at all. On top of it, and
-        /// only if it succeeded, <see cref="OpenTransitLotVm"/> builds the generated street the
-        /// walk is on as a real sub-world with a real <c>VM</c> on it and moves the travelling sim
-        /// into that <c>VM</c> for the duration. If that cannot be built the walk still happens,
-        /// as a position on the map - see <see cref="UpdateTransitWalk"/> for what a walk does and
-        /// does not drive in that case.
-        /// </para>
-        /// </remarks>
-        /// <param name="houseId">The lot to walk to.</param>
-        /// <param name="reason">Why no walk started, or null when one did.</param>
-        /// <returns>Whether an avatar is now walking.</returns>
-        private bool TryBeginTransitWalk(int houseId, out string reason)
-        {
-            reason = null;
-            if (TransitLot != null && TransitLot.IsWalking)
-            {
-                reason = "a walk to lot " + TransitDestination + " is already under way";
-                return false;
-            }
-            if (!TryGetNeighbourhoodWorld(out var world))
-            {
-                reason = "this lot has no generated neighbourhood to walk across";
-                return false;
-            }
-
-            //global 10 is the lot number, and it is the same read the travel host's CurrentHouseId
-            //is: the two must name the same origin or the recorded hop would disagree with the
-            //route that was actually walked.
-            var origin = vm == null ? TransitPath.NoLot : (int)vm.GetGlobalValue(10);
-            if (origin == TransitPath.NoLot)
-            {
-                reason = "the current lot has no number, so there is no door to walk out of";
-                return false;
-            }
-
-            TransitLot = new NeighbourhoodTransitLot(world.Query, ActiveLotKind.Active, origin);
-            TransitWorld = world;
-
-            //Planned before it is started, so the length cap below can refuse a walk that has not
-            //begun - TryBeginTransit would have started it, and a walk this screen then abandons
-            //would leave the transit lot holding an avatar nobody is advancing.
-            TransitPath path;
-            if (!TransitLot.TryPlanPath(origin, houseId, out path, out reason))
-            {
-                TransitLot = null;
-                TransitWorld = null;
-                return false;
-            }
-            if (path.Length <= 0)
-            {
-                //a zero-length walk is "walking" for no frames: it never advances and never ends
-                reason = "the route from lot " + origin + " to lot " + houseId + " is zero tiles long";
-                TransitLot = null;
-                TransitWorld = null;
-                return false;
-            }
-            if (path.Length > TransitWalkMaxTiles)
-            {
-                reason = "the walk is " + path.Length + " tiles, which is more than the "
-                    + TransitWalkMaxTiles + " a walk may be";
-                TransitLot = null;
-                TransitWorld = null;
-                return false;
-            }
-            if (!TransitLot.BeginTransit(path, out reason))
-            {
-                TransitLot = null;
-                TransitWorld = null;
-                return false;
-            }
-
-            if (!NeighbourhoodTransitLot.IsExactlyOneActiveLot(TransitLot.Kind,
-                TransitLot.ActiveLotNumber, out reason))
-            {
-                //Structurally unreachable - Kind is a single value and BeginTransit wrote it - but
-                //B4's invariant is worth an assertion rather than a belief, and this is the one
-                //place on this screen that could violate it.
-                SimitoneLog.Warn("A lot walk was not started, because the one-lot-owns-the-avatar"
-                    + " invariant does not hold: " + reason);
-                TransitLot = null;
-                TransitWorld = null;
-                return false;
-            }
-
-            TransitDestination = houseId;
-            TransitCamera = new NeighbourhoodWorldCamera(world.Layout.MapSize);
-            TransitCamera.SetMode(NeighbourhoodWorldCameraMode.Follow);
-            //The camera starts on the origin's door rather than in the middle of the map: this is
-            //the one moment SnapTo is right, per its own remarks - a lot switch the player has
-            //already been teleported through.
-            TransitCamera.Follow(TransitAvatarTile(TransitLot.State));
-            TransitCamera.SnapToAvatar();
-
-            //After the walk exists and the invariant holds, and after the camera is standing on it:
-            //this is the first point at which a second lot VM may take the avatar away from the one
-            //the player is standing in, and CanTakeOwnership - which TryOpen asks first - is only
-            //satisfied once the walk has begun.
-            OpenTransitLotVm();
-
-            SimitoneLog.Info("B4 ("
-                + NeighbourhoodWorldFlags.Describe(NeighbourhoodWorldFlag.Walk) + "): walking from lot "
-                + origin + " to lot " + houseId + " - " + path.Describe());
-            return true;
-        }
-
-        /// <summary>
-        /// Stands the transit lot's own <see cref="World"/> and <see cref="VM"/> up for the walk
-        /// in progress and moves the travelling sim into it, so that exactly one lot VM owns the
-        /// avatar for the whole of the walk. B4 task 1.
-        /// </summary>
-        ///
-        /// <remarks>
-        /// <para>
-        /// <b>After the walk is begun, and never instead of it.</b> The transit lot's own
-        /// <c>TryOpen</c> refuses a walk that has not begun - the origin lot still owns the avatar
-        /// and building a second VM now would give one sim two homes - so this is a late optional
-        /// half of <see cref="TryBeginTransitWalk"/> rather than a step inside it. A refusal here
-        /// is a sentence in the log and nothing else: the walk carries on exactly as it did before
-        /// this existed, with the avatar as a position on the map and the origin lot simulating
-        /// underneath it.
-        /// </para>
-        /// <para>
-        /// <b>Why the map comes from the surround's own source.</b> The street the transit lot is
-        /// built out of is the generated map the lot's surround is drawn from, and the plan's own
-        /// remarks make the arithmetic depend on both being the same map - two generations would be
-        /// two neighbourhoods that happen to agree. With no map in memory the open is refused with
-        /// a reason rather than being asked for a second one.
-        /// </para>
-        /// <para>
-        /// <b>What it is not.</b> The sim is <em>moved</em> across, not copied: the binder deletes
-        /// it from the origin lot, which is the failure mode B4 exists to avoid. The consequence
-        /// is that a walk abandoned half way leaves the origin lot without its controlled sim, and
-        /// <see cref="CancelTransitWalk"/> says so in the log when that happens. Putting a sim
-        /// back needs a seam that does not exist - see <see cref="AdoptTransitArrival"/>.
-        /// </para>
-        /// </remarks>
-        private void OpenTransitLotVm()
-        {
-            if (TransitLotVm != null) return;
-            if (TransitLot == null) return;
-
-            string reason;
-            if (!NeighbourhoodTransitLotVm.TryOpen(vm, SurroundingsWorld?.Map, TransitLot, null,
-                out var transit, out reason))
-            {
-                SimitoneLog.Info("B4: this walk is a position on the map rather than a sim in a"
-                    + " street lot, so the lot the player left keeps simulating underneath it and"
-                    + " the avatar is carried rather than walked: " + reason);
-                return;
-            }
-
-            TransitLotVm = transit;
-            SimitoneLog.Info("B4: the street this walk crosses is a lot now - " + transit.Describe());
-        }
-
-        /// <summary>
-        /// Where the walking avatar is in the generated map's own tile space, as a point the camera
-        /// can follow. Height is the camera's ground height rather than the map's, because the
-        /// generated map carries no elevation - <see cref="TransitState"/> is two numbers and a
-        /// fraction of a tile, and inventing a third would be a lie about what it knows.
-        /// </summary>
-        /// <param name="state">This frame's walk state.</param>
-        /// <returns>The avatar's position, in world tiles.</returns>
-        private Vector3 TransitAvatarTile(TransitState state)
-        {
-            var ground = TransitCamera != null ? TransitCamera.GroundHeight : 0f;
-            return new Vector3((float)state.PositionX, ground, (float)state.PositionY);
-        }
-
-        /// <summary>
-        /// B4's per-frame upkeep: the avatar moves along the planned street, the camera follows it,
-        /// and arriving performs the lot switch the discrete path would have performed.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>Order inside the step.</b> The camera is told where the avatar is before it is
-        /// advanced, so a frame's smoothing chases this frame's position rather than the previous
-        /// one's; and the whole step is one <c>Update(double)</c> call with this frame's seconds,
-        /// which is the integration contract that class documents.
-        /// </para>
-        /// <para>
-        /// <b>The switch on arrival is B3's, unchanged.</b>
-        /// <see cref="PerformLotSwitch"/> is the same call the discrete path makes, with the same
-        /// host and the same five steps, so a walked arrival and a teleported one produce the same
-        /// stash, the same downtown flag and the same recorded hop. Nothing here bypasses it.
-        /// </para>
-        /// <para>
-        /// <para>
-        /// <b>What this drives.</b> The route, the avatar's progress along it, the follow camera's
-        /// state, and - when <see cref="OpenTransitLotVm"/> could build the generated street the
-        /// walk is on - the travelling sim itself, which is moved along the pavement inside a real
-        /// transit <c>VM</c> and handed over on arrival. What it still does not: the sim is
-        /// <em>carried</em> rather than routed, so it will not stop at a kerb or turn a corner on
-        /// its own (the transit lot's own remarks name what a routable street lot would need),
-        /// nothing of the walk is drawn by this screen, and a walk in progress cannot be cancelled
-        /// by the player. All of them are visible gaps rather than hidden ones, and each is a seam
-        /// a later milestone closes at this same call site rather than somewhere else.
-        /// </para>
-        /// </remarks>
-        /// <param name="deltaSeconds">This frame's elapsed seconds, from <see cref="FrameSeconds"/>.</param>
-        private void UpdateTransitWalk(float deltaSeconds)
-        {
-            var transit = TransitLot;
-            if (transit == null || !transit.IsWalking) return;
-
-            //Read rather than asked for: a walk is planned over one world, and a walk still being
-            //advanced against a neighbourhood that has been replaced would be finishing a route
-            //through streets this lot has never heard of. Reading the field cannot build a world -
-            //TryGetNeighbourhoodWorld would - so this is a comparison and nothing else.
-            if (TransitWorld == null || !ReferenceEquals(NeighbourhoodWorld, TransitWorld))
-            {
-                SimitoneLog.Warn("The neighbourhood changed while a lot walk was in progress, so"
-                    + " the walk to lot " + TransitDestination + " was abandoned. No lot was"
-                    + " switched.");
-                CancelTransitWalk();
-                return;
-            }
-
-            //the whole frame's distance at once, which is what Advance takes: a walk is a position
-            //along a path, not a sim moving through a lot, so there is no per-tile step to miss.
-            //The transit lot VM's own Advance when there is one - it advances the same
-            //NeighbourhoodTransitLot this field holds and then writes the carried sim's position
-            //from the state that produced, so the sim and the camera can never be looking at two
-            //different points of the walk. Never both: they are two advances of one walk.
-            var transitVm = TransitLotVm;
-            var arrived = transitVm != null
-                ? transitVm.Advance(deltaSeconds * TransitWalkTilesPerSecond)
-                : transit.Advance(deltaSeconds * TransitWalkTilesPerSecond);
-            var state = transit.State;
-
-            var camera = TransitCamera;
-            if (camera != null)
-            {
-                camera.Follow(TransitAvatarTile(state));
-                camera.Update(deltaSeconds);
-            }
-
-            if (!arrived) return;
-
-            var destination = state.Destination;
-            string reason;
-            if (transitVm != null)
-            {
-                //The handover is the transit lot VM's, and it is the whole of the arrival for it:
-                //it captures the travelling sim's own state, completes the walk, names the
-                //destination as the world's active lot and takes the street lot's world down. A
-                //refusal means nothing has changed - the sim is still in the street lot and the
-                //world is still open - so the walk is dropped rather than retried, for the same
-                //reason the pure path below is.
-                int handoverTo;
-                VMAvatarMarshal walked;
-                if (!transitVm.TryHandOver(out handoverTo, out walked, out reason))
-                {
-                    SimitoneLog.Warn("A lot walk reached the end of its route but the sim could not"
-                        + " be handed over, so no lot switch was made: " + reason);
-                    CancelTransitWalk();
-                    return;
-                }
-                destination = handoverTo;
-                //Kept rather than applied here: the switch this is about to run has a lot load in
-                //it, and that lot cannot hold a sim yet - see AdoptTransitArrival.
-                WalkedArrival = walked;
-            }
-            else if (!transit.CompleteTransit(out reason))
-            {
-                //Arrival is sticky in the transit lot, so this cannot normally happen; if it does,
-                //the walk is dropped rather than retried, because a walk that arrives and does not
-                //complete would otherwise be advanced again by the next frame forever.
-                SimitoneLog.Warn("A lot walk reached the end of its route but did not complete, so"
-                    + " no lot switch was made: " + reason);
-                CancelTransitWalk();
-                return;
-            }
-
-            SimitoneLog.Info("B4: walked to lot " + destination + " in "
-                + state.Path.Length + " tile(s); switching now.");
-            //the fields go before the switch, because the switch tears this lot down and nothing
-            //may be left pointing at a transit lot whose avatar has already been handed over. The
-            //VM is null on the arrived path - the handover took its world down - and dropped rather
-            //than disposed so an impossible already-down lot is not disposed twice.
-            TransitLot = null;
-            TransitCamera = null;
-            TransitWorld = null;
-            TransitLotVm = null;
-            TransitDestination = TransitPath.NoLot;
-            //And the walked sim's state goes with it, into the one switch path. A null here is the
-            //pure-walk case, where the avatar was a position on the map rather than a sim and the
-            //destination lot spawns its controlled sim as it always has.
-            PerformLotSwitch(destination, WalkedArrival);
-            WalkedArrival = null;
-        }
-
-        /// <summary>
-        /// The walking sim's own state, carried from the transit lot's handover to the switch that
-        /// is about to run. A field rather than a parameter because the two are a frame apart in
-        /// the pure method's control flow: the handover and the switch are one method's two halves,
-        /// and threading a value between them through a signature would mean threading it through
-        /// <see cref="PerformLotSwitch(int, VMAvatarMarshal)"/>'s caller as well.
-        /// </summary>
-        private VMAvatarMarshal WalkedArrival;
-
-        /// <summary>
-        /// Drops a walk without arriving: the transit lot gives the avatar back to the lot it came
-        /// from, and the camera goes with it.
-        /// </summary>
-        ///
-        /// <remarks>
-        /// <para>
-        /// Called from <see cref="CleanupLastWorld"/>, beside <see cref="DetachSurroundings"/> and
-        /// for the same reason - a teardown that found no VM has still got a walk in flight if
-        /// anything went wrong on the way up, and a walk left in flight would arrive into a lot
-        /// that no longer exists. Ungated, like that one: with the capability off both fields are
-        /// null forever, so this returns on its first line and the teardown is unchanged.
-        /// </para>
-        /// <para>
-        /// <b>Two ways to drop, because there are two things to drop.</b> With a street lot open
-        /// the sim is inside it and only it can give the sim back, so its own
-        /// <c>TryCancel</c> is asked - and on a refusal the world is disposed here, because a
-        /// half-cancelled transit lot would hold a live <c>SubWorldComponent</c>, a light map and
-        /// an architecture for the rest of the session. Without one there is only the pure walk's
-        /// own <c>CancelTransit</c>, which is the whole of the first cut.
-        /// </para>
-        /// <para>
-        /// <b>A cancelled walk now puts the sim back, and that is the whole of what changed.</b> The
-        /// binder moved the sim out of the origin lot when the walk began - two lot VMs holding
-        /// one sim is the failure mode B4 exists to prevent - and this used to be able to give it
-        /// back only as a marshal, because there was no seam that loaded a marshal into a live
-        /// <c>VM</c>. There is now: <c>ITransitAvatarBinder.TryRebind</c>, and the four-argument
-        /// <c>TryCancel</c> uses it, so the origin lot has its controlled sim again on the frame
-        /// the walk is dropped. What is left of the old behaviour is the walk's own first half -
-        /// the avatar is still moved, not copied, on the way out - so a re-bind that fails is a
-        /// warning rather than a crash, and it says what the player is left with.
-        /// </para>
-        /// </remarks>
-        private void CancelTransitWalk()
-        {
-            var transitVm = TransitLotVm;
-            var transit = TransitLot;
-            //The origin lot, which is what a cancelled walk owes the sim back to. Read before
-            //anything else, because the teardown path reaches here with the VM still alive and
-            //the failure path may not.
-            var origin = vm;
-            if (transitVm != null)
-            {
-                VMAvatarMarshal returned;
-                VMEntity restored;
-                string reason;
-                if (transitVm.TryCancel(origin, out returned, out restored, out reason))
-                {
-                    if (restored != null)
-                    {
-                        SimitoneLog.Info("B4: the walk to lot " + TransitDestination + " was"
-                            + " cancelled with the lot it started from, and the sim it was carrying"
-                            + " went back into that lot (persist "
-                            + (returned == null ? 0 : returned.PersistID) + ").");
-                    }
-                    else
-                    {
-                        SimitoneLog.Warn("B4: the walk to lot " + TransitDestination + " was cancelled"
-                            + " with the lot it started from, and the sim it was carrying came back as"
-                            + " state (persist " + (returned == null ? 0 : returned.PersistID)
-                            + ") rather than as a sim: nothing could put it back into that lot. The"
-                            + " lot the player is standing in is otherwise unaffected.");
-                    }
-                }
-                else
-                {
-                    SimitoneLog.Warn("B4: the walk to lot " + TransitDestination + " could not be"
-                        + " cancelled cleanly (" + reason + "), so the street lot is being taken"
-                        + " down with the sim still in it and the lot the player is standing in is"
-                        + " left without its controlled sim. Nothing else is affected.");
-                    transitVm.Dispose();
-                }
-            }
-            else if (transit != null)
-            {
-                string reason;
-                if (transit.CancelTransit(out reason))
-                {
-                    SimitoneLog.Info("B4: the walk to lot " + TransitDestination
-                        + " was cancelled with the lot it started from.");
-                }
-            }
-            TransitLot = null;
-            TransitCamera = null;
-            TransitWorld = null;
-            TransitLotVm = null;
-            TransitDestination = TransitPath.NoLot;
-            //And with them anything this lot still owed a walker, which on this path can only be an
-            //arrival the switch has not finished adopting. Dropping it here rather than leaving it
-            //for the pump is what stops a walk's sim being adopted by whatever lot comes next.
-            WalkedArrival = null;
-            GiveUpPendingTransitArrival("the lot it was being adopted by was torn down first");
-        }
-
-        /// <summary>
-        /// B4's entry point at a travel request: a request becomes a walk when the capability is
-        /// on and the neighbourhood can answer with a route, and a switch otherwise.
-        /// </summary>
-        /// <remarks>
-        /// The capability is asked here rather than inside <see cref="TryBeginTransitWalk"/>, for
-        /// the reason the other call sites give: all seven flags are read in one place a reader can
-        /// see, and this is that place for B4.
-        /// </remarks>
-        /// <param name="houseId">The lot the request names.</param>
-        /// <param name="reason">
-        /// Why the request is a switch rather than a walk, or null when it became one. Not logged
-        /// here: refusals are per request rather than per frame, and the one place that knows the
-        ///lot number the request named is the switch block.
-        /// </param>
-        /// <returns>Whether the request became a walk rather than a switch.</returns>
-        private bool TryBeginWalkIfAsked(int houseId, out string reason)
-        {
-            //Null rather than a reason when the capability is off: the caller logs whatever it is
-            //given, and a line on every travel request of a default session would be the one
-            //visible difference between flag-off and flag-on. With the capability off this is a
-            //comparison and a return.
-            reason = null;
-            if (!NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk)) return false;
-            return TryBeginTransitWalk(houseId, out reason);
         }
 
         /// <summary>
@@ -2465,22 +1926,21 @@ namespace Simitone.Client.UI.Screens
                 //is the neighbourhood's only reading of what time it is where the player has been.
                 screen.HandshakeClockOnSave();
                 var marshal = screen.vm.Save();
-                screen.SavedLots[house] = marshal;
+                screen.SessionLots.SetActive(house, marshal);
                 return marshal;
             }
 
             /// <summary>
-            /// The in-session store, which outranks the on-disk travel slot: a lot held in memory
-            /// is resumed from memory. Routed through <see cref="LotTravel.TryRestore{T}"/> so the
-            /// service and the inline path agree on what "held" means, including that a null entry
-            /// counts as not held.
+            /// The in-session stash, which outranks the on-disk travel slot: a lot held in memory
+            /// is resumed from memory. The store holds only non-null marshals, so "held" means a
+            /// usable marshal and nothing else.
             /// </summary>
             /// <param name="lot">The lot number.</param>
             /// <param name="marshal">The held state, when there is one.</param>
             /// <returns>Whether usable state is held for this lot.</returns>
             public bool TryRestoreSaved(short lot, out VMMarshal marshal)
             {
-                return LotTravel.TryRestore(screen.SavedLots, lot, out marshal);
+                return screen.SessionLots.TryGetActive(lot, out marshal);
             }
 
             /// <summary>
@@ -2490,7 +1950,7 @@ namespace Simitone.Client.UI.Screens
             /// <param name="lot">The lot number.</param>
             public void RemoveSaved(short lot)
             {
-                screen.SavedLots.Remove(lot);
+                screen.TakeStashedLot(lot);
             }
 
             /// <summary>
@@ -2526,34 +1986,6 @@ namespace Simitone.Client.UI.Screens
             }
 
             /// <summary>
-            /// Put the arriving sim on the destination's door rather than wherever the load left it.
-            /// Delegated whole: the screen is what owns the live VM, the surround placement that
-            /// translates a generated-map tile into a lot tile, and the controlled avatar.
-            /// </summary>
-            /// <param name="entrance">The destination's door, in generated-map tile space.</param>
-            public void PlaceArrival(LotEntrance entrance)
-            {
-                screen.PlaceArrivalAtDoor(entrance);
-            }
-
-            /// <summary>
-            /// Adopt the sim that walked here, rather than letting this lot spawn one of its own.
-            /// Delegated whole: the screen is what holds the live VM, the content manager and the
-            /// lot's blueprint, and a marshal only becomes a sim inside one of those.
-            /// </summary>
-            /// <remarks>
-            /// Called by the service after the load and before <see cref="PlaceArrival"/>, and only
-            /// for a request that carried an arriving sim - so with the walk capability off this is
-            /// never called and a picker switch, a move-in and a VM's own lot-switch request are
-            /// exactly the five calls they were before this member existed.
-            /// </remarks>
-            /// <param name="avatar">The travelling sim's own state, never null.</param>
-            public void AdoptArrivalAvatar(VMAvatarMarshal avatar)
-            {
-                screen.AdoptTransitArrival(avatar);
-            }
-
-            /// <summary>
             /// Where a completed hop is reported: the screen's own method, so the world is only
             /// asked for on a switch that actually happened.
             /// </summary>
@@ -2573,7 +2005,7 @@ namespace Simitone.Client.UI.Screens
         /// from two callers - this screen's own <c>SwitchLot</c> block and
         /// <c>NeighborhoodService.PlayHouse</c>, i.e. the lot picker - and the three members only
         /// the screen can answer are the ones that carry the behaviour: the stash
-        /// (<c>vm.Save</c> into <c>SavedLots</c>), the per-lot store that resume reads, and the
+        /// (<c>vm.Save</c> into the session stash), the per-lot store that resume reads, and the
         /// transit writer. A second adapter built over the screen's public surface can only stub
         /// those out - a picker host that cannot stash cannot put back the lot the player left five
         /// minutes ago, and one with no transit writer loses the hop - so two lot-preservation
@@ -2626,45 +2058,10 @@ namespace Simitone.Client.UI.Screens
         /// </returns>
         private bool PerformLotSwitch(int houseId)
         {
-            return PerformLotSwitch(houseId, null);
-        }
-
-        /// <summary>
-        /// The same one switch path, for a switch that carries the sim that walked here.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>An overload and not a second path.</b> The whole of B3's ordering - stash, downtown,
-        /// resume-or-read, adopt, place, record - happens inside <c>LotTravelService</c>, so the only
-        /// thing a walk adds to it is one more field on the request. A walked arrival and a
-        /// teleported one therefore produce the same stash, the same downtown flag, the same load
-        /// and the same recorded hop; the hop's <em>mode</em> is
-        /// <see cref="LotTravelService.WalkTravelMode"/> rather than
-        /// <see cref="LotTravelService.DiscreteTravelMode"/>, which is the one line of difference
-        /// and is the whole of what the world can tell the two apart by.
-        /// </para>
-        /// <para>
-        /// <b>The destination is recorded before the service runs</b>, because the service asks
-        /// this screen to adopt the arrival as part of the switch and the adopt line is the first
-        /// thing in the log that wants to name the lot it is going into.
-        /// </para>
-        /// </remarks>
-        /// <param name="houseId">The lot to load.</param>
-        /// <param name="arriving">
-        /// The travelling sim's own state, or null for a switch nobody walked. A null is exactly
-        /// the request this method has always made.
-        /// </param>
-        private bool PerformLotSwitch(int houseId, VMAvatarMarshal arriving)
-        {
-            var walked = arriving != null;
-            var arrival = walked ? WalkArrivalDoorFor(houseId) : (LotEntrance?)null;
-            if (walked) PendingTransitLot = houseId;
             string reason;
             var switched = LotTravelCoordinator.TryTransition(
                 TravelHost,
-                new LotTransitionRequest(houseId,
-                    walked ? TransitionReason.Walk : TransitionReason.VmRequest,
-                    arrival, arriving),
+                new LotTransitionRequest(houseId, TransitionReason.VmRequest),
                 out reason);
             SimitoneLog.Info("Lot travel: " + (switched ? "switched. " : "did not switch. ") + reason);
             //A refusal here is the one way a switch request can be consumed with the lot still
@@ -2674,35 +2071,6 @@ namespace Simitone.Client.UI.Screens
             //restore in here is a no-op on that path.
             if (!switched) RestoreSpeedAfterFailedLotSwitch();
             return switched;
-        }
-
-        /// <summary>
-        /// The door a walker arrives at, or null when this neighbourhood cannot name one.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>Only asked on the walk path.</b> A walk is the one arrival that provably happened at a
-        /// specific door - the route ended there - so it is the one arrival where handing the
-        /// service a door is more correct than leaving the load's own centring in place. The
-        /// discrete path is deliberately unchanged: it is B3's, and what it does with a door is
-        /// not this task's decision.
-        /// </para>
-        /// <para>
-        /// <b>The query is the authority, and a null is the honest answer.</b> A lot that is not in
-        /// this layout, a lot with no house, and a lot whose door tile carries no road all answer
-        /// null, and a null door means the arrival is not placed rather than placed at a guess -
-        /// see <see cref="ILotTravelHost.PlaceArrival"/> for why the centre the load picks is the
-        /// right fallback.
-        /// </para>
-        /// </remarks>
-        /// <param name="houseId">The lot being walked into.</param>
-        private LotEntrance? WalkArrivalDoorFor(int houseId)
-        {
-            if (!TryGetNeighbourhoodWorld(out var world)) return null;
-            var entrance = world.Query.EntranceFor(houseId);
-            //not LotEntrance's own IsSet, because the query hands back the interface: the same test
-            //on the same field, since a default entrance is all zeroes and lot 0 is not a lot.
-            return entrance == null || entrance.LotNumber == 0 ? null : (LotEntrance?)entrance;
         }
 
         /// <summary>
@@ -3023,16 +2391,19 @@ namespace Simitone.Client.UI.Screens
             //for the reason every other site gives - all seven flags are read in one place a reader
             //can see - so with the capability off this frame does one cached ini read and a
             //comparison, and no plan, no neighbour and no sub-world.
-            if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Surroundings))
+            if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.NeighbourSubWorlds))
             {
                 AttachHollowNeighbours();
+                //and the neighbours that attempt had to leave blank, one at a time
+                TopUpHollowNeighbours();
             }
 
-            //B1's world clock, kept while the player is standing in this lot. Gated here rather
+            //B1's world clock, kept while the player is standing in this lot: the world follows
+            //the lot's own clock while one is up, and ticks by wall-clock time (the frame length,
+            //read the way the weather reads it) only when there is none. Gated here rather
             //than inside the call so that with the capability off this frame does not even read
             //the frame length - the whole of what Part B adds to a default session is a handful of
-            //cached ini reads and a comparison each. Same frame length as the weather, and the same
-            //reason: neighbourhood time is wall-clock time.
+            //cached ini reads and a comparison each.
             //
             //B6 (NeighbourhoodWorldOffscreen) is the second capability that needs this tick: it
             //is what "the world moves on while the player is elsewhere" means, and the only place
@@ -3054,20 +2425,6 @@ namespace Simitone.Client.UI.Screens
                 UpdateNeighbourhoodWorldLighting();
             }
 
-            //B4's walk, advanced before the switch block below so a walk that arrives on this
-            //frame performs its switch on this frame rather than a frame later. No-op when there
-            //is no walk, which with the capability off is every frame.
-            if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk))
-            {
-                UpdateTransitWalk(FrameSeconds(state));
-
-                //The walked sim's own state, adopted by the lot a walk arrived into. On the frame
-                //the walk arrives this is a comparison against a null field - the arrival has been
-                //handed to the switch that ran a few lines ago and that lot cannot hold it yet -
-                //and on the frame the lot's queued blueprint restore and its own net-driver join
-                //have both landed it is the walk's second half. See ApplyPendingTransitArrival.
-                ApplyPendingTransitArrival();
-            }
 
             if (state.NewKeys.Contains(Microsoft.Xna.Framework.Input.Keys.F12) && GraphicsModeControl.Mode != GlobalGraphicsMode.Full2D)
             {
@@ -3088,38 +2445,7 @@ namespace Simitone.Client.UI.Screens
                 //because with the capability off this screen must behave byte for byte as it did
                 //before Part B, and a "temporary" second copy that outlives its flag is how two
                 //lot-preservation behaviours come to exist.
-                //
-                //B4 (NeighbourhoodWorldWalk) is asked first of all three, because a walk is not a
-                //switch yet: if the neighbourhood can answer with a route, the request becomes a
-                //walk and no lot is touched at all on this frame, and if it cannot then the two
-                //paths below are reached in exactly the order they were reached before B4 existed.
-                string walkRefusal = null;
-                if (IsWalkingBetweenLots)
-                {
-                    //B4: a request arriving while an avatar is already on the street. Refused
-                    //rather than queued and refused rather than started, for the reason the
-                    //transit lot's own BeginTransit gives: one owner of the avatar, and a second
-                    //walk quietly replacing the first is how two of them end up driving one sim. A
-                    //dropped request is recoverable - the sim asks again when it gets somewhere it
-                    //can leave from - whereas a walk to the wrong lot is a switch nobody made.
-                    walkRefusal = "a walk to lot " + TransitDestination + " is already under way";
-                }
-                else if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk) && vm != null
-                    && (int)vm.GetGlobalValue(10) == SwitchLot)
-                {
-                    //travelling to the lot already standing in is a no-op: a walk from a door to
-                    //itself is zero tiles long, never advances, and would leave the lot paused
-                    walkRefusal = "the sim is already on lot " + SwitchLot;
-                }
-                else if (TryBeginWalkIfAsked(SwitchLot, out walkRefusal))
-                {
-                    //B4 has taken the request: the avatar is on the street and the switch happens
-                    //when it arrives, in UpdateTransitWalk, through the same PerformLotSwitch the
-                    //discrete path uses. The request is consumed here and SwitchLot is cleared
-                    //below as usual.
-                    walkRefusal = null;
-                }
-                else if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Travel))
+                if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Travel))
                 {
                     PerformLotSwitch(SwitchLot);
                 }
@@ -3132,7 +2458,7 @@ namespace Simitone.Client.UI.Screens
                         //service's. With B1 off both are one comparison, and this is the same lot
                         //being stashed in the same place it always was.
                         HandshakeClockOnSave();
-                        SavedLots[currentHouse] = vm.Save();
+                        SessionLots.SetActive(currentHouse, vm.Save());
                     }
                     //the lot about to load is "downtown" (i.e. not a home lot) whenever it is not
                     //the active family's own house. InitializeLot reads this to decide whether to
@@ -3140,14 +2466,14 @@ namespace Simitone.Client.UI.Screens
                     Downtown = SwitchLot != (ActiveFamily?.HouseNumber ?? SwitchLot);
 
                     VMMarshal preserved;
-                    if (LotTravel.TryRestore(SavedLots, (short)SwitchLot, out preserved))
+                    if (SessionLots.TryGetActive((short)SwitchLot, out preserved))
                     {
                         //a preserved copy exists: resume that lot as it was and drop the entry so a
                         //later visit reloads it from disk rather than replaying a stale snapshot.
                         //this is the highest-precedence source of lot state - an in-session snapshot
                         //always beats the on-disk cross-session slot, which InitializeLot(string,
-                        //bool) only falls back to when SavedLots has nothing for this lot.
-                        SavedLots.Remove((short)SwitchLot);
+                        //bool) only falls back to when the stash has nothing for this lot.
+                        TakeStashedLot((short)SwitchLot);
                         //SwitchLot is the lot number either way, which is the whole point of passing
                         //it: the generated neighbourhood can only be placed around a lot it can name
                         InitializeLot(preserved, SwitchLot);
@@ -3160,31 +2486,11 @@ namespace Simitone.Client.UI.Screens
                         InitializeLot(Content.Get().Neighborhood.GetHousePath(SwitchLot), false, SwitchLot);
                     }
                 }
-                //B4's one line about a request that became a walk, or did not. After the switch
-                //block rather than inside it, because the walk path has already cleared the
-                //transit fields by the time it returns and the reason is about the request rather
-                //than about the lot. Null on every path that did not consult B4, which is every
-                //path with the capability off.
-                if (walkRefusal != null)
-                {
-                    SimitoneLog.Info("B4: travel to lot " + SwitchLot + " is being made as a switch"
-                        + " rather than a walk: " + walkRefusal + ".");
-                }
-
                 //cleared last, on both paths and for the same reason as before: the two loads above
                 //read SwitchLot as the destination lot number, so clearing it earlier would take
                 //the number with it. A refused request clears it too, which is what stops one
                 //impossible lot number being retried every frame for ever.
                 SwitchLot = -1;
-
-                //A request that was consumed without a switch has to give the pause back.
-                //walkRefusal is non-null on exactly the two paths where that happens - a walk
-                //already under way, and a route that could not be found - and the travel path's
-                //own refusal has already been answered inside PerformLotSwitch. Clearing
-                //SwitchLot above is what stops one impossible lot number being retried every
-                //frame for ever; this is what stops the same refusal costing the player their
-                //lot. See RestoreSpeedAfterFailedLotSwitch.
-                if (walkRefusal != null) RestoreSpeedAfterFailedLotSwitch();
             }
             //vm.Context.Clock.Hours = 12;
             if (vm != null) vm.Update();
@@ -3327,15 +2633,9 @@ namespace Simitone.Client.UI.Screens
             //between two lots in one neighbourhood does not regenerate it.
             DetachSurroundings();
 
-            //B4's walk, for the same reason and in the same place: an avatar left in flight when
-            //the lot under it is gone would arrive into a lot that no longer exists. No-op with
-            //the capability off, because nothing ever started one.
-            CancelTransitWalk();
-
             if (vm == null) return;
 
             //clear our cache too, if the setting lets us do that
-            TimedReferenceController.Clear();
             TimedReferenceController.Clear();
 
             if (ZoomLevel < 4) ZoomLevel = 5;
@@ -3387,29 +2687,10 @@ namespace Simitone.Client.UI.Screens
             World = null;
             Driver = null;
             LotControl = null;
+            //the lot's UI (and every button holding a rendered head) went with LotControl, so
+            //the head icons can be released rather than lingering until the 64-entry cap
+            Simitone.Client.UI.Model.UIIconCache.ClearAvatarHeadCache();
         }
-
-        /// <summary>
-        /// In-memory state of every lot the player has stood on during this session, keyed by
-        /// lot number. The VM can only hold one lot at a time, so travelling marshals the lot
-        /// being left out here and resumes from it when the player returns. This used to be a
-        /// single <c>SavedLot</c> slot that only ever held the family's home lot, so any state
-        /// built up on Downtown, Vacation, Studio or Magic was discarded on the way out and the
-        /// lot snapped back to the shipped template on the way back in.
-        /// Entries are <see cref="VMMarshal"/>, which is not disposable, so leaving the lot
-        /// simply drops the reference.
-        ///
-        /// <para>
-        /// This store and the on-disk slot (<see cref="TravelSave"/>) are complementary, and the
-        /// order is fixed: this dictionary is consulted first in <see cref="Update"/>, so a lot
-        /// held in memory is always resumed from memory. The disk slot is only reached when this
-        /// dictionary has nothing for the target lot - the first visit to that lot in this
-        /// session - and <see cref="Save"/> refreshes it every time the player saves while
-        /// standing on a travel lot. It is what makes "build something on vacation, quit, come
-        /// back next week" work, which is the case the in-memory store cannot cover.
-        /// </para>
-        /// </summary>
-        private readonly Dictionary<short, VMMarshal> SavedLots = new Dictionary<short, VMMarshal>();
 
         /// <summary>
         /// Brings up an empty world and VM for a lot load. Every lot load goes through here -
@@ -3436,6 +2717,11 @@ namespace Simitone.Client.UI.Screens
             //previous lot's sky.
             LightingApplied.Reset();
 
+            //The lot now being played, before anything below asks for the world: a world held for
+            //another neighbourhood is saved and dropped, and the world's active lot moves with the
+            //player so the off-screen simulator never decays the lot they are standing in.
+            SetPlayedLot(LoadingHouseNumber ?? 0);
+
             //The lot diagnostics' per-lot state, cleared for the same reason and on the same path:
             //a new lot has a new speed, a new tick stream and a new set of waiting threads, so the
             //last lot's answers would be reported as this lot's changes.
@@ -3445,15 +2731,6 @@ namespace Simitone.Client.UI.Screens
             _diagReportedStall = false;
             _switchPausedVm = null;
             _switchResumeSpeed = -1;
-
-            //B4's last walked sim, dropped rather than adopted. A walk is not in flight here - a lot
-            //load tears the lot down through CleanupLastWorld, which cancels one - so anything
-            //held is the state of a walk that has already switched and whose destination never
-            //got round to adopting it. Said once, because "my sim lost what it was carrying" is
-            //otherwise invisible. A walk that DID hand its sim to this very load adopts it on
-            //the frame the lot can hold it: the service asks for the adoption after this call, so
-            //nothing is dropped here on that path - see AdoptTransitArrival.
-            GiveUpPendingTransitArrival("the lot it was being adopted by was replaced");
 
             //The generated neighbourhood. The lot view reads World.Surroundings from its very first
             //frame, so a world that is already in memory is attached here; one that is not is
@@ -3474,7 +2751,7 @@ namespace Simitone.Client.UI.Screens
             GameFacade.Scenes.Add(World);
 
             //B5's global link, when the NeighbourhoodWorldServices capability is on: the stub with
-            //two things injected rather than reached for - the family authority (so a transaction
+            //two things injected rather than reached for - the family resolver (so a transaction
             //is charged to the family the avatar's own family number names, not to whichever family
             //the lot happens to have activated) and the lot-transition hook (so a local player
             //leaving their own lot sets the switch instead of shutting the lot's driver down and
@@ -3488,8 +2765,7 @@ namespace Simitone.Client.UI.Screens
                 globalLink = new SimitoneGlobalLink(
                     ResolveFamilyByChunkId,
                     houseId => SwitchLot = houseId,
-                    true,
-                    TryGetNeighbourhoodWorld(out var world) ? world : null);
+                    true);
             }
             else
             {
@@ -3636,7 +2912,8 @@ namespace Simitone.Client.UI.Screens
             try
             {
                 var clock = vm?.Context?.Clock;
-                var world = TryGetNeighbourhoodWorld(out var w) ? w : null;
+                //read, never built: a diagnostic must not be what rasterises a neighbourhood
+                var world = WorldSession.World;
                 var waiting = DescribeWaitingThreads();
 
                 SimitoneLog.Info("lot diagnostics (" + cause + "): speed="
@@ -3827,7 +3104,7 @@ namespace Simitone.Client.UI.Screens
         /// <para>
         /// Precedence, once, explicitly:
         /// <list type="number">
-        /// <item>the in-session <c>SavedLots</c> dictionary wins for any lot currently held in
+        /// <item>the in-session stash (<c>SessionLots</c>) wins for any lot currently held in
         /// memory - <c>Update</c> checks it and calls <see cref="InitializeLot(VMMarshal)"/>
         /// before this method is ever reached;</item>
         /// <item>otherwise a valid slot for the active family wins, and the marshal is handed to
@@ -3873,7 +3150,7 @@ namespace Simitone.Client.UI.Screens
                 }
 
                 //resume the family-owned slot through the marshal path, exactly like a lot held
-                //in SavedLots. BlueprintReset would instead load the shipped template and throw
+                //in the stash. BlueprintReset would instead load the shipped template and throw
                 //away everything the player did here.
                 InitializeLot(slot, LoadingHouseNumber);
                 return;
@@ -4279,6 +3556,11 @@ namespace Simitone.Client.UI.Screens
 
             SaveService.Save(vm, World, ActiveFamily);
 
+            //B7: the neighbourhood's session goes to its sidecar once the lot has landed on disk,
+            //so a lot that failed to save is not followed by a session claiming it did. The clock
+            //was handed over above, and the world is saved with the player still in the lot.
+            SaveNeighbourhoodWorld(WorldSession.World, WorldSession.Slot);
+
             //the cosmetic weather is a sidecar rather than part of the lot save: it is not lot
             //state (every lot, on every machine, opens in the same weather), so it does not belong
             //in the IFF or the travel slot. Written after the lot save so a failed lot save is
@@ -4297,6 +3579,10 @@ namespace Simitone.Client.UI.Screens
 
         public void ExitLot()
         {
+            //the world first, while the lot's clock can still be read: its time is handed over, its
+            //session is written (B7) and it is dropped. A world is a session object and the session
+            //ends here.
+            EndNeighbourhoodWorld();
             CleanupLastWorld();
             //the neighbourhood the lot was picked on, not always the residential one: a family
             //that bought a magic-town lot through a move-in, or a lot picked off the vacation or
@@ -4306,7 +3592,7 @@ namespace Simitone.Client.UI.Screens
             Downtown = false;
             //every preserved lot belongs to the world that was just torn down; the marshals
             //are not disposable, so dropping the references is the whole cleanup.
-            SavedLots.Clear();
+            SessionLots.Clear();
         }
     }
 

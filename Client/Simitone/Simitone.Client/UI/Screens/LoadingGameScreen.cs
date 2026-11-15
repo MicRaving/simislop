@@ -150,9 +150,20 @@ namespace Simitone.Client.UI.Screens
                 catch (Exception ex)
                 {
                     SimitoneLog.Error("Content loading failed on the loading screen.", ex);
+                    lock (this)
+                    {
+                        LoadError = ex.Message;
+                    }
                 }
             }, _loadCts.Token);
         }
+
+        /// <summary>
+        /// Set when content loading threw. Without it the screen would sit on its progress bar
+        /// forever: <see cref="LoadingComplete"/> never becomes true and nothing on screen says why.
+        /// </summary>
+        public string LoadError;
+        private bool _loadErrorShown;
 
         private readonly CancellationTokenSource _loadCts = new CancellationTokenSource();
 
@@ -258,12 +269,26 @@ namespace Simitone.Client.UI.Screens
 
                 LoadProgress.OverallPercent = (float)LastProgress / (float)ContentLoadingProgress.Done;
             }
+            string error;
             lock (this)
             {
                 if (LoadingComplete)
                 {
                     GameController.EnterGameMode("", false);
                 }
+                error = LoadError;
+            }
+            if (error != null)
+            {
+                if (!_loadErrorShown)
+                {
+                    _loadErrorShown = true;
+                    if (LastLabel != null) LastLabel.Kill();
+                    LastLabel = new UISimitoneLoadLabel("Loading failed: " + error + " (Esc to quit)");
+                    LastLabel.Position = new Vector2(ScreenWidth / 2, ScreenHeight * 0.75f);
+                    Add(LastLabel);
+                }
+                if (state.NewKeys.Contains(Microsoft.Xna.Framework.Input.Keys.Escape)) GameFacade.Game.Exit();
             }
             base.Update(state);
         }

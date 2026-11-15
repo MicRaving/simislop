@@ -80,14 +80,13 @@ them to. The five that ship:
 | `NeighbourhoodWorldServices` | build/buy, lot ownership, jobs and leaving a lot go through the world | the existing global-link stub |
 | `NeighbourhoodWorldPersist` | the session (time, active lot, hops) is saved with the neighbourhood | the layout sidecar only |
 
-The other two keys have a checkbox each rather than a row in that table, because each is a question
-about one capability rather than about the feature: `NeighbourhoodWorldOffscreen` is **Simulate
-Neighbours** and `NeighbourhoodWorldWalk` is **Walk Between Lots**. Neither consults the first
-checkbox and the first consults neither, in either direction — unticking Connected Neighbourhood
-leaves the other two exactly as they were, and ticking either does not make the first draw as on.
-What *is* true is that both are inert without it, because both are children of the world in §7 of
-the plan and a capability with no world has nothing to act on. Each box says so in its own tooltip,
-and none of the three is greyed out.
+The other key has a checkbox rather than a row in that table, because it is a question about one
+capability rather than about the feature: `NeighbourhoodWorldOffscreen` is **Simulate Neighbours**.
+It does not consult the first checkbox and the first does not consult it, in either direction —
+unticking Connected Neighbourhood leaves it exactly as it was, and ticking it does not make the first
+draw as on. What *is* true is that it is inert without the world, because it is a child of the world
+in §7 of the plan and a capability with no world has nothing to act on. Its box says so in its own
+tooltip, and neither box is greyed out.
 
 **What the checkbox actually gives you today.** The world object exists for as long as you are in a
 lot in a generated neighbourhood, and its clock advances with the frame — so the neighbourhood keeps
