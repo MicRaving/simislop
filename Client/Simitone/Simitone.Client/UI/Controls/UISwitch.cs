@@ -125,13 +125,24 @@ namespace Simitone.Client.UI.Controls
             return tex;
         }
 
-        private static bool InRoundedRect(int x, int y, int width, int height, int radius)
+        /// <summary>
+        /// Whether pixel (<paramref name="x"/>, <paramref name="y"/>) is inside a rounded rectangle
+        /// of the given size. Works on pixel centres in floating point, and caps the radius at half
+        /// the shorter side, so a full pill (radius = height / 2) is valid. The integer version
+        /// this replaces clamped to [radius, height - 1 - radius], an empty range for a pill, and
+        /// threw - which crashed the Options dialog the moment it built its first switch.
+        /// </summary>
+        public static bool InRoundedRect(int x, int y, int width, int height, int radius)
         {
-            var cx = Math.Clamp(x, radius, width - 1 - radius);
-            var cy = Math.Clamp(y, radius, height - 1 - radius);
-            var dx = x - cx;
-            var dy = y - cy;
-            return (dx * dx) + (dy * dy) <= radius * radius;
+            if (x < 0 || y < 0 || x >= width || y >= height) return false;
+            var r = Math.Min(radius, Math.Min(width, height) / 2f);
+            var px = x + 0.5f;
+            var py = y + 0.5f;
+            var cx = Math.Clamp(px, r, width - r);
+            var cy = Math.Clamp(py, r, height - r);
+            var dx = px - cx;
+            var dy = py - cy;
+            return (dx * dx) + (dy * dy) <= r * r;
         }
     }
 }

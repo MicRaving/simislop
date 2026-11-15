@@ -25,20 +25,22 @@ env:
   # Ceiling on unique warning lines the build may produce (deduplicated as in the
   # "Check the warning budget" step: terminal-logger prefix stripped, trimmed, unique).
   #
-  # Re-measured 2026-11-15 on the default graph (game + FSO.Content.TSO, BuildIde=false; the
-  # FSO.IDE / FSO.Client / server projects are not built any more)
-  # (`dotnet build Client/Simitone/Simitone.sln -c Release --no-incremental`): 140 unique
-  # lines, of which 57 are NU1701 (5 packages, each reported once per consuming project).
-  # Every warning is in the FreeSO tree or Simitone.Client's legacy code; the shipped build
-  # was 675 before the server closure left it. 150 leaves room for a stray copy-lock
-  # warning or two without letting a family of tens slip under it.
+  # Re-measured 2026-11-15 (C1fix) on the default graph: game + FSO.Content.TSO + FSO.Client
+  # (the EOD minigame panels are loaded from FSO.Client.dll by name, so it has to be built and
+  # shipped; FSO.Client drags FSO.Server* in at compile time, and the output trim removes their
+  # DLLs again). BuildIde=false still keeps FSO.IDE / FSO.Windows / Roslyn out.
+  # (`dotnet build Client/Simitone/Simitone.sln -c Release --no-incremental`): 626 unique
+  # lines, of which 311 are NU1701 (19 packages, each reported once per consuming project).
+  # The 140 measured after A2 was without FSO.Client and broke the EODs. 650 leaves room for a
+  # stray copy-lock warning or two without letting a family of tens slip under it.
   # Tighten it whenever the count comes down, in the same commit as the fix.
-  WARNING_BUDGET: 150
+  WARNING_BUDGET: 650
   # Distinct packages the build may restore for the wrong target framework (NU1701 /
-  # B-02): Mina, xxHashSharp, FreeSO.HandEvaluator and the Common.Logging pair
-  # (Common.Logging, Common.Logging.Core), all FreeSO runtime dependencies with no
-  # maintained replacement. Bump it down as packages are replaced, never up.
-  NU1701_BUDGET: 5
+  # B-02): the TSO online-client/server closure FSO.Client brings (CommandLineParser, Open.NAT,
+  # Portable.BouncyCastle, Portable.JWT, System.* shims ...) plus Mina, xxHashSharp,
+  # FreeSO.HandEvaluator and the Common.Logging pair, all with no maintained replacement.
+  # Bump it down as packages are replaced, never up.
+  NU1701_BUDGET: 19
 
 jobs:
   build:

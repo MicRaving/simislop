@@ -1997,7 +1997,7 @@ namespace Simitone.Client.Neighbourhood
                 warnings.Add("lot " + candidate.Number + " was skipped: the map draws no ground"
                     + " under it (its base tile x[" + candidate.WorldX + "," + (candidate.WorldX + 1)
                     + ") z[" + candidate.WorldY + "," + (candidate.WorldY + 1)
-                    + ") is outside the isometric diamond the mesh is clipped to, and "
+                    + ") is outside the ground the mesh draws, and "
                     + SimitoneSurroundingsPlacement.GroundlessTilesOf(map, candidate)
                     + " of its " + (Math.Max(0, candidate.Size) * Math.Max(0, candidate.Size))
                     + " footprint tiles are outside it too");

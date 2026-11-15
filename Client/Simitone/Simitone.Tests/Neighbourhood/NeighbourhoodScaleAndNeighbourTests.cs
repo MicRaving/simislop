@@ -609,11 +609,9 @@ namespace Simitone.Tests.Neighbourhood
 
             //and it holds because the radius is the drawn region's own: every lot in the region is
             //within it, so every lot in the region is a candidate, and the budget is the only thing
-            //that could have said otherwise. With one more reason a lot can be no candidate, which
-            //is the one this fixture actually hits: this fixture's western column sits in the
-            //isometric diamond's north-west cut corner, where the mesh emits no ground at all, and a
-            //lot standing there is drawn by nobody rather than drawn wrong. See
-            //TheOnlyLotsWithoutDrawnGroundAreInTheCutCorner.
+            //that could have said otherwise. With one more reason a lot can be no candidate: a lot
+            //with no drawn ground under it is drawn by nobody rather than drawn wrong. This fixture
+            //has none since audit O1; see EveryLotInTheFixtureStandsOnDrawnGround.
             for (int i = 0; i < f.Layout.LotCount; i++)
             {
                 var lot = f.Layout.Lots[i];
@@ -632,16 +630,13 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
-        public void TheOnlyLotsWithoutDrawnGroundAreInTheCutCorner()
+        public void EveryLotInTheFixtureStandsOnDrawnGround()
         {
-            // The ground rule, on a fixture that can hit it. The mesh is clipped to the isometric
-            // diamond, so a lot whose base tile falls outside it stands on nothing - §9.1's
-            // "disconnected houses floating in a void". The shipped layouts do not have this
-            // problem: NeighbourhoodPixelTransform fits every LotLocations position a street
-            // corridor inside the clip, and NeighbourhoodPixelTransformTests asserts it over the six
-            // real chunks. This fixture puts its western column at x=132, which at row 150 is
-            // outside the clip - so it is the place the rule can be seen, and the reason the
-            // coverage tests above have to ask about it.
+            // The ground rule. A lot whose base tile is outside the mesh's clip stands on nothing -
+            // §9.1's "disconnected houses floating in a void". This fixture's western column at
+            // x=132 used to be in the TSO diamond's cut corner; the clip is now the map inset by
+            // ClipInset (audit O1), so every lot here has ground, and every one is a real lot. The
+            // refusal itself is pinned by SimitoneSurroundingsCullTests.ALotOnGroundTheMeshNeverDrawsIsNotInRange.
             var f = Build();
 
             var offGround = new List<short>();
@@ -651,7 +646,7 @@ namespace Simitone.Tests.Neighbourhood
                 if (!SimitoneSurroundingsPlacement.GroundIsDrawnUnder(f.Map, lot)) offGround.Add(lot.Number);
             }
 
-            Assert.NotEmpty(offGround);
+            Assert.Empty(offGround);
             foreach (var number in offGround)
             {
                 var lot = f.Layout.FindLot(number);

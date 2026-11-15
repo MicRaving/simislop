@@ -57,7 +57,9 @@ namespace Simitone.Client.Neighbourhood
         /// Compared for equality only, never as a sequence: a sidecar stamped with any other value
         /// is rebuilt, so an old arrangement is never trusted.
         /// </remarks>
-        public const int CurrentGeneratorVersion = 73;
+        /// <remarks>74: the shelf is centred inside the mesh's drawn square instead of starting at
+        /// tile (0,0) (audit O1), so every sidecar stamped 73 is repacked.</remarks>
+        public const int CurrentGeneratorVersion = 74;
 
         /// <summary>Side of the generated map in tiles.</summary>
         public const int DefaultMapSize = NeighbourhoodLayout.DefaultMapSize;
@@ -381,7 +383,9 @@ namespace Simitone.Client.Neighbourhood
 
         /// <summary>
         /// The shelf arrangement: lots laid out in rows, in <c>MapY</c> then <c>MapX</c> then
-        /// lot-number order, wrapping when a row runs out of map. Pure.
+        /// lot-number order, wrapping at a row limit chosen to make the block roughly square, and
+        /// the block centred inside the ground the mesh draws (with a street corridor round its
+        /// outside). Pure.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -419,24 +423,71 @@ namespace Simitone.Client.Neighbourhood
             ordered.Sort(CompareForGrid);
 
             var placements = new Placement[ordered.Count];
+            var widest = 0;
+            long area = 0;
             for (int i = 0; i < ordered.Count; i++)
             {
+                var footprint = FootprintFor(ordered[i].Size);
                 placements[i] = new Placement
                 {
                     Read = ordered[i],
-                    Footprint = FootprintFor(ordered[i].Size),
+                    Footprint = footprint,
                     X = 0,
                     Y = 0,
                 };
+                if (footprint > widest) widest = footprint;
+                area += (long)footprint * footprint;
             }
 
+            //The drawn region: the whole map at any test size, and the mesh's inset square at the
+            //size the mesh draws (NeighbourhoodCityMeshBuilder.ClipInset). A lot outside it stands
+            //on ground nothing draws - which is what the old shelf from tile (0,0) did (audit O1).
+            var inset = mapSize == NeighbourhoodCityMeshBuilder.MapSize ? NeighbourhoodCityMeshBuilder.ClipInset : 0;
+            var available = mapSize - 2 * inset;
+            //A street corridor in front of the first row and column too, so the outer lots have a
+            //street on every side like the inner ones (each footprint already carries one behind it).
+            var lead = available - StreetCorridorTiles >= widest ? StreetCorridorTiles : 0;
+            var room = available - lead;
+
+            //The narrowest row limit, from a square block upwards, whose rows still fit the height:
+            //a compact block in the middle of the map rather than a strip along its top.
+            var limit = Math.Max(widest, (int)Math.Ceiling(Math.Sqrt(area)));
+            int blockWidth, blockHeight;
+            Shelve(placements, limit, out blockWidth, out blockHeight);
+            while (blockHeight > room && limit < room)
+            {
+                limit = Math.Min(room, limit + StreetCorridorTiles);
+                Shelve(placements, limit, out blockWidth, out blockHeight);
+            }
+
+            //Centred in the drawn region. A neighbourhood too big for it keeps the rows from the
+            //region's corner and is clamped onto the map, as before; the surround reports those lots.
+            var offsetX = inset + lead + Math.Max(0, (room - blockWidth) / 2);
+            var offsetY = inset + lead + Math.Max(0, (room - blockHeight) / 2);
+            for (int i = 0; i < placements.Length; i++)
+            {
+                placements[i].X += offsetX;
+                placements[i].Y += offsetY;
+            }
+
+            Clamp(placements, mapSize);
+            return placements;
+        }
+
+        /// <summary>
+        /// Lays the placements out in rows no wider than <paramref name="limit"/>, from (0,0), and
+        /// reports the block's size (trailing corridors included).
+        /// </summary>
+        private static void Shelve(Placement[] placements, int limit, out int width, out int height)
+        {
             var x = 0;
             var y = 0;
             var rowHeight = 0;
+            width = 0;
             for (int i = 0; i < placements.Length; i++)
             {
                 var lot = placements[i];
-                if (x > 0 && x + lot.Footprint > mapSize)
+                if (x > 0 && x + lot.Footprint > limit)
                 {
                     x = 0;
                     y += rowHeight;
@@ -445,11 +496,10 @@ namespace Simitone.Client.Neighbourhood
                 lot.X = x;
                 lot.Y = y;
                 x += lot.Footprint;
+                if (x > width) width = x;
                 if (lot.Footprint > rowHeight) rowHeight = lot.Footprint;
             }
-
-            Clamp(placements, mapSize);
-            return placements;
+            height = y + rowHeight;
         }
 
         // ---- queries --------------------------------------------------------------------------

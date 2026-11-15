@@ -313,13 +313,16 @@ namespace Simitone.Tests.Neighbourhood
             {
                 Assert.Equal(pitch, shelves[s] - shelves[s - 1]);
             }
+            //every row starts at the block's left edge (centred in the map since audit O1, so not 0)
+            var blockLeft = int.MaxValue;
+            foreach (var lot in layout.Lots) blockLeft = Math.Min(blockLeft, lot.WorldX);
             foreach (var row in rows.Values)
             {
                 row.Sort((a, b) => a.WorldX.CompareTo(b.WorldX));
-                Assert.Equal(0, row[0].WorldX);
+                Assert.Equal(blockLeft, row[0].WorldX);
                 for (var i = 0; i < row.Count; i++)
                 {
-                    Assert.Equal(i * pitch, row[i].WorldX);
+                    Assert.Equal(blockLeft + i * pitch, row[i].WorldX);
                     if (i == 0) continue;
                     Assert.Equal(NeighbourhoodLayoutBuilder.StreetCorridorTiles,
                         SimitoneSurroundingsPlan.SubWorldGapFor(row[i - 1], row[i]));
@@ -419,13 +422,15 @@ namespace Simitone.Tests.Neighbourhood
 
             //MapY first, then MapX, is the pack order - and within a row the order shows up as
             //left to right: 20 (MapY 100) then 30 (MapY 300, MapX 10) then 10 (MapY 300, MapX 300)
-            Assert.True(byNumber[20].WorldX < byNumber[30].WorldX, byNumber[20] + " / " + byNumber[30]);
-            Assert.True(byNumber[30].WorldX < byNumber[10].WorldX, byNumber[30] + " / " + byNumber[10]);
+            //(the rows are as wide as a roughly square block, not the whole map - audit O1 - so the
+            //order is asserted in reading order: row by row, left to right)
+            var reading = new List<NeighbourhoodLot>(layout.Lots);
+            reading.Sort((a, b) => a.WorldY != b.WorldY ? a.WorldY.CompareTo(b.WorldY) : a.WorldX.CompareTo(b.WorldX));
+            Assert.Equal(new[] { 20, 30, 10, 5 }, reading.ConvertAll(l => (int)l.Number).ToArray());
             Assert.Equal(byNumber[20].WorldY, byNumber[30].WorldY);
-            Assert.Equal(byNumber[30].WorldY, byNumber[10].WorldY);
 
-            //and lot 5, which has the largest MapY of all, is the one that runs out of row
-            Assert.True(byNumber[10].WorldY < byNumber[5].WorldY, byNumber[10] + " / " + byNumber[5]);
+            //and lot 5, which has the largest MapY of all, is on a later row than lot 20
+            Assert.True(byNumber[20].WorldY < byNumber[5].WorldY, byNumber[20] + " / " + byNumber[5]);
         }
 
         [Fact]
@@ -449,10 +454,17 @@ namespace Simitone.Tests.Neighbourhood
 
             AssertNoOverlaps(layout, 0);
             AssertInsideMap(layout);
-            //a footprint of 42 fits 12 across a 512 map, so thirty lots must take three rows
-            var rows = new HashSet<int>();
-            foreach (var lot in layout.Lots) rows.Add(lot.WorldY);
-            Assert.Equal(3, rows.Count);
+            //every row but the last is as full as the first, and the last is no fuller: a row is
+            //filled before the next is started (the row width is a roughly square block, audit O1)
+            var rows = new SortedDictionary<int, int>();
+            foreach (var lot in layout.Lots) rows[lot.WorldY] = rows.TryGetValue(lot.WorldY, out var c) ? c + 1 : 1;
+            Assert.True(rows.Count > 1, "thirty lots in one row");
+            var counts = new List<int>(rows.Values);
+            for (int i = 1; i < counts.Count - 1; i++) Assert.Equal(counts[0], counts[i]);
+            Assert.InRange(counts[counts.Count - 1], 1, counts[0]);
+            var total = 0;
+            foreach (var n in counts) total += n;
+            Assert.Equal(30, total);
         }
 
         [Fact]

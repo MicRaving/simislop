@@ -162,8 +162,15 @@
     <ProjectReference Include="..\..\..\FreeSO\TSOClient\FSO.Content.TSO\FSO.Content.TSO.csproj" />
     <ProjectReference Include="..\..\..\FreeSO\TSOClient\FSO.IDE\FSO.IDE.csproj"
                       Condition=" '$(BuildIde)' == 'true' " />
-    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.client\FSO.Client.csproj"
-                      Condition=" '$(BuildIde)' == 'true' " />
+    <!-- FSO.Client is a RUNTIME dependency of the game, not just of the IDE host:
+         Simitone.Client's EODPanelBridge loads FSO.Client.UI.Panels.EODs.UIEODController by name
+         (Type.GetType("...UIEODController, FSO.Client"), no compile-time reference), so without
+         this line the minigame EODs silently switch off ("FSO.Client.dll is not in the output
+         folder") - the C1fix regression. FSO.Client cannot be referenced without its own
+         ProjectReferences (FSO.Server, FSO.Server.*, the Watchdog ...): they are compile-time
+         dependencies of the very assembly that holds UIEODController. Those server DLLs are
+         built but trimmed out of $(OutDir) again by TrimSingleplayerOutput. -->
+    <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.client\FSO.Client.csproj" />
     <ProjectReference Include="..\..\..\FreeSO\TSOClient\FSO.SimAntics.JIT\FSO.SimAntics.JIT.csproj" />
     <ProjectReference Include="..\..\..\FreeSO\TSOClient\FSO.UI\FSO.UI.csproj" />
     <ProjectReference Include="..\..\..\FreeSO\TSOClient\tso.common\FSO.Common.csproj" />
@@ -355,12 +362,16 @@
           FSO.Client.GameController.InitializeArchive/RegisterServer. Simitone replaces
           FSO.Client.GameController wholesale (Simitone.Client.GameController) and never
           calls those, and no assembly on the shipped boot path has an AssemblyRef to
-          `server` at all - FSO.Client.dll does, and FSO.Client.dll is only ever loaded by
-          the -ide IDE host, not by the game.
+          `server` at all - FSO.Client.dll does, and FSO.Client.dll is loaded by the game
+          only for its EOD panels (UIEODController, by name), which never touch the server.
           Everything else in group (1) is referenced only by each other or by server.dll.
     -->
     <SingleplayerTrimFile Include="server.dll" />
     <SingleplayerTrimFile Include="server.pdb" />
+    <!-- ImageSharp 3.1.x (six advisories) arrives only through the FSO.Server projects that
+         FSO.Client drags in. No shipped assembly references it (Simitone decodes images with its
+         own Utils\BmpCodec / PngCodec), so it must not ship. -->
+    <SingleplayerTrimFile Include="SixLabors.ImageSharp.dll" />
     <SingleplayerTrimFile Include="FSO.Server.Database.dll" />
     <SingleplayerTrimFile Include="FSO.Server.Database.pdb" />
     <SingleplayerTrimFile Include="FSO.Server.Domain.dll" />
@@ -809,17 +820,18 @@
     ============================================================================
     _SimitoneAssertNoIdeReferences - the game graph must not reach the IDE or the server
     ============================================================================
-    A default build references FSO.Content.TSO (content only) and NOT FSO.IDE / FSO.Client, so
-    FSO.Client, FSO.Server* and the other TSO online projects are neither compiled nor shipped.
-    That is a claim about the whole shipped graph, and a reference list cannot make it: the
-    danger is an assembly further down that still points at FSO.Client and only fails when the
-    game tries to load it - a first-launch TypeLoadException, not a build failure.
+    A default build references FSO.Client (the EOD minigame panels are loaded from it by name)
+    and FSO.Content.TSO, but NOT FSO.IDE: the Volcanic IDE host, FSO.Windows and the Roslyn JIT
+    are neither compiled nor shipped. That is a claim about the whole shipped graph, and a
+    reference list cannot make it: the danger is an assembly further down that still points at
+    the IDE host and only fails when the game tries to load it - a first-launch
+    TypeLoadException, not a build failure.
 
     This reads $(OutDir)Simitone.deps.json, not the DLLs: the SDK writes it from the resolved
     runtime graph (every assembly the app can reach, transitively), so it is authoritative about
     the graph THIS build resolved. Both of FSO.IDE's identities are in the list because the
-    assembly is called Volcanic. FSO.Content.TSO is deliberately NOT in the list - it is a
-    required part of the game graph.
+    assembly is called Volcanic. FSO.Client / FSO.Content.TSO are deliberately NOT in the list -
+    they are required parts of the game graph (see _SimitoneRuntimeProbeContract).
 
     Skipped under -p:BuildIde=true, whose whole point is to put these projects back.
 
@@ -837,7 +849,7 @@
     </PropertyGroup>
 
     <!-- ';'-separated on one line: MSBuild splits an ITaskItem[] parameter on ';'. -->
-    <WriteLinesToFile File="$(_DepsWantFile)" Overwrite="true" Lines="FSO.Client;FSO.IDE;Volcanic;FSO.Windows;FSO.SimAntics.JIT.Roslyn;VoronoiLib;TargaImage;SimplePaletteQuantizer;FSO.Common.DatabaseService;FSO.Common.DataService;FSO.Common.Domain;FSO.Patcher;server;watchdog;FSO.Server.Clients;FSO.Server.Common;FSO.Server.Database;FSO.Server.Domain;FSO.Server.Protocol;FSO.Server.Api.Core;FSO.Server;FSO.Server.Watchdog" />
+    <WriteLinesToFile File="$(_DepsWantFile)" Overwrite="true" Lines="FSO.IDE;Volcanic;FSO.Windows;FSO.SimAntics.JIT.Roslyn" />
     <WriteLinesToFile File="$(_DepsHitFile)" Overwrite="true" />
 
     <PropertyGroup>
@@ -855,12 +867,41 @@
     </ReadLinesFromFile>
 
     <Error Condition=" '@(_IdeRefHit)' != '' "
-           Text="The game graph reaches the TSO online client / IDE host: $(_DepsJson) still contains @(_IdeRefHit). Something in the game closure needs FSO.Client, FSO.IDE or a project behind them at run time, and a default build does not reference them, so that would be a first-launch TypeLoadException. Add the missing ProjectReference deliberately (and take the entry off the list in _SimitoneAssertNoIdeReferences), or build with -p:BuildIde=true. Do not paper over this by deleting the target." />
+           Text="The game graph reaches the IDE host: $(_DepsJson) still contains @(_IdeRefHit). Something in the game closure needs FSO.IDE (Volcanic), FSO.Windows or the Roslyn JIT, and a default build does not reference them, so that would be a first-launch TypeLoadException. Add the missing ProjectReference deliberately (and take the entry off the list in _SimitoneAssertNoIdeReferences), or build with -p:BuildIde=true. Do not paper over this by deleting the target." />
 
     <!-- Importance="high", not "normal": `dotnet build` runs MSBuild's terminal logger, which
          drops normal-importance messages entirely. -->
     <Message Importance="high" Condition=" '@(_IdeRefHit)' == '' AND Exists('$(_DepsJson)') "
-             Text="Simitone graph verified: the resolved runtime graph of $(OutDir)Simitone.deps.json contains none of the IDE-host / TSO-server assemblies, so they are genuinely unreferenced rather than merely unbuilt." />
+             Text="Simitone graph verified: the resolved runtime graph of $(OutDir)Simitone.deps.json contains none of the IDE-host assemblies (FSO.IDE / Volcanic / FSO.Windows / Roslyn JIT), so they are genuinely unreferenced rather than merely unbuilt." />
+  </Target>
+
+  <!--
+    ============================================================================
+    _SimitoneRuntimeProbeContract - assemblies the game loads by NAME at run time
+    ============================================================================
+    The compiler cannot see these. EODPanelBridge.TryOpen (Simitone.Client\UI\Panels\EODs\EODHost.cs)
+    does Type.GetType("FSO.Client.UI.Panels.EODs.UIEODController, FSO.Client", false) and, if that
+    comes back null, quietly turns the whole EOD minigame framework off ("FSO.Client.dll is not in
+    the output folder"). A2 dropped FSO.Client from the default graph because no static reference
+    needed it, and shipped exactly that regression. The assembly list below is the set whose
+    absence from $(OutDir) breaks a feature without a build or load error; a new by-name load goes
+    on it. FSO.Client's own non-server dependencies are listed because a missing one makes the
+    type load fail the same quiet way (the bridge catches it and logs "could not be loaded").
+
+    Plain MSBuild Exists checks - no PowerShell, so it cannot be skipped by a failed Exec.
+  -->
+  <ItemGroup>
+    <SimitoneRuntimeProbedAssembly Include="FSO.Client.dll;FSO.Content.TSO.dll;FSO.UI.dll;FSO.SimAntics.dll;Open.Nat.dll;VoronoiLib.dll" />
+  </ItemGroup>
+
+  <Target Name="_SimitoneRuntimeProbeContract" AfterTargets="Build">
+    <ItemGroup>
+      <_ProbeMissing Include="@(SimitoneRuntimeProbedAssembly)" Condition="!Exists('$(OutDir)%(Identity)')" />
+    </ItemGroup>
+    <Error Condition=" '@(_ProbeMissing)' != '' "
+           Text="The game build is missing assemblies that are loaded by name at run time: @(_ProbeMissing, '; '), not found under $(OutDir). FSO.Client.dll hosts the EOD minigame panels (EODPanelBridge); without it every minigame EOD is silently off. Re-add the ProjectReference that supplies it (see SimitoneRuntimeProbedAssembly in Simitone.Windows.csproj), or remove the entry if the code stopped loading it." />
+    <Message Importance="high" Condition=" '@(_ProbeMissing)' == '' "
+             Text="Simitone runtime-probe contract verified: every assembly in SimitoneRuntimeProbedAssembly is present in $(OutDir)." />
   </Target>
 
   <!--

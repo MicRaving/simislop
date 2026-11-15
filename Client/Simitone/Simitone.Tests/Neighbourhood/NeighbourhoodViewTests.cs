@@ -390,33 +390,62 @@ namespace Simitone.Tests.Neighbourhood
                 NeighbourhoodCameraPlacement.FieldOfViewRadians);
             Assert.Equal(expected, placement.Distance, 3);
 
-            //and "wide enough" is not a claim, it is the property: every tile corner of the real
-            //map is inside this camera's frustum. Framing the map's *side* instead of its diagonal
+            //and "wide enough" is not a claim, it is the property: every tile corner of TSO's
+            //isometric diamond, and every tile of the neighbourhood's lots and the street around
+            //them, is inside this camera's frustum. Framing the map's *side* instead of its diagonal
             //puts a few thousand of them outside and culls the four points of the diamond, which is
             //how a full-screen view of the neighbourhood ends up showing most of it.
+            //(The mesh now draws the whole map inset by ClipInset - audit O1 - and the framing still
+            //fits the diamond, so the square's nearest corner, empty fade skirt far from any lot,
+            //falls just below the frame. The lots, which the packer centres, are all in it.)
             var frustum = placement.Frustum(1f, 8000f, NeighbourhoodCameraPlacement.DefaultAspect);
             var outside = 0;
             var corners = 0;
+            var missed = new List<string>();
             for (int y = 0; y < layout.MapSize; y += 8)
             {
-                var left = Math.Max(NeighbourhoodCityMeshBuilder.DiamondLeft(y)
-                    - NeighbourhoodCityMeshBuilder.FadeRange, 0);
-                var right = Math.Min(NeighbourhoodCityMeshBuilder.DiamondRight(y)
-                    + NeighbourhoodCityMeshBuilder.FadeRange, layout.MapSize);
+                var diamondLeft = y < NeighbourhoodCityMeshBuilder.DiamondCentre
+                    ? NeighbourhoodCityMeshBuilder.DiamondCentre - y : y - NeighbourhoodCityMeshBuilder.DiamondCentre;
+                var diamondRight = y < NeighbourhoodCityMeshBuilder.DiamondRightPivot
+                    ? NeighbourhoodCityMeshBuilder.DiamondRightBase + y
+                    : layout.MapSize - (y - NeighbourhoodCityMeshBuilder.DiamondRightPivot);
+                var left = Math.Max(diamondLeft - NeighbourhoodCityMeshBuilder.FadeRange, 0);
+                var right = Math.Min(diamondRight + NeighbourhoodCityMeshBuilder.FadeRange, layout.MapSize);
                 for (var x = left; x <= right; x += 16)
                 {
                     corners++;
-                    if (frustum.Contains(new Vector3(x, 0f, y)) == ContainmentType.Disjoint) outside++;
+                    if (frustum.Contains(new Vector3(x, 0f, y)) == ContainmentType.Disjoint) { outside++; if (missed.Count < 12) missed.Add(x + "," + y); }
                     if (frustum.Contains(new Vector3(x, 0f, y + 1)) == ContainmentType.Disjoint) outside++;
                 }
             }
-            Assert.Equal(0, outside);
+            var extent = layout.Extent;
+            var margin = NeighbourhoodLayoutBuilder.StreetCorridorTiles;
+            for (int y = extent.MinY - margin; y <= extent.MaxY + margin; y += 4)
+            {
+                for (int x = extent.MinX - margin; x <= extent.MaxX + margin; x += 4)
+                {
+                    corners++;
+                    if (frustum.Contains(new Vector3(x, 0f, y)) == ContainmentType.Disjoint) { outside++; if (missed.Count < 12) missed.Add(x + "," + y); }
+                }
+            }
+            Assert.True(outside == 0, outside + " corner(s) outside, e.g. " + string.Join(" ", missed));
             Assert.True(corners > 1000, "the corner sample is too sparse to mean anything");
 
-            //and so the renderer's cull keeps the whole map
+            //and so the renderer's cull keeps every chunk the neighbourhood's lots stand in
             var visible = new List<int>();
             NeighbourhoodCityMeshBuilder.ChunksInFrustum(frustum, visible);
-            Assert.Equal(NeighbourhoodCityMeshBuilder.ChunkCount, visible.Count);
+            var kept = new HashSet<int>(visible);
+            var chunk = NeighbourhoodCityMeshBuilder.ChunkSize;
+            foreach (var lot in layout.Lots)
+            {
+                for (int cy = lot.WorldY / chunk; cy <= (lot.WorldY + lot.Size - 1) / chunk; cy++)
+                {
+                    for (int cx = lot.WorldX / chunk; cx <= (lot.WorldX + lot.Size - 1) / chunk; cx++)
+                    {
+                        Assert.Contains(cx + cy * NeighbourhoodCityMeshBuilder.ChunksPerAxis, kept);
+                    }
+                }
+            }
         }
 
         [Fact]

@@ -342,3 +342,4 @@ ModelManifest.xml
 
 # Local Claude Code session state (handoff briefs); never part of the source.
 .claude/
+docs/

@@ -299,7 +299,7 @@ namespace Simitone.Tests.Neighbourhood
             //widest row the left edge is 0 and "ten tiles left of it" is off the map.
             const int row = 100;
             var left = NeighbourhoodCityMeshBuilder.DiamondLeft(row);
-            Assert.True(left > NeighbourhoodCityMeshBuilder.FadeRange,
+            Assert.True(left >= NeighbourhoodCityMeshBuilder.FadeRange - 1,
                 "this test's skirt column needs a diamond edge at least FadeRange tiles into the"
                 + " map, and row " + row + "'s is at " + left);
             //A column of sand, eight tiles in from the diamond's left edge and nine rows tall, so
@@ -574,42 +574,59 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
-        public void TheDiamondClipKeepsTheCentreAndCutsTheCorners()
+        public void TheDrawnClipIsTheMapInsetByItsFadeSkirt()
         {
-            // TSO's isometric diamond. If this clip were wrong the mesh would be a square (so the
-            // neighbourhoods would not read as neighbourhoods) or a sliver (so there would be
-            // nothing to look at), and both are easy to get wrong by a sign.
-            //
-            // The two edges are not symmetric about one row: the left edge turns around at 306 and
-            // the right edge at 205, which is what makes the diamond's widest row 411 tiles rather
-            // than the whole map.
-            Assert.Equal(306, NeighbourhoodCityMeshBuilder.DiamondLeft(0));
-            Assert.Equal(307, NeighbourhoodCityMeshBuilder.DiamondRight(0));
-            Assert.Equal(1, NeighbourhoodCityMeshBuilder.DiamondRight(0) - NeighbourhoodCityMeshBuilder.DiamondLeft(0));
-
-            Assert.Equal(0, NeighbourhoodCityMeshBuilder.DiamondLeft(306));
-            Assert.Equal(411, NeighbourhoodCityMeshBuilder.DiamondRight(306));
-            Assert.Equal(411, NeighbourhoodCityMeshBuilder.DiamondRight(306) - NeighbourhoodCityMeshBuilder.DiamondLeft(306));
-
-            // one tile at each end of the map
-            Assert.Equal(205, NeighbourhoodCityMeshBuilder.DiamondLeft(511));
-            Assert.Equal(206, NeighbourhoodCityMeshBuilder.DiamondRight(511));
-
-            // the widest row is the pivot row, and every row in between is the same width
-            var widest = 0;
-            var widestRow = -1;
-            for (int row = 0; row < NeighbourhoodCityMeshBuilder.MapSize; row++)
+            // The mesh draws the 512x512 square inset by about ClipInset on every side (audit O1), not
+            // TSO's isometric diamond: the diamond holds 125,460 tiles and a 41-lot neighbourhood
+            // needs about 123,000 tiles of footprint, so it could not be packed inside it. Every row
+            // has the same span, and rows above and below the square are outside.
+            var inset = NeighbourhoodCityMeshBuilder.ClipInset;
+            var size = NeighbourhoodCityMeshBuilder.MapSize;
+            Assert.Equal(NeighbourhoodCityMeshBuilder.FadeRange + 1, inset);
+            for (int row = 0; row < size; row++)
             {
-                var span = NeighbourhoodCityMeshBuilder.DiamondRight(row) - NeighbourhoodCityMeshBuilder.DiamondLeft(row);
-                if (span <= 0) continue;
-                if (span > widest)
+                Assert.Equal(inset - 1, NeighbourhoodCityMeshBuilder.DiamondLeft(row));
+                Assert.Equal(size - inset + 1, NeighbourhoodCityMeshBuilder.DiamondRight(row));
+            }
+
+            Assert.True(NeighbourhoodCityMeshBuilder.IsInsideDiamond(size / 2, size / 2));
+            Assert.True(NeighbourhoodCityMeshBuilder.IsInsideDiamond(inset, inset));
+            Assert.True(NeighbourhoodCityMeshBuilder.IsInsideDiamond(size - inset - 1, size - inset - 1));
+            Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(inset - 1, size / 2));
+            Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(size / 2, inset - 1));
+            Assert.True(NeighbourhoodCityMeshBuilder.IsInsideDiamond(size - inset, size - inset));
+            Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(size - inset + 1, size / 2));
+            Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(size / 2, size - inset + 1));
+            Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(0, 0));
+            Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(size - 1, size - 1));
+
+            // the fade skirt is on the map on every side: the left and top edges fade to fully
+            // transparent at tile 0, and the interior is opaque in both directions
+            Assert.Equal(1f, NeighbourhoodCityMeshBuilder.FadeTransparency(inset - 1, size - inset + 1, 0, size / 2));
+            Assert.Equal(1f, NeighbourhoodCityMeshBuilder.FadeTransparency(inset - 1, size - inset + 1, size, size / 2));
+            Assert.Equal(1f, NeighbourhoodCityMeshBuilder.FadeTransparency(inset - 1, size - inset + 1, size / 2, 0));
+            Assert.Equal(1f, NeighbourhoodCityMeshBuilder.RowFadeTransparency(size));
+            Assert.Equal(0f, NeighbourhoodCityMeshBuilder.RowFadeTransparency(inset - 1));
+            Assert.Equal(0f, NeighbourhoodCityMeshBuilder.RowFadeTransparency(size - inset + 1));
+            Assert.Equal(0f, NeighbourhoodCityMeshBuilder.FadeTransparency(inset - 1, size - inset + 1, size / 2, size / 2));
+            var partial = NeighbourhoodCityMeshBuilder.RowFadeTransparency(inset - 5);
+            Assert.InRange(partial, 0.01f, 0.99f);
+
+            // and TSO's diamond, which the backdrop transform still fits into, is almost all inside it
+            long diamond = 0, diamondInside = 0;
+            for (int row = 0; row < size; row++)
+            {
+                var left = row < NeighbourhoodCityMeshBuilder.DiamondCentre ? NeighbourhoodCityMeshBuilder.DiamondCentre - row : row - NeighbourhoodCityMeshBuilder.DiamondCentre;
+                var right = row < NeighbourhoodCityMeshBuilder.DiamondRightPivot
+                    ? NeighbourhoodCityMeshBuilder.DiamondRightBase + row
+                    : size - (row - NeighbourhoodCityMeshBuilder.DiamondRightPivot);
+                for (int x = left + 1; x < right; x++)
                 {
-                    widest = span;
-                    widestRow = row;
+                    diamond++;
+                    if (NeighbourhoodCityMeshBuilder.IsInsideDiamond(x, row)) diamondInside++;
                 }
             }
-            Assert.Equal(411, widest);
-            Assert.Equal(NeighbourhoodCityMeshBuilder.DiamondRightPivot, widestRow);
+            Assert.True(diamondInside > diamond * 95 / 100, diamondInside + " of " + diamond);
         }
 
         [Fact]

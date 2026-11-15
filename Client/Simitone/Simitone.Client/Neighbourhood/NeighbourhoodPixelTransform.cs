@@ -136,7 +136,10 @@ namespace Simitone.Client.Neighbourhood
         /// ground that is fully opaque, and one at the edge itself would be half faded and partly on
         /// nothing.
         /// </summary>
-        public const float EdgeMargin = NeighbourhoodCityMeshBuilder.FadeRange;
+        /// <remarks>Plus <see cref="NeighbourhoodCityMeshBuilder.ClipInset"/>: the diamond's four
+        /// apexes touch the map's edges, and the mesh now draws the map square inset by that much
+        /// (audit O1), so the fit stays a whole fade inside both shapes.</remarks>
+        public const float EdgeMargin = NeighbourhoodCityMeshBuilder.FadeRange + NeighbourhoodCityMeshBuilder.ClipInset;
 
         /// <summary>
         /// A bitmap position as a continuous tile position. The pixel is treated as the lot's

@@ -734,7 +734,7 @@ namespace Simitone.Tests.Neighbourhood
         private static NeighbourhoodWorldHealth WithHouses(
             int facadeTriangles = 4128, int facadesVisible = 12, int built = 12, int eligible = 12,
             int lots = 12, double seconds = 2d, int submittedTriangles = 24576, int frames = 5,
-            int terrainTriangles = 24576)
+            int terrainTriangles = 24576, int building = NeighbourhoodWorldHealth.Unknown)
         {
             return new NeighbourhoodWorldHealth(
                 attached: true, meshUploaded: true, terrainTriangles: terrainTriangles,
@@ -742,7 +742,41 @@ namespace Simitone.Tests.Neighbourhood
                 facadeCount: built, secondsSinceAttach: seconds,
                 submittedTriangles: submittedTriangles, submittedFrames: frames,
                 facadeTriangles: facadeTriangles, facadesVisible: facadesVisible,
-                facadeEligible: eligible);
+                facadeEligible: eligible, facadesBuilding: building);
+        }
+
+        [Fact]
+        public void HousesStillStreamingInPastTheWarmUpShowTheWorldRatherThanThePaintedMap()
+        {
+            // Audit O1: the owner's 3D view fell back to 2D with "16 of 41" facades while the pass
+            // was still working. Past the warm-up, a pass that still has houses to build is shown.
+            var streaming = WithHouses(facadeTriangles: 4128, facadesVisible: 12, built: 12,
+                eligible: 100, seconds: NeighbourhoodBackdropRule.MeshWarmUpSeconds + 1d, building: 88);
+
+            var decision = NeighbourhoodBackdropRule.Decide(NeighbourhoodView.World3D, streaming);
+
+            Assert.False(decision.FellBack, decision.Reason);
+            Assert.True(decision.UseWorld);
+            Assert.False(decision.UseBitmap, decision.Reason);
+            Assert.Equal(NeighbourhoodWorldFault.None, decision.Fault);
+            Assert.Contains("88 still building", decision.Reason);
+
+            // inside the warm-up the painted map still covers the first seconds of the build
+            var early = WithHouses(facadeTriangles: 4128, facadesVisible: 12, built: 12,
+                eligible: 100, seconds: 2d, building: 88);
+            Assert.True(NeighbourhoodBackdropRule.Decide(NeighbourhoodView.World3D, early).ShowBoth);
+        }
+
+        [Fact]
+        public void APassThatHasFinishedShortOfTheBarStillGivesThePaintedMapBack()
+        {
+            var finished = WithHouses(facadeTriangles: 4128, facadesVisible: 12, built: 12,
+                eligible: 100, seconds: NeighbourhoodBackdropRule.MeshWarmUpSeconds + 1d, building: 0);
+
+            var decision = NeighbourhoodBackdropRule.Decide(NeighbourhoodView.World3D, finished);
+
+            Assert.True(decision.FellBack);
+            Assert.Equal(NeighbourhoodWorldFault.FacadesIncomplete, decision.Fault);
         }
 
         [Fact]

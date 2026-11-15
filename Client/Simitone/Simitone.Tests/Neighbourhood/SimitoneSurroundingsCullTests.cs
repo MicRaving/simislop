@@ -523,8 +523,8 @@ namespace Simitone.Tests.Neighbourhood
         {
             // Part 9 §9.1: real positions landing in the diamond's cut corners put a house where the
             // mesh emits neither ground nor roads, which reads as a house floating in a void. The
-            // diamond-aligned NeighbourhoodPixelTransform keeps the shipped layouts out of the cut
-            // corners; this is the guard for anything that is not one of them, and it is in the one
+            // shelf packer keeps the shipped layouts inside the clip (audit O1); this is the guard
+            // for anything that is not one of them, and it is in the one
             // predicate the facade queue, the render decision and the sub-world invariant all ask -
             // so a lot refused here is refused everywhere at once. The region asked of is the drawn
             // one, the whole map, which is the point: "on the map" and "on ground" are different
@@ -534,10 +534,10 @@ namespace Simitone.Tests.Neighbourhood
             var placement = SimitoneSurroundingsPlacement.For(map, here);
             var drawn = placement.DrawnRegion;
 
-            //inside the drawn region - it is the whole map - and in the diamond's north-west cut
-            //corner: at row 150 the clip's left edge is |row - DiamondCentre|, so nothing left of it
-            //has ground
-            var offGround = Lot(21, 132, 150);
+            //inside the drawn region - it is the whole map - and in the border the mesh's clip
+            //leaves out: the clip is the map inset by ClipInset (audit O1), so at x=5 there is no
+            //ground
+            var offGround = Lot(21, 5, 150);
             Assert.True(drawn.ContainsTile(offGround.WorldX + 0.5f, offGround.WorldY + 0.5f),
                 "the fixture's lot should be inside the drawn region, or this test is not about the"
                 + " ground rule");
@@ -558,11 +558,12 @@ namespace Simitone.Tests.Neighbourhood
                 "a refused lot with its whole footprint off the clip is not a plot overhanging an"
                 + " edge; it is somewhere else entirely, and the number should say so");
 
-            //the same lot one tile inside the clip is a normal neighbour again - at row 150 the
-            //clip's left edge is at DiamondCentre - row, and the predicate is strictly inside it
-            Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(156, 150));
-            Assert.True(NeighbourhoodCityMeshBuilder.IsInsideDiamond(157, 150));
-            Assert.True(SimitoneSurroundingsPlacement.GroundIsDrawnUnder(map, Lot(21, 157, 150)));
+            //the same lot one tile inside the clip is a normal neighbour again - the clip's left
+            //edge is DiamondLeft = ClipInset - 1, and the predicate is strictly inside it
+            var edge = NeighbourhoodCityMeshBuilder.DiamondLeft(150);
+            Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(edge, 150));
+            Assert.True(NeighbourhoodCityMeshBuilder.IsInsideDiamond(edge + 1, 150));
+            Assert.True(SimitoneSurroundingsPlacement.GroundIsDrawnUnder(map, Lot(21, edge + 1, 150)));
 
             //a map the builder does not mesh is not asked about the diamond at all, because
             //CanMesh refuses it and the surround refuses it too

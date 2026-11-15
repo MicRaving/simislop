@@ -735,7 +735,7 @@ namespace Simitone.Client.Neighbourhood
                         var end = Math.Min(chunkRight, rowRight + NeighbourhoodCityMeshBuilder.FadeRange);
                         for (int x = start; x < end; x++)
                         {
-                            if (x <= rowLeft || x >= rowRight) continue;
+                            if (!NeighbourhoodCityMeshBuilder.IsInsideDiamond(x, row)) continue;
                             var clamped = Math.Min(Math.Max(rowLeft, x), rowRight - 1);
                             if (terrain[row * NeighbourhoodCityMeshBuilder.MapSize + clamped]
                                 >= NeighbourhoodCityMeshBuilder.LayerCount) continue;
@@ -1931,8 +1931,9 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// The row where the diamond's left edge stops counting down and starts counting up, and
-        /// the map's centre in that axis.
+        /// TSO's isometric diamond: the row where its left edge stops counting down and starts
+        /// counting up. The mesh no longer clips to this diamond (see <see cref="ClipInset"/>);
+        /// <see cref="NeighbourhoodPixelTransform"/> still fits the backdrop into it.
         /// </summary>
         public const int DiamondCentre = 306;
 
@@ -2154,25 +2155,62 @@ namespace Simitone.Client.Neighbourhood
         private static readonly Matrix RotationToNormalXY = Matrix.CreateRotationZ((float)(Math.PI / 2));
         private static readonly Matrix RotationToNormalZY = Matrix.CreateRotationX(-(float)(Math.PI / 2));
 
-        /// <summary>Where a map row's left diamond edge is.</summary>
+        /// <summary>
+        /// How far the drawn region stands in from every edge of the map, in tiles: one
+        /// <see cref="FadeRange"/> and the edge tile itself, so the whole fade skirt outside the
+        /// drawn edge still lies on the map.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The drawn region is the map square inset by this, not TSO's isometric diamond.</b>
+        /// The "Diamond" names (<see cref="DiamondLeft"/>, <see cref="DiamondRight"/>,
+        /// <see cref="IsInsideDiamond"/>) are kept because two dozen call sites read them, but the
+        /// clip they describe is now that square. The diamond (<see cref="DiamondCentre"/>,
+        /// <see cref="DiamondRightPivot"/>, <see cref="DiamondRightBase"/>) covers about 48% of the
+        /// map (125,460 tiles), and the shelf packer's 41-lot neighbourhood needs 122,989 tiles of
+        /// footprint, so no packing puts every lot of a large neighbourhood inside it. The packer
+        /// laid lots from tile (0,0), which is the diamond's cut corner, so a 10-lot neighbourhood
+        /// had all 10 lots there and slot 4 had 24 of 41 (audit O1). At the camera's 45-degree yaw the
+        /// whole square still reads as a diamond on screen.
+        /// </para>
+        /// <para>
+        /// The diamond constants stay, because <see cref="NeighbourhoodPixelTransform"/> fits the
+        /// 800x600 backdrop into that shape. The diamond lies inside this square, so its guarantee
+        /// still holds.
+        /// </para>
+        /// </remarks>
+        public const int ClipInset = FadeRange + 1;
+
+        /// <summary>
+        /// Where a map row's drawn region starts: the last tile <em>outside</em> it on the left, so
+        /// a tile is inside when <c>x &gt; DiamondLeft(row)</c>. The same for every row, because
+        /// the clip is the inset square (see <see cref="ClipInset"/>). Rows above and below the
+        /// square keep the same span, and their ground is faded by <see cref="RowFadeTransparency"/>.
+        /// </summary>
         /// <param name="row">The map row.</param>
         public static int DiamondLeft(int row)
         {
-            return row < DiamondCentre ? DiamondCentre - row : row - DiamondCentre;
+            return ClipInset - 1;
         }
 
         /// <summary>
-        /// Where the diamond's right edge starts, on row zero. It counts up from here to the pivot
+        /// Where TSO's diamond's right edge starts, on row zero (no longer the mesh clip; see
+        /// <see cref="ClipInset"/>). It counts up from here to the pivot
         /// row and then back down, so the widest row is <see cref="DiamondRightPivot"/>, not the
         /// centre row - the two edges of TSO's clip turn around at different rows.
         /// </summary>
         public const int DiamondRightBase = 307;
 
-        /// <summary>One past a map row's right diamond edge.</summary>
+        /// <summary>
+        /// One past a map row's last drawn tile; the same for every row (see <see cref="ClipInset"/>).
+        /// One more than <c>MapSize - ClipInset</c> so the opaque ground runs from vertex
+        /// <c>ClipInset - 1</c> to vertex <c>MapSize - ClipInset + 1</c>, symmetric about the map's
+        /// centre, and the fade skirt reaches the last vertex on both sides.
+        /// </summary>
         /// <param name="row">The map row.</param>
         public static int DiamondRight(int row)
         {
-            return row < DiamondRightPivot ? DiamondRightBase + row : MapSize - (row - DiamondRightPivot);
+            return MapSize - ClipInset + 1;
         }
 
         /// <summary>
@@ -2199,7 +2237,8 @@ namespace Simitone.Client.Neighbourhood
         /// <param name="row">Tile y (the map row).</param>
         public static bool IsInsideDiamond(int x, int row)
         {
-            if (row < 0 || row >= MapSize) return false;
+            //rows use the same strict bounds as columns: [ClipInset, MapSize - ClipInset)
+            if (row <= DiamondLeft(row) || row >= DiamondRight(row)) return false;
             return x > DiamondLeft(row) && x < DiamondRight(row);
         }
 
@@ -2650,10 +2689,10 @@ namespace Simitone.Client.Neighbourhood
                             var p2 = new Vector3(j + 1, WorldHeightFor(elevation[y1 * MapSize + x2]), i + 1);
                             var p3 = new Vector3(j, WorldHeightFor(elevation[y1 * MapSize + x3]), i + 1);
 
-                            var a0 = FadeTransparency(rowLeft, rowRight, j);
-                            var a1 = FadeTransparency(rowLeft, rowRight, j + 1);
-                            var a2 = FadeTransparency(nextLeft, nextRight, j + 1);
-                            var a3 = FadeTransparency(nextLeft, nextRight, j);
+                            var a0 = FadeTransparency(rowLeft, rowRight, j, i);
+                            var a1 = FadeTransparency(rowLeft, rowRight, j + 1, i);
+                            var a2 = FadeTransparency(nextLeft, nextRight, j + 1, i + 1);
+                            var a3 = FadeTransparency(nextLeft, nextRight, j, i + 1);
 
                             AddQuad(layerVerts[type], layerIndices[type], p0, n0, a0, j, i, p1, n1, a1, j + 1, i,
                                 p2, n2, a2, j + 1, i + 1, p3, n3, a3, j, i + 1);
@@ -2663,7 +2702,7 @@ namespace Simitone.Client.Neighbourhood
                             //regen only does this strictly inside the diamond (:301), for the same
                             //reason roads do: the fade skirt is a cosmetic edge and a cross-fade
                             //hanging over it would be a visible seam hanging over nothing.
-                            if (j > rowLeft && j < rowRight)
+                            if (IsInsideDiamond(j, i))
                             {
                                 var blend = GetBlend(terrain, i, x);
                                 if (blend.NeedsBlend && blend.MaxEdge < LayerCount)
@@ -2935,10 +2974,10 @@ namespace Simitone.Client.Neighbourhood
             var n1 = NormalAt(elevation, x1c, i);
             var n2 = NormalAt(elevation, x2c, y1);
             var n3 = NormalAt(elevation, x3c, y1);
-            var a0 = FadeTransparency(rowLeft, rowRight, j);
-            var a1 = FadeTransparency(rowLeft, rowRight, j + 1);
-            var a2 = FadeTransparency(nextLeft, nextRight, j + 1);
-            var a3 = FadeTransparency(nextLeft, nextRight, j);
+            var a0 = FadeTransparency(rowLeft, rowRight, j, i);
+            var a1 = FadeTransparency(rowLeft, rowRight, j + 1, i);
+            var a2 = FadeTransparency(nextLeft, nextRight, j + 1, i + 1);
+            var a3 = FadeTransparency(nextLeft, nextRight, j, i + 1);
 
             //The blend, resolved once per tile rather than per sub-vertex.
             //CityGeometry.SubRegenMeshVerts resolves it at the top of its own loop
@@ -2976,7 +3015,7 @@ namespace Simitone.Client.Neighbourhood
             //one row to the next, where the *next* row's corner is outside its own edge and the
             //interpolation would otherwise leak a sliver of transparency into ground the city draws
             //solid. CityGeometry gates it, so it is gated here.
-            var normalTile = j > rowLeft && j < rowRight;
+            var normalTile = IsInsideDiamond(j, i);
             var blendVerts = useBlend ? layerVerts[blendT] : null;
             var blendIndices = useBlend ? layerIndices[blendT] : null;
 
@@ -3300,7 +3339,7 @@ namespace Simitone.Client.Neighbourhood
             {
                 Position = new Vector3(x, WorldHeightFor(elevation[y * MapSize + cx]), y),
                 Normal = NormalAt(elevation, cx, y),
-                Transparency = FadeTransparency(rowLeft, rowRight, x),
+                Transparency = FadeTransparency(rowLeft, rowRight, x, y),
                 Terrain = terrain[y * MapSize + cx]
             };
         }
@@ -3330,6 +3369,28 @@ namespace Simitone.Client.Neighbourhood
         {
             var outside = Math.Max(rowLeft - x, x - rowRight);
             return Math.Min(1f, Math.Max(0f, outside * FadeRate));
+        }
+
+        /// <summary>
+        /// The same fade along a column: zero for a vertex row inside the inset square, rising to
+        /// one <see cref="FadeRange"/> rows above or below it. The diamond needed no vertical fade
+        /// because its top and bottom were points; the square's are edges (see <see cref="ClipInset"/>).
+        /// </summary>
+        /// <param name="row">The vertex's row (0..MapSize inclusive).</param>
+        public static float RowFadeTransparency(int row)
+        {
+            var outside = Math.Max(DiamondLeft(row) - row, row - DiamondRight(row));
+            return Math.Min(1f, Math.Max(0f, outside * FadeRate));
+        }
+
+        /// <summary>A vertex's transparency from both its row's horizontal span and its row.</summary>
+        /// <param name="rowLeft">The row's left edge.</param>
+        /// <param name="rowRight">One past the row's right edge.</param>
+        /// <param name="x">The vertex's x.</param>
+        /// <param name="row">The vertex's row.</param>
+        public static float FadeTransparency(int rowLeft, int rowRight, int x, int row)
+        {
+            return Math.Max(FadeTransparency(rowLeft, rowRight, x), RowFadeTransparency(row));
         }
 
         private static void AddQuad(
@@ -3778,7 +3839,7 @@ namespace Simitone.Client.Neighbourhood
                     if (x < rowLeft - NeighbourhoodCityMeshBuilder.FadeRange) continue;
                     if (x >= rowRight + NeighbourhoodCityMeshBuilder.FadeRange) continue;
 
-                    var inside = x > rowLeft && x < rowRight;
+                    var inside = NeighbourhoodCityMeshBuilder.IsInsideDiamond(x, row);
                     var clampedX = Math.Min(Math.Max(rowLeft, x), rowRight - 1);
                     var type = terrain[row * NeighbourhoodCityMeshBuilder.MapSize + clampedX];
                     if (type >= NeighbourhoodCityMeshBuilder.LayerCount)

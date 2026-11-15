@@ -1984,7 +1984,21 @@ namespace Simitone.Client.UI.Panels
                 //How many lots could have a house at all, from the layout the scene is drawing.
                 //Zero is a real answer and waives the gate: a neighbourhood of empty plots has no
                 //house it can be failing to draw, and the terrain pass is the whole of the picture.
-                facadeEligible: SafeFacadeEligible(view));
+                facadeEligible: SafeFacadeEligible(view),
+                //Lots still owed a facade: past the warm-up, a world still building its houses is
+                //shown with what it has rather than replaced by the painted map.
+                facadesBuilding: SafeFacadeOutstanding(view));
+        }
+
+        /// <summary>
+        /// How many lots the facade pass still owes a mesh, or
+        /// <see cref="NeighbourhoodWorldHealth.Unknown"/> if the scene will not say.
+        /// </summary>
+        /// <param name="view">The attached world.</param>
+        private static int SafeFacadeOutstanding(Neighbourhood3DView view)
+        {
+            try { return view.FacadeOutstanding; }
+            catch (Exception) { return NeighbourhoodWorldHealth.Unknown; }
         }
 
         /// <summary>

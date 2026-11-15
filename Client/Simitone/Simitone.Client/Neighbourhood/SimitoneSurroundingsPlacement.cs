@@ -541,24 +541,22 @@ namespace Simitone.Client.Neighbourhood
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>Why the mesh's own diamond and nothing else.</b>
+        /// <b>Why the mesh's own clip and nothing else.</b>
         /// <see cref="NeighbourhoodCityMeshBuilder.IsInsideDiamond"/> is the rule every draw path
         /// uses - the ground walk, the road walk and this one - so a lot cannot be placed on a tile
-        /// the builder would have left empty. Part 9 §9.1 is the bug this exists for: real
-        /// <c>LotLocations</c> positions landing in the cut corners, where the mesh emits neither
-        /// ground quads nor road quads, which reads as "disconnected houses floating in a void".
-        /// The diamond-aligned <c>NeighbourhoodPixelTransform</c> fixed the centres; this is the
-        /// guard that keeps a placement from ignoring it.
+        /// the builder would have left empty. Part 9 §9.1 is the bug this exists for: lots landing
+        /// where the mesh emits neither ground quads nor road quads, which reads as "disconnected
+        /// houses floating in a void". The clip is the map square inset by
+        /// <see cref="NeighbourhoodCityMeshBuilder.ClipInset"/>, and the shelf packer centres every
+        /// lot inside it (audit O1); this is the guard for a layout that ignores that, such as a
+        /// hand-edited sidecar.
         /// </para>
         /// <para>
-        /// <b>Why the base tile and not the whole rectangle.</b> The diamond's edge moves one tile
-        /// in x per tile in row, so a 64-tile plot whose centre is a street corridor inside the
-        /// clip (§9.5's guarantee) overhangs it at its far corner - by design, because the fit is a
-        /// fit and the alternative is a neighbourhood a third again smaller. A lot like that still
-        /// has real ground under the house it stands on and real ground under its street; refusing
-        /// it would empty the edge of the island of houses, which is a worse answer than a plot
-        /// whose far verge fades out with the island's own skirt. <see cref="GroundlessTilesOf"/>
-        /// measures the overhang so it can be reported rather than hidden.
+        /// <b>Why the base tile and not the whole rectangle.</b> A plot that overhangs the drawn
+        /// edge still has real ground under the house it stands on; refusing it would empty the
+        /// edge of houses, which is a worse answer than a plot whose far verge fades out with the
+        /// map's own skirt. <see cref="GroundlessTilesOf"/> measures the overhang so it can be
+        /// reported rather than hidden.
         /// </para>
         /// <para>
         /// <b>A map the builder does not mesh is not asked.</b>

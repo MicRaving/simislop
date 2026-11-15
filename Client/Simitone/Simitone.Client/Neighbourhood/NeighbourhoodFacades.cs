@@ -810,6 +810,18 @@ namespace Simitone.Client.Neighbourhood
         /// </remarks>
         /// <param name="layout">The layout the caller handed over.</param>
         /// <param name="map">The generated map, or <c>null</c>.</param>
+        /// <summary>
+        /// How many facades this pass will ever attempt: <see cref="NeighbourhoodFacadePlan.Eligible"/>
+        /// over the layout it builds for, which has the groundless lots taken out. The neighbourhood
+        /// view's build fraction has to use this denominator, not the whole layout's, or a lot the
+        /// pass will never build counts as missing (audit O1: "16 of 41" was 16 of the 17 it builds).
+        /// </summary>
+        /// <param name="activeLot">The lot the player is standing in, or <c>null</c>.</param>
+        public int EligibleCount(int? activeLot)
+        {
+            return NeighbourhoodFacadePlan.Eligible(_layout, activeLot);
+        }
+
         private NeighbourhoodLayout WithoutGroundlessLots(
             NeighbourhoodLayout layout, NeighbourhoodMap map)
         {
@@ -830,7 +842,7 @@ namespace Simitone.Client.Neighbourhood
             dropped.Sort();
             _log.Add(dropped.Count + " lot(s) stand on ground the map never draws and are shown by"
                 + " neither a house nor a lot: " + string.Join(", ", dropped)
-                + ". Their base tiles are outside the isometric diamond the mesh is clipped to.");
+                + ". Their base tiles are outside the ground the mesh draws.");
             return new NeighbourhoodLayout(layout.Slot, layout.Seed, layout.GeneratorVersion,
                 layout.SchemaVersion, layout.MapSize, kept);
         }

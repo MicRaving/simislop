@@ -163,7 +163,11 @@
        FreeSO's own server packages (FSO.Server pins ImageSharp 3.1.11, AWSSDK 3.3.x, Octokit,
        System.Data.SQLite ...); the advisories on those are upstream's and not fixable from here,
        so there they stay warnings. -->
-  <PropertyGroup Condition=" '$(BuildIde)' != 'true' ">
+  <!-- Simitone.Windows is exempt in every configuration since C1fix: it must reference FSO.Client
+       (EOD panels, loaded by name), and FSO.Client's compile-time closure includes FSO.Server's
+       ImageSharp 3.1.11 / AWSSDK / Octokit. Every other project here - the code this repository
+       owns - keeps the gate. -->
+  <PropertyGroup Condition=" '$(BuildIde)' != 'true' AND '$(MSBuildProjectName)' != 'Simitone.Windows' ">
     <WarningsAsErrors>$(WarningsAsErrors);NU1902;NU1903;NU1904</WarningsAsErrors>
   </PropertyGroup>
 

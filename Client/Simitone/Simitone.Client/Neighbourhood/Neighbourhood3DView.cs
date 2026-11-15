@@ -627,7 +627,14 @@ namespace Simitone.Client.Neighbourhood
         /// <summary>How many lots a complete facade pass would build here, for a log line.</summary>
         public int FacadeEligible
         {
-            get { return NeighbourhoodFacadePlan.Eligible(_source?.Layout, _source?.ActiveLot); }
+            get
+            {
+                //the facade pass's own count, which leaves out lots it will never build (no drawn
+                //ground under them), so the build fraction is not held down by them
+                return _facades != null
+                    ? _facades.EligibleCount(_source?.ActiveLot)
+                    : NeighbourhoodFacadePlan.Eligible(_source?.Layout, _source?.ActiveLot);
+            }
         }
 
         private float GroundHeight()

@@ -548,17 +548,19 @@ namespace Simitone.Client.Neighbourhood
         /// houses, but this one is about the <em>frame</em> and that one is about the <em>build</em>.
         /// This fires when there is a house to draw and none of it reached the device - every
         /// surface culled, every draw failed, the cache emptied - which is a working terrain pass
-        /// and a broken facade pass. <see cref="FacadesIncomplete"/> fires when the facades are
-        /// building perfectly well and simply are not finished.
+        /// and a broken facade pass. <see cref="FacadesIncomplete"/> fires when the facade pass has
+        /// finished short of the bar.
         /// </para>
         /// </summary>
         NoFacadesOnScreen = 9,
 
         /// <summary>
-        /// The houses are still being built. The frame has house geometry on it, but fewer of the
+        /// Too few houses were built. The frame has house geometry on it, but fewer of the
         /// neighbourhood's lots have a facade than
         /// <see cref="NeighbourhoodBackdropRule.MinimumFacadeFraction"/> of them need, past the
-        /// warm-up window.
+        /// warm-up window, and the facade pass has nothing left to build (or does not say). While
+        /// it is still building the world is shown instead
+        /// (<see cref="NeighbourhoodWorldHealth.FacadesBuilding"/>).
         ///
         /// <para>
         /// A fraction rather than a count, because a lot whose <c>HouseNN.iff</c> will not read
@@ -674,8 +676,10 @@ namespace Simitone.Client.Neighbourhood
             int submittedFrames = Unknown,
             int facadeTriangles = Unknown,
             int facadesVisible = Unknown,
-            int facadeEligible = Unknown)
+            int facadeEligible = Unknown,
+            int facadesBuilding = Unknown)
         {
+            FacadesBuilding = facadesBuilding;
             Attached = attached;
             MeshUploaded = meshUploaded;
             TerrainTriangles = terrainTriangles;
@@ -807,6 +811,14 @@ namespace Simitone.Client.Neighbourhood
         public int FacadeEligible { get; }
 
         /// <summary>
+        /// How many lots the facade pass still owes a mesh, or <see cref="Unknown"/> when nobody
+        /// counted. Above zero means the houses are still streaming in, which is not a fault: past the
+        /// warm-up the gate shows the world with what is built rather than putting the painted map
+        /// back (audit O1).
+        /// </summary>
+        public int FacadesBuilding { get; }
+
+        /// <summary>
         /// Whether anybody is counting what the facades put on screen. False means the gate cannot
         /// see the houses and is skipped, exactly as an un-counted submission is: a signal that
         /// cannot see a thing is not evidence that the thing is missing, and treating it as one
@@ -842,7 +854,7 @@ namespace Simitone.Client.Neighbourhood
             return new NeighbourhoodWorldHealth(Attached, MeshUploaded, TerrainTriangles, RoadTriangles,
                 groundQuads, roadQuads, LotCount, FacadeCount, DrawFailures, DeviceLost,
                 SecondsSinceAttach, Failure, SubmittedTriangles, SubmittedFrames, FacadeTriangles,
-                FacadesVisible, FacadeEligible);
+                FacadesVisible, FacadeEligible, FacadesBuilding);
         }
 
         /// <summary>
@@ -1390,6 +1402,19 @@ namespace Simitone.Client.Neighbourhood
                             + " of " + health.FacadeEligible + " built, "
                             + health.FacadeTriangles + " facade triangle(s) on screen this frame), so"
                             + " the painted map stays up until there is a neighbourhood to look at");
+                    }
+
+                    //Past the warm-up with houses still being built: show the world and let the rest
+                    //stream in. A pass that is still working is not a broken one, and putting the
+                    //painted map back here turned a slow build into "the 3D view does not work".
+                    if (health.FacadesBuilding > 0)
+                    {
+                        return new NeighbourhoodViewDecision(view, NeighbourhoodBackdrop.GeneratedWorld, true,
+                            NeighbourhoodWorldFault.None,
+                            "the generated world is drawing " + health.FacadeTriangles
+                            + " facade triangle(s) with " + health.FacadeCount + " of "
+                            + health.FacadeEligible + " lot facades built and " + health.FacadesBuilding
+                            + " still building, so it is shown while the rest stream in");
                     }
 
                     return Fallback(view, NeighbourhoodWorldFault.FacadesIncomplete,

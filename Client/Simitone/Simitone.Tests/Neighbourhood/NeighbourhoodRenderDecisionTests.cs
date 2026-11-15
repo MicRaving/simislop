@@ -175,6 +175,16 @@ namespace Simitone.Tests.Neighbourhood
             {
                 var left = NeighbourhoodCityMeshBuilder.DiamondLeft(row);
                 var right = NeighbourhoodCityMeshBuilder.DiamondRight(row);
+                //rows above and below the inset square (audit O1) are outside along their whole
+                //span: they carry the vertical fade skirt and nothing else
+                if (row <= left || row >= right)
+                {
+                    for (int x = left; x <= right; x++)
+                    {
+                        Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(x, row));
+                    }
+                    continue;
+                }
                 Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(left, row),
                     "row " + row + "'s first tile is inside the diamond, which is one tile too far");
                 Assert.False(NeighbourhoodCityMeshBuilder.IsInsideDiamond(left - 1, row));
@@ -412,7 +422,10 @@ namespace Simitone.Tests.Neighbourhood
             Assert.True(report.ClippedRoadTiles > 0);
             Assert.Equal(report.MapRoadTiles, report.DiamondRoadBearingTiles + report.ClippedRoadTiles);
             Assert.InRange(report.RoadCoverage, 0f, 1f);
-            Assert.InRange(report.DiamondCoverage, 0.25f, 0.75f);
+            //the inset square (audit O1): all but a ClipInset-wide border of the map
+            var inner = NeighbourhoodCityMeshBuilder.DiamondRight(0) - NeighbourhoodCityMeshBuilder.DiamondLeft(0) - 1;
+            Assert.Equal((long)inner * inner, report.DiamondRoadBearingTiles);
+            Assert.InRange(report.DiamondCoverage, 0.85f, 0.99f);
             Assert.Contains("road tiles", report.ToString());
         }
 
@@ -866,7 +879,8 @@ namespace Simitone.Tests.Neighbourhood
                 }
 
                 //sample tiles along the diamond's own edge, which is where coverage is hardest
-                for (int y = 0; y < NeighbourhoodCityMeshBuilder.MapSize; y += factor)
+                for (int y = NeighbourhoodCityMeshBuilder.ClipInset;
+                    y < NeighbourhoodCityMeshBuilder.MapSize - NeighbourhoodCityMeshBuilder.ClipInset; y += factor)
                 {
                     var left = NeighbourhoodCityMeshBuilder.DiamondLeft(y) + 2;
                     var right = NeighbourhoodCityMeshBuilder.DiamondRight(y) - 2;
@@ -1164,8 +1178,16 @@ namespace Simitone.Tests.Neighbourhood
             // Eligibility is the clip, so a chunk that has forest but none of it inside the
             // isometric kite is not on the list - and the clipped forest is counted, because
             // "where did the budget go" is answerable from the number.
+            // Forest only in the border the clip never reaches (the inset square leaves no chunk
+            // wholly outside it, so a uniform forest would make chunk 0 eligible; audit O1).
             var map = NeighbourhoodMap.Create(NeighbourhoodFoliage.MapSize);
-            for (int i = 0; i < map.ForestDensityData.Length; i++) map.ForestDensityData[i] = 255;
+            for (int oy = 0; oy < map.Height; oy++)
+            {
+                for (int ox = 0; ox < map.Width; ox++)
+                {
+                    if (!NeighbourhoodCityMeshBuilder.IsInsideDiamond(ox, oy)) map.ForestDensityData[map.Index(ox, oy)] = 255;
+                }
+            }
 
             // a tile in the top-left corner of the square, which the clip never reaches
             var clipped = map.Index(2, 2);

@@ -500,11 +500,12 @@ namespace Simitone.Tests.Neighbourhood
 
             var plan = NeighbourhoodFoliagePlan.For(map, NeighbourhoodFoliage.TreeBudget);
             Assert.Equal(expectedOutside, plan.TilesOutsideClip);
-            Assert.True(expectedOutside > 100000, "a square map's diamond is about half its area,"
-                + " so over half of it is outside the clip: " + expectedOutside);
-            // and the diamond really is about half the square, neither half dominating
+            // the clip is the map inset by ClipInset on every side (audit O1), so what is outside it
+            // is exactly that border
             var square = NeighbourhoodFoliage.MapSize * NeighbourhoodFoliage.MapSize;
-            Assert.InRange(expectedInside * 100 / square, 40, 60);
+            var inner = NeighbourhoodCityMeshBuilder.DiamondRight(0) - NeighbourhoodCityMeshBuilder.DiamondLeft(0) - 1;
+            Assert.Equal(square - inner * inner, expectedOutside);
+            Assert.InRange(expectedInside * 100 / square, 85, 95);
 
             // and the eligible chunks are exactly the ones with at least one drawn, forested tile
             var drawn = new bool[NeighbourhoodFoliage.ChunksPerAxis * NeighbourhoodFoliage.ChunksPerAxis];
