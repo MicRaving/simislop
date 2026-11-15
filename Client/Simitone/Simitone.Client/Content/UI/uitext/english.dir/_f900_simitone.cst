@@ -1,0 +1,589 @@
+//Simitone's own UI strings.
+//
+//TS1's GameData/UIText.iff carries everything The Sims 1 itself displayed, and
+//FreeSO's Content/UI/uitext/<lang>.dir/*.cst carries FreeSO's TSO additions.
+//Neither has anywhere to put a string Simitone invented - the settings strip, the
+//buy-mode search box, the rezone dialogs, the credits screen - so those were
+//literals in .cs files and could not be translated at all. This table is that
+//missing place: ContentStrings reads it in TS1 mode as well as TSO mode, under the
+//table id taken from the file name, and SimitoneStrings.Get looks ids up here.
+//
+//File name -> table id: the text between the first and second "_", so this file is
+//table f900. That is deliberately clear of FreeSO's f1xx tables and of TS1's
+//numeric STR chunk ids, so it cannot shadow either. Renaming this file means
+//renaming SimitoneStrings.Table, or every string silently falls back to English.
+//
+//Ids are stable. A translator may add ids (a new string in a later build), but
+//renumbering or retiring one re-breaks every translation of it. Ids are grouped in
+//blocks of ten by the file that used to hold the literal, so a new string goes
+//next to its neighbours.
+//
+//Format, as ContentStrings.Load parses it: "id ^text^", one per line, "//" starts a
+//comment line. A text may run over several lines but must not contain "^"; %s and
+//%d are argument specifiers, substituted in order, and a specifier with no argument
+//left has its "%" dropped. Every id below has an English fallback hardcoded at its
+//call site, so a table that is missing, incomplete or untranslated shows English
+//rather than blank labels or "***MISSING***".
+
+//--- Credits panel (UICreditsPanel) ---
+1 ^Credits^
+2 ^Close^
+3 ^Scroll with the mouse wheel, or click and drag the text.^
+
+//--- Options quick settings strip (UISettingsPanel). 33 and 34 are the value under each
+//--- toggle, and are deliberately NOT shared with 190/191: this file's convention is one block
+//--- per file that used to hold the literal, so a translator reads the strip's words together. ---
+20 ^Settings^
+21 ^Apply & Save^
+22 ^Revert^
+23 ^Anti-Alias^
+24 ^Lighting^
+25 ^Shadows^
+26 ^Water^
+27 ^Shaders^
+28 ^Transitions^
+29 ^Edge Scroll^
+30 ^Settings - unsaved changes^
+31 ^Settings - saved^
+32 ^Settings - reverted^
+33 ^On^
+34 ^Off^
+
+//--- Lot panel action buttons (UIHouseSelectPanel, UINeighbourhoodSelectionPanel,
+//--- UITS1NeighborhoodVisitLotPanel) ---
+40 ^Move In^
+41 ^More^
+42 ^Bulldoze^
+43 ^Evict^
+44 ^Edit Family^
+45 ^Rezone^
+46 ^Export^
+47 ^Back^
+48 ^Enter House^
+49 ^Visit Lot^
+
+//--- Lot rezone dialogs (UIHouseSelectPanel). %s is a lot number, except in 63 where
+//--- the first is the lot and the second a zone name. ---
+60 ^Lot Rezone^
+61 ^There is still a family living at %s, so the lot cannot be rezoned.^
+62 ^A lot is zoned before anyone moves into it. Use Evict on this panel first.^
+63 ^Rezone %s as a %s lot?^
+64 ^Lot %s has no zoning entry, so there is nothing to rezone.^
+65 ^LotZoning.iff only carries the lots the game shipped with a zone for.^
+66 ^Lot %s is not decided by its own zoning line, so it cannot be rezoned.^
+67 ^LotZoning.iff also holds another line for that lot which is the one the game reads.^
+68 ^The neighbourhood's zoning file could not be read, so nothing was changed.^
+69 ^The zoning file could not be written, so lot %s is unchanged.^
+
+//--- Lot bulldoze dialogs (UIHouseSelectPanel). The standalone bulldoze on an empty lot,
+//--- which is the same NeighborhoodService.ResetHouse the eviction runs, reached from
+//--- this panel's own Bulldoze button. %s is a lot number, as in 71 and 73. ---
+70 ^Lot Bulldoze^
+71 ^There is still a family living at %s, so the lot cannot be bulldozed.^
+72 ^A bulldoze takes the contents of an empty lot. Use Evict on this panel first.^
+73 ^Bulldoze lot %s? Everything a family put in it is removed.^
+
+//--- Catalogue browse and search (UIMainPanel, UIBuyBrowsePanel) ---
+80 ^Search selected category…^
+81 ^Select a subcategory first…^
+82 ^No items found^
+
+//--- Create-a-Sim (UIFamiliesCASPanel, UIFamilyCASPanel, UISimCASPanel,
+//--- UISelectSkinAlert) ---
+100 ^Select a Family^
+101 ^First Name^
+102 ^Last Name^
+103 ^Gender^
+104 ^Skin Color^
+105 ^Please Select Outfit^
+106 ^Adopt a Pet^
+// "Age" is the one heading in that panel with no TS1 string behind it at all, so it is Simitone's
+// to name; the other four are the English the panel shows when the game's table has no entry.
+107 ^Age^
+
+//--- Cheat box (UICheatTextbox). The tooltip the box had in TS1, which Simitone
+//--- dropped along with the artwork that went with it. ---
+120 ^Cheaters never win^
+
+//--- Call neighbour (UICallNeighborAlert) ---
+130 ^Call Neighbour^
+131 ^Call^
+132 ^Cancel^
+133 ^Unknown^
+
+//--- Desktop UCP tooltips (UIDesktopUCP) ---
+140 ^Live Mode^
+141 ^Buy Mode^
+142 ^Build Mode^
+143 ^Options^
+144 ^Floor Up^
+145 ^Floor Down^
+146 ^Roof^
+147 ^Walls Up^
+148 ^Walls Cutaway^
+149 ^Walls Down^
+150 ^Zoom In^
+151 ^Zoom Out^
+152 ^Rotate Clockwise^
+153 ^Rotate Counter-Clockwise^
+154 ^Normal Speed^
+155 ^Fast^
+156 ^Ultra Fast^
+157 ^Pause^
+// The eyedropper is the one desktop button Simitone added itself, so it has no artwork in the
+// original set and no TS1 string; the key that activates it is spelled out in the caption.
+158 ^Eyedropper Tool (E)^
+
+//--- Options page column headers and the toggle checkbox's tooltip
+//--- (UIOptionsSubpanelBase). "Low"/"Medium"/"High" are deliberately NOT here: those are
+//--- TS1's own strings and the page already reads them out of TS1's table 145 (ids 39-41),
+//--- which whoever shipped the player's copy of the game translated. A copy here would be
+//--- English a translator had translated twice with only one of the two answers used. ---
+170 ^Toggle Settings^
+171 ^Description^
+172 ^There are no settings here.^
+173 ^On/Off^
+
+//--- Language page (UIOptionsSubpanels). The language names themselves come from
+//--- STRLangCode.ToString and are deliberately not here: they are identifiers. ---
+180 ^Language^
+
+//--- Free will quick toggle (FreeWillSetting). "On"/"Off" are here rather than read from
+//--- TS1 because the strip button's caption is Simitone's own and nothing in the game ever
+//--- showed the two words together. %s is the state from 190 or 191. ---
+
+//--- Object query panel (UIQueryPanel) ---
+200 ^No information available.^
+
+//--- Neighbourhood map chrome: the lot filter bar (NeighLotFilters,
+//--- UINeighbourhoodFilterBar, NeighLotNavigator, NeighAddLot). A block of its own rather than
+//--- one in the 300s, which belong to the neighbourhood management page: these are the map's own
+//--- controls rather than that page's. 240-243 are the four filters' names, 244-247 say what each
+//--- one does, 248 is the bar itself, and 249 is the count it leaves: %d is the number of lots on
+//--- show, then the number of lots the map has. 250-251 are the two step-through buttons, named
+//--- for their direction rather than for the lot numbers they will land on. 252-257 are Add Lot:
+//--- the tooltip, the alert, and one sentence per refusal. 258/259 name the two views whose
+//--- travel buttons are new or newly pointed somewhere - the base neighbourhood and Unleashed;
+//--- the other four travel plates have carried their own names since before there were captions
+//--- for them. 269 is the tooltip on a filter nothing on the current map can match. ---
+240 ^Occupied lots^
+241 ^Vacant lots^
+242 ^Residential lots^
+243 ^Community lots^
+244 ^Show only the lots with a family living in them^
+245 ^Show only the lots with nobody living in them^
+246 ^Show only the lots a family can move into^
+247 ^Show only the lots a family cannot move into^
+248 ^Filter lots - click the bar to show them all^
+249 ^Lots shown: %d of %d^
+258 ^The base neighbourhood^
+259 ^Unleashed^
+269 ^No lot on this map matches that filter.^
+
+//--- Update checker: the Options row and the result dialog it opens
+//--- (UpdateCheckPresenter). %s is a version, except in 215 and 217 where the first is
+//--- the latest release and the second the version in use. ---
+210 ^Simitone Updates^
+211 ^Simitone %s^
+212 ^Check for updates^
+213 ^Checking...^
+214 ^This has not checked for updates in this session.^
+215 ^Simitone %s is the newest release. You are running %s.^
+216 ^Could not reach the release feed. The latest build is on the releases page.^
+217 ^Simitone %s is available. You are running %s.^
+218 ^Checking for updates...^
+219 ^Download^
+
+//--- Update checker, the one-line status the Options row shows beside the button
+//--- (UpdateCheckPresenter). Separate ids from the dialog text above for the same reason
+//--- those two are separate: this one has to fit on a single line. %s is a version. ---
+220 ^Not checked in this session.^
+221 ^Checking for updates...^
+222 ^Up to date. Newest release: %s.^
+223 ^Could not reach the release feed.^
+224 ^Version %s is available.^
+
+//--- Neighbourhood management page: the slot rows (NeighbourhoodPanelModel) ---
+//--- The detail line's separator ("  -  ") and the list of characters a name may not
+//--- contain are deliberately NOT here. The separator is layout punctuation that the panel
+//--- also has to split a row back apart on, and the character list is a property of the
+//--- filesystem rather than of a language: a translator who "fixed" either would break the
+//--- page rather than translate it.
+//--- %s is a folder name (UserData4) or a name the player typed, %d a slot number. ---
+300 ^In use^
+301 ^Not created^
+302 ^No area template^
+303 ^named^
+304 ^open now^
+305 ^All nine neighbourhoods are in use. Delete one to make room for another.^
+306 ^No The Sims install path is known, so a neighbourhood cannot be copied in.^
+307 ^That did not work. See the Simitone log for the reason.^
+
+//--- Neighbourhood management: why Delete is refused. %d is how many neighbourhoods there
+//--- are; the same string serves the Open refusal, because it is the same sentence. ---
+308 ^That is not one of the %d neighbourhoods.^
+309 ^The first neighbourhood is the one Simitone starts from, so it cannot be deleted.^
+310 ^This is the neighbourhood that is open right now. Go to another one and come back to delete it.^
+
+//--- Neighbourhood management: the Open switch. {0} is the slot being opened, {1} the one
+//--- being closed - braces rather than %s because this sentence is composed with
+//--- string.Format and the page has to be able to add a paragraph after it. ---
+311 ^Open neighbourhood^
+312 ^Open {0}? The neighbourhood that is open now, {1}, will be closed, and anything in it that you have not saved will be lost.^
+313 ^Open {0}? The neighbourhood that is open now will be closed, and anything in it that you have not saved will be lost.^
+314 ^It has changes that have not been saved. Yes saves it and then opens the other one, No opens the other one without saving, and Cancel goes back.^
+315 ^That neighbourhood could not be opened, so the one you were in is still open. See the Simitone log for the reason.^
+316 ^That neighbourhood could not be opened, and the one you were in could not be put back either. Restart Simitone; the Simitone log has the reason.^
+317 ^The neighbourhood could not be saved, so nothing was switched. See the Simitone log for the reason.^
+318 ^That neighbourhood was opened, but its map could not be drawn. See the Simitone log for the reason; if it keeps happening, restart Simitone.^
+319 ^Neighbourhoods can only be opened from the neighbourhood map.^
+
+//--- Neighbourhood management: why Open is refused. %s is the neighbourhood file the game
+//--- looks for, which it has to name so the player can find it on disk. ---
+320 ^This slot has no neighbourhood in it yet. Make a new one or copy one in from The Sims first.^
+321 ^A lot is open. Go back to the neighbourhood map before opening another neighbourhood.^
+322 ^A family is waiting to move in. Finish that, or go back, before opening another neighbourhood.^
+323 ^Simitone cannot tell which neighbourhood is open right now, so it will not put one out from under the other. See the Simitone log for the reason.^
+324 ^This is the neighbourhood that is open right now.^
+325 ^This folder has no %s in it, so the game cannot open it as a neighbourhood. Delete it and copy a new one in.^
+
+//--- Neighbourhood management: the stand-in the confirmation uses for a slot whose name is
+//--- not known, so the sentence still reads as one. ---
+326 ^this neighbourhood^
+
+//--- Neighbourhood management: why a typed name was refused. %d is the character limit,
+//--- %s the list of characters the filesystem cannot take. Both are spliced in by the call
+//--- site rather than written out here, so the message and the rule it describes can never
+//--- name different numbers or different sets. ---
+327 ^Type a name first.^
+328 ^"." and ".." are not names.^
+329 ^Names can be at most %d characters.^
+330 ^A name cannot contain / or \.^
+331 ^A name cannot contain control characters.^
+332 ^A name cannot contain any of %s.^
+333 ^That name cannot be used.^
+
+//--- Neighbourhood management: the status line each action reports. %s is the slot's
+//--- folder name; 340 is that name's stand-in for a slot that is not a slot. ---
+334 ^Created %s.^
+335 ^Copied %s from The Sims.^
+336 ^Deleted %s.^
+337 ^Renamed %s to %s.^
+338 ^%s is back to its default name.^
+339 ^Opened %s.^
+340 ^slot %d^
+
+//--- Neighbourhood management page itself (UINeighbourhoodManagementPanel): the title,
+//--- the action column, and the two dialogs it puts up. %s is a slot's display name, %d
+//--- a slot number. ---
+350 ^Neighbourhoods^
+351 ^Open^
+352 ^New (blank)^
+353 ^Copy from TS1^
+354 ^Rename...^
+355 ^Reset name^
+356 ^Delete^
+357 ^Close^
+358 ^Slot %d^
+359 ^Rename neighbourhood^
+360 ^Give this neighbourhood a name of its own. The game will use it in its lists; the folder on disk keeps its number.^
+361 ^Delete neighbourhood^
+362 ^Delete %s and everything in it? This cannot be undone.^
+
+//--- The floor readout both live-mode strips carry (UIDesktopUCP.FloorNames and
+//--- UIMainPanel.FloorNames). One block for both because the two tables are the same array of
+//--- words and have to agree exactly - a translator who answered only one of them would give the
+//--- desktop clock a different floor name from the panel beside it. A language that does not
+//--- use English ordinals answers each of the five with its own form. ---
+400 ^1st^
+401 ^2nd^
+402 ^3rd^
+403 ^4th^
+404 ^5th^
+
+//--- Auto-follow panel (UILotControl.UIAutoFollowPanel): the heading, the two direction names
+//--- the buttons are captioned with, and every line the status under the heading can say. The
+//--- direction names are here rather than being written out at the caption because the status
+//--- line quotes them back to the player, and a translation that moved the words about must
+//--- still find something to quote. ---
+410 ^Auto-follow^
+411 ^Auto-follow - travelling with you^
+412 ^Auto-follow - Downtown^
+413 ^Already queued: %s. Press %s to change it.^
+414 ^Requests are queued both ways - press one to pick.^
+415 ^That is you - you are already here.^
+416 ^Pets cannot be auto-followed.^
+417 ^Ghosts are not travelling.^
+418 ^Only sims on this lot can be followed.^
+419 ^Already coming along with the family.^
+420 ^This sim has a request queued both ways.^
+421 ^Not available.^
+422 ^They are away from home.^
+423 ^They are not in your family.^
+424 ^Take Home^
+425 ^Invite to Downtown^
+
+//--- Options dialog chrome (UIOptionsAlert). The page names and the settings on the pages are
+//--- TS1's own (OptionsStrings reads them out of table 145) - this is only the frame Simitone
+//--- drew around them, which is why the title is a literal and not an id. ---
+430 ^Options^
+431 ^OK^
+
+//--- Lot-load error dialog (TS1GameScreen.ShowLoadErrors). Its title and body are TS1's table
+//--- 153; only this button's caption was a literal. ---
+440 ^OK^
+
+//--- Makin' Magic book dialog (UIMakingMagicAlert). The page captions and the "Page x of y"
+//--- line come out of magic.iff through MakingMagicTables; these four are the words the panel
+//--- added around them. 453 is the word only - the brackets around it are drawn by the call
+//--- site, so a language that does not bracket an aside can still bracket it. ---
+450 ^Cook^
+451 ^Cast^
+452 ^Cancel^
+453 ^not yet discovered^
+
+//--- Live-mode job panel (UIJobSubpanel). The six skill captions and "Unemployed" are TS1's
+//--- live-mode table 136 and stay there; these two are Simitone's. %s is the salary, then the
+//--- shift's start and end time. ---
+460 ^Performance^
+461 ^Salary: §%s (%s-%s)^
+
+//--- Custom-content warning (FailedContentService). 470/471 are the dialog, 472-477 the short
+//--- name for each way a file can fail to load, 478 the count of the files not named, and 479
+//--- the three causes worth checking. %s in 478 is how many more there are. ---
+470 ^Custom Content Warning^
+471 ^Some custom content files could not be loaded. The game will continue without them.^
+472 ^truncated or corrupt^
+473 ^invalid format^
+474 ^could not be read^
+475 ^catalog error^
+476 ^could not be decoded^
+477 ^unknown error^
+478 ^... and %s more^
+479 ^The usual causes are a truncated or corrupt file, a missing matching .cfp file, or a format this game does not read.^
+//--- Options dialog, Sound page (UIAudioOptionsSubpanel). 960-971 are the four volume rows, three
+//--- each: the row's caption, the title of its "about this setting" tooltip, and the tooltip's
+//--- body. 972 is the column header the page draws over the sliders, 973/974/975 the level
+//--- readout, and 976/977 the two mute states.
+
+//--- Every tooltip body here is one line on purpose. SimitoneStrings applies its own
+//--- control-character rule to this table, and a newline is a control character: a two-line
+//--- tooltip would be refused by the lookup and fall back to the English however well it had
+//--- been translated. %d in 975 is the level and the maximum. ---
+960 ^Sound Effects^
+961 ^Sound Effects - volume^
+962 ^The sounds the lot makes: doors, appliances, footsteps, the click of a control you just pressed.^
+963 ^Music^
+964 ^Music - volume^
+965 ^The background music the lot plays.^
+966 ^Voice^
+967 ^Voice - volume^
+968 ^The Sims' own voices and anything the game narrates.^
+969 ^Ambience^
+970 ^Ambience - volume^
+971 ^Weather, and the sounds the lot plays at you in the background.^
+972 ^Level^
+973 ^Off^
+974 ^Full^
+975 ^%d of %d^
+976 ^Mute this group^
+977 ^Muted - click to unmute^
+
+//--- Cheat box (UICheatTextbox / CheatCommands.HelpText). The console's own list, so a player can
+//--- find out what exists rather than having to know. 981-984 are the money and moveobjects
+//--- cheats, which the VM runs rather than the client. § is Simoleons. ---
+980 ^Cheats^
+981 ^Add §1,000,000^
+982 ^Add §1,000^
+983 ^Let objects be picked up and moved^
+984 ^Add §n^
+985 ^Press Ctrl+Alt+Shift+C to close this box, and ! or ; to repeat a cheat.^
+
+//--- Live-mode career page (UICareerAlert), opened by the job panel's Career button - the
+//--- button that existed with no click handler, which left the whole career ladder
+//--- unreachable. The six skill captions are TS1's own (table 136, through
+//--- LivePanelStrings) and stay there; everything here is Simitone's. %s in 484/485/486 is a
+//--- value substituted by the call site, and 487/488/489 are the three states a rung can be in
+//--- relative to the sim. ---
+480 ^Career^
+481 ^Close^
+482 ^No career^
+483 ^This sim does not have a job, so there is no career track to show.^
+484 ^Salary: %s^
+485 ^Hours: %s - %s^
+486 ^Skills needed^
+487 ^current^
+488 ^reached^
+489 ^not yet^
+
+//--- Superstar fame panel (UIFameSubpanel). 500-505 are the readouts, and 506-516 are the
+//--- eleven half-star rung names in Star Power order - the ladder
+//--- VMTS1FameHelper documents, which the retail panel did not name. The Sims 1 has no
+//--- string table for any of this: the retail panel showed stars and a point count. %s is a
+//--- number, or a rung name the panel quotes back, substituted by the call site. ---
+500 ^Nobody^
+501 ^%s stars^
+502 ^Fame points: %s^
+503 ^%s to go for %s^
+504 ^Career best: %s^
+505 ^Top of the ladder - %s points to stay there^
+506 ^Nobody^
+507 ^Stepping Stone^
+508 ^Insider^
+509 ^Name Dropper^
+510 ^Studio Fly^
+511 ^Sell Out^
+512 ^Trendsetter^
+513 ^Player^
+514 ^Talk of the Town^
+515 ^Celebrity^
+516 ^Superstar^
+
+//--- Hot Date interests panel (UIInterestsSubpanel). 520-527 are the eight tracked interests,
+//--- in person-data order, named after the pairs of retail interests each slot covers. 528 is
+//--- the footer: %s is the list of retail interests this tree keeps no slot for, spliced in
+//--- by the call site so a translation cannot fall out of step with the list. ---
+520 ^Travel / Toys^
+521 ^Violence / Aliens^
+522 ^Politics / Pets^
+523 ^The 60s / School^
+524 ^Weather^
+525 ^Sports^
+526 ^Music^
+527 ^Outdoors^
+528 ^Not tracked by this game: %s^
+
+//--- House panel (UIHouseSubpanel): the chores side and the hire-a-service side. 531 and 533
+//--- say plainly which of retail's two halves this tree cannot show, so the panel does not
+//--- read as broken; 534-536 are the three services, 537/538 are the two states of a
+//--- rehire ticker, where %s is a number of days. ---
+530 ^Chores^
+531 ^Chores are assigned by the family, not by the game: the household's chore list lives in the lot's own data, and nothing here can read it.^
+532 ^Hire a Service^
+533 ^Hiring is the household's own business: ring the service, or use the service's object.^
+534 ^Maid^
+535 ^Gardener^
+536 ^Repairman^
+537 ^Can be hired^
+538 ^Next chance in %s day(s)^
+
+//--- Inventory panel: the family MagiCoin balance (540), which the magic-town lots and the
+//--- purchasables both spend and which nothing in the client showed. %s is the formatted
+//--- count, grouped for reading. ---
+540 ^MagiCoins: %s^
+
+//--- Build/buy undo (UIMainPanel's two buttons, BuildUndoPolicy). 550/551 are the button
+//--- captions; 552 is the scope line both tooltips carry, and it exists because the difference
+//--- between "there is undo" and "there is undo for the wall you just drew" is the difference
+//--- between a feature and a bug report. One line on purpose: SimitoneStrings applies this
+//--- table's own control-character rule, and a newline is a control character. ---
+550 ^Undo^
+551 ^Redo^
+552 ^Undo covers buying, selling back and moving objects. Walls, floors, roofs and terrain are not covered.^
+
+//--- EOD panel chrome (EODPanelFrame). 990 is the close button's caption, on the panel frame
+//--- Simitone draws around an EOD minigame window, and 991 is the tooltip on the same button.
+//--- Hand written rather than generated, and below the generated EOD caption block at 1000. ---
+990 ^Close^
+991 ^Close this minigame and end the interaction^
+
+//
+//--- EOD panel captions (GENERATED by EODLayoutStrings; do not hand edit)
+//
+// Button captions for the end-of-day minigame panels. The panels themselves are
+// FSO.Client's; their layouts are Simitone's, because the retail ones are The Sims
+// Online artwork layouts (see EODLayoutBuilder). A caption can only reach a .uis through
+// a DefineString node, which resolves against a string table, so a layout with no table
+// entry shows a button with no word on it. This is that table entry.
+//
+// Regenerate with Simitone.Client.UI.Panels.EODs.EODLayoutWriter rather than editing:
+// EODLayoutBuilderTests compares this block against the layouts it generates.
+1000 ^Friends: read^
+1001 ^Friends: write^
+1002 ^Permissions^
+1003 ^Write text^
+1004 ^Roommates: read^
+1005 ^Roommates: write^
+1006 ^Friends^
+1007 ^Roommates^
+1008 ^Visitors^
+1009 ^Visitors: read^
+1010 ^Visitors: write^
+1011 ^Dance to music^
+1012 ^Add topping^
+1013 ^A^
+1014 ^B^
+1015 ^C^
+1016 ^Black^
+1017 ^Blue^
+1018 ^Green^
+1019 ^Left score^
+1020 ^Orange^
+1021 ^Purple^
+1022 ^Right score^
+1023 ^Red^
+1024 ^White^
+1025 ^Yellow^
+1026 ^-^
+1027 ^+^
+1028 ^Enter code^
+1029 ^Employees^
+1030 ^Exempt^
+1031 ^Lot members^
+1032 ^Pay to enter^
+1033 ^Set permissions^
+1034 ^Arm^
+1035 ^Cash out^
+1036 ^House^
+1037 ^Odds^
+1038 ^Power^
+1039 ^Player^
+1040 ^Spin^
+1041 ^Less bet^
+1042 ^More bet^
+1043 ^OK^
+1044 ^Artillery^
+1045 ^Cavalry^
+1046 ^Command^
+1047 ^Infantry^
+1048 ^Intel^
+1049 ^Countdown^
+1050 ^Minute down^
+1051 ^Minute up^
+1052 ^Pause^
+1053 ^Play^
+1054 ^Second down^
+1055 ^Second up^
+1056 ^Stopwatch^
+1057 ^Delete^
+1058 ^Edit card^
+1059 ^Next^
+1060 ^Previous^
+1061 ^Edit game^
+1062 ^New card^
+1063 ^Save^
+1064 ^One fewer card^
+1065 ^One more card^
+1066 ^Buzz^
+1067 ^Sell out^
+1068 ^Rock on^
+1069 ^Do^
+1070 ^Do (high)^
+1071 ^Fa^
+1072 ^La^
+1073 ^Mi^
+1074 ^Re^
+1075 ^So^
+1076 ^Ti^
+1077 ^Show all bets^
+1078 ^Number^
+1079 ^Total bets^
+1080 ^Bet^
+1081 ^Double^
+1082 ^Hit^
+1083 ^Split^
+1084 ^Stand^
+1085 ^East^
+1086 ^North^
+1087 ^South^
+1088 ^West^

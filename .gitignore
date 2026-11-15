@@ -244,12 +244,12 @@ FSO.Remeshes/
 # machine-local and derived from the user's own game data.
 GeneratedMeshes/
 
-# The game's binary content under the client: the MeshReplace mesh pack (~8 GB),
-# textures, sounds, cursors and UI graphics. This repository uploads source code
-# only, so none of it is tracked. MeshReplace is regenerated from the player's
-# own game data by generate-meshes.ps1; the rest is small artwork that a release
-# build packages separately.
-Client/Simitone/Simitone.Client/Content/
+# The MeshReplace mesh pack (~8 GB) under the client's Content folder is derived
+# from the player's own game data by generate-meshes.ps1, so it is never tracked.
+# The rest of Simitone.Client/Content (UI scripts, the string table, uigraphics,
+# cursors, sounds, TS1Patch, ~4 MB) is Simitone's own source artwork: the build
+# requires it (SimitoneRequiredContent in Simitone.Windows.csproj), so it IS tracked.
+Client/Simitone/Simitone.Client/Content/MeshReplace/
 
 # Manual mesh cleanup workspaces (docs/MESH_MANUAL_CLEANUP.md): per-object OBJ,
 # Blender and scoring scratch, plus candidate meshes. The shipped result
