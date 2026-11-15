@@ -58,11 +58,9 @@ namespace Simitone.Client
         /// willing to open a browser to from <see cref="ReleasesPageUrl"/>, so changing this
         /// constant retargets the whole feature - and its URL allowlist - coherently.
         ///
-        /// This has to be the upstream Simitone, the project whose releases players install,
-        /// not a personal fork: pointing the checker at a fork would advertise builds the
-        /// rest of the player base does not have.
+        /// This build is maintained as the MicRaving/simislop fork, so its releases are the ones\n        /// this checker compares against (owner decision, 2026-11-15). GitHub only answers the\n        /// unauthenticated releases API for a public repository: while simislop is private the\n        /// check reports "could not check" rather than an update.
         /// </summary>
-        public const string RepositorySlug = "riperiperi/Simitone";
+        public const string RepositorySlug = "MicRaving/simislop";
 
         /// <summary>
         /// The GitHub REST endpoint describing the newest published release of

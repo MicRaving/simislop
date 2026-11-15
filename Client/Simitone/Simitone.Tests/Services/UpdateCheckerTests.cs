@@ -468,14 +468,14 @@ namespace Simitone.Tests.Services
         {
             // Not at a fork. A fork's releases are builds the rest of the player base does not
             // have, so offering them as an "update" would be worse than offering nothing.
-            Assert.Equal("riperiperi/Simitone", SimitoneVersion.RepositorySlug);
+            Assert.Equal("MicRaving/simislop", SimitoneVersion.RepositorySlug);
         }
 
         [Fact]
         public void EveryUrlIsBuiltFromTheOneRepositoryConstant()
         {
-            Assert.Equal("https://api.github.com/repos/riperiperi/Simitone/releases/latest", SimitoneVersion.LatestReleaseApiUrl);
-            Assert.Equal("https://github.com/riperiperi/Simitone/releases", SimitoneVersion.ReleasesPageUrl);
+            Assert.Equal("https://api.github.com/repos/MicRaving/simislop/releases/latest", SimitoneVersion.LatestReleaseApiUrl);
+            Assert.Equal("https://github.com/MicRaving/simislop/releases", SimitoneVersion.ReleasesPageUrl);
 
             // Guard against someone hardcoding a URL back in later, which is how the two
             // constants drifted apart in the version this was ported from.

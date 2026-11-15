@@ -147,7 +147,7 @@ namespace Simitone.Client.Services
     /// </description></item>
     /// <item><description>
     /// <b>It talks to the right repository.</b> The destination is
-    /// <see cref="SimitoneVersion.RepositorySlug"/> (upstream, not a fork), and a release
+    /// <see cref="SimitoneVersion.RepositorySlug"/> (this fork's own repository), and a release
     /// payload's <c>html_url</c> is only handed to the shell if it is an https URL on that
     /// repository's host - otherwise the API response gets to choose an arbitrary protocol
     /// handler to launch.

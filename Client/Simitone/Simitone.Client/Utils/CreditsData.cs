@@ -378,7 +378,8 @@ namespace Simitone.Client.Utils
 
                 new CreditSection("Simitone",
                     "Simitone - an alternative C# Windows frontend for The Sims 1, based on FreeSO.",
-                    "riperiperi - Simitone's author and maintainer.",
+                    "riperiperi - Simitone's author and original maintainer.",
+                    "MicRaving - maintainer of this Simitone fork (github.com/MicRaving/simislop).",
                     "The Simitone contributors:",
                     "https://github.com/riperiperi/Simitone/graphs/contributors",
                     "Eyedropper tool icon: \"eyedropper\" by Icons8 -",
