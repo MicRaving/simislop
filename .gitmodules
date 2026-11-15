@@ -1,3 +1,4 @@
 [submodule "FreeSO"]
 	path = FreeSO
-	url = https://github.com/alexjyong/FreeSO.git
+	url = https://github.com/MicRaving/FreeSO.git
+	branch = simitone
