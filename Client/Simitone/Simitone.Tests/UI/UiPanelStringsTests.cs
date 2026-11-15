@@ -148,7 +148,7 @@ namespace Simitone.Tests.UI
         /// caption and a translation of the status line can still be the same word - which is
         /// the point of 424 and 425 being table entries of their own.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void TheAutoFollowStatusLineQuotesTheSameWordsTheButtonsAreCaptionedWith()
         {
             var table = Table();
@@ -173,7 +173,7 @@ namespace Simitone.Tests.UI
             Assert.Equal(UIDesktopUCP.FloorNames, UIMainPanel.FloorNames);
         }
 
-        [Fact]
+        [ContentFact]
         public void TheFloorNamesAreTheIdsTheTableCarries()
         {
             var table = Table();
@@ -206,7 +206,7 @@ namespace Simitone.Tests.UI
         /// not been translated rather than Simitone's own text.
         /// </para>
         /// </summary>
-        [Theory]
+        [ContentTheory]
         [InlineData("Low")]
         [InlineData("Medium")]
         [InlineData("High")]
@@ -242,7 +242,7 @@ namespace Simitone.Tests.UI
         /// translator who "fixed" one of them would break the body carousel rather than rename
         /// it.
         /// </summary>
-        [Theory]
+        [ContentTheory]
         [InlineData("lgt")]
         [InlineData("med")]
         [InlineData("drk")]

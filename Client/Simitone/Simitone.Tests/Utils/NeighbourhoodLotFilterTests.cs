@@ -60,7 +60,7 @@ namespace Simitone.Tests.Utils
             return names.Where(name => name != null && !shipped.Contains(name)).ToList();
         }
 
-        [Fact]
+        [ContentFact]
         public void EveryButtonTheMapChromeNamesIsActuallyShipped()
         {
             var wanted = new List<string> { "ngbh_filterbar.png" };
@@ -637,7 +637,7 @@ namespace Simitone.Tests.Utils
             "258", "259", "269"
         };
 
-        [Theory]
+        [ContentTheory]
         [InlineData("240", "Occupied lots")]
         [InlineData("241", "Vacant lots")]
         [InlineData("242", "Residential lots")]
@@ -661,7 +661,7 @@ namespace Simitone.Tests.Utils
             Assert.Equal(english, table[id]);
         }
 
-        [Fact]
+        [ContentFact]
         public void OnlyTheCountReadoutTakesArguments()
         {
             var table = Table();

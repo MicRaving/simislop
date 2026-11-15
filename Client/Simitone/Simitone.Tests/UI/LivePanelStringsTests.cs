@@ -103,7 +103,7 @@ namespace Simitone.Tests.UI
             yield return new object[] { MagiCoinFormat.CaptionId, "MagiCoins: %s" };
         }
 
-        [Theory]
+        [ContentTheory]
         [MemberData(nameof(NewPanelStrings))]
         public void TheTableCarriesTheEnglishEachCallSiteFallsBackTo(string id, string english)
         {
@@ -117,7 +117,7 @@ namespace Simitone.Tests.UI
             Assert.Equal(english, table[id]);
         }
 
-        [Fact]
+        [ContentFact]
         public void EveryIdTheNewPanelsReadIsInTheTable()
         {
             // The rows above check the values; this checks there are no gaps - an id the call
@@ -130,7 +130,7 @@ namespace Simitone.Tests.UI
             }
         }
 
-        [Fact]
+        [ContentFact]
         public void TheNewPanelsDoNotDuplicateTheGamesOwnWordsIntoSimitonesTable()
         {
             // The same rule UiPanelStringsTests applies to the rest of the table: the words TS1
@@ -199,7 +199,7 @@ namespace Simitone.Tests.UI
             Assert.Equal(7, UIMainPanel.LiveCategoryInterests);
         }
 
-        [Fact]
+        [ContentFact]
         public void TheThreeNewCategoriesHaveTheirOwnIcons()
         {
             // The switcher loads a category's icon by name out of the shipped UI art, so a
@@ -212,7 +212,7 @@ namespace Simitone.Tests.UI
             }
         }
 
-        [Fact]
+        [ContentFact]
         public void TheVacationSortButtonHasItsOwnArtToo()
         {
             var art = Path.Combine(AppContext.BaseDirectory, "Content", "uigraphics", "live", "inv_vac_btn.png");

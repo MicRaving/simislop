@@ -116,7 +116,7 @@ namespace Simitone.Tests.UI
 
         // ---- the table carries the English the page used to show ---------------------------
 
-        [Theory]
+        [ContentTheory]
         // The slot row.
         [InlineData("300", "In use")]
         [InlineData("301", "Not created")]
@@ -194,7 +194,7 @@ namespace Simitone.Tests.UI
         /// <c>SimitoneStrings.Substitute</c> covers; this is what stops one being written in the
         /// first place.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void EveryEntryThatTakesArgumentsAsksForTheSameOnesItsCallSitePasses()
         {
             var table = Table();
@@ -210,7 +210,7 @@ namespace Simitone.Tests.UI
         /// that has is a translation that will silently lose a word, because there is no argument
         /// left to fill it with.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void NoEntryThatTakesNoArgumentsAsksForAny()
         {
             var taking = new HashSet<string>(ArgumentTaking.Select(x => x.Id), StringComparer.Ordinal);
@@ -312,7 +312,7 @@ namespace Simitone.Tests.UI
         /// built by joining its parts with it and is read back by splitting on it, so a
         /// translated separator would not translate the page - it would take it apart wrongly.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void TheRowSeparatorIsNotATableEntry()
         {
             foreach (var pair in Table())
@@ -330,7 +330,7 @@ namespace Simitone.Tests.UI
         /// spliced into the message that names it, so the set is stated once however many
         /// languages say it.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void TheReservedCharacterSetIsNotATableEntry()
         {
             foreach (var pair in Table())
@@ -340,7 +340,7 @@ namespace Simitone.Tests.UI
             }
         }
 
-        [Fact]
+        [ContentFact]
         public void TheReservedCharacterSetIsTheOneTheMessageNames()
         {
             // The entry carries one specifier, and the call site fills it with this exact
@@ -358,7 +358,7 @@ namespace Simitone.Tests.UI
         /// there and goes through Simitone's own table instead. This is the second half, and the
         /// reason it is a separate list is that the first half is not Simitone's to translate.
         /// </summary>
-        [Theory]
+        [ContentTheory]
         [InlineData("170", "Toggle Settings")]
         [InlineData("171", "Description")]
         [InlineData("172", "There are no settings here.")]
@@ -377,7 +377,7 @@ namespace Simitone.Tests.UI
         /// of the game and is already translated. A copy here would be a second, English-only
         /// answer to a question the game has already answered.
         /// </summary>
-        [Theory]
+        [ContentTheory]
         [InlineData("Low")]
         [InlineData("Medium")]
         [InlineData("High")]

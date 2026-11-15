@@ -383,7 +383,7 @@ namespace Simitone.Tests.UI
             return root == null ? null : Path.Combine(root, "Client", "Simitone", "Simitone.Client", "Content");
         }
 
-        [Fact]
+        [ContentFact]
         public void EveryAuthoredLayoutIsCommittedExactlyAsTheBuilderWritesIt()
         {
             var content = ContentDir();
@@ -394,7 +394,7 @@ namespace Simitone.Tests.UI
                 var path = Path.Combine(content, "UI", "uiscripts", spec.FileName);
                 Assert.True(File.Exists(path),
                     spec.FileName + " is in the catalogue but not committed at " + path +
-                    "; run EODLayoutWriter.WriteLayouts");
+                    "; run Simitone.Windows.exe -regen-eod-layouts <content dir>");
                 Assert.Equal(EODLayoutBuilder.Build(spec), File.ReadAllText(path));
             }
         }

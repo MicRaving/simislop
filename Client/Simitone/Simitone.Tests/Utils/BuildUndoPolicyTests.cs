@@ -361,7 +361,7 @@ namespace Simitone.Tests.Utils
 
         // ------------------------------------------------- the shipped string table
 
-        [Theory]
+        [ContentTheory]
         [InlineData("550", "Undo")]
         [InlineData("551", "Redo")]
         [InlineData("552", "Undo covers buying, selling back and moving objects. Walls, floors, roofs and terrain are not covered.")]

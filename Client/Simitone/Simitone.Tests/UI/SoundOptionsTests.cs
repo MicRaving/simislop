@@ -78,7 +78,7 @@ namespace Simitone.Tests.UI
         /// reason it is a separate test from the rows above is that a page cannot be built
         /// headlessly, so the file is the only part of the control that can be checked here.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void TheSliderArtIsShippedWhereThePageLooksForIt()
         {
             // The name the base class asks the content tree for, spelled out here so a change to

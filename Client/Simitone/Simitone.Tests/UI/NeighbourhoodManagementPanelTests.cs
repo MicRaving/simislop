@@ -1365,7 +1365,7 @@ namespace Simitone.Tests.UI
         /// <c>button.mobile.png</c>; the touch and desktop art are not interchangeable, which is
         /// most of why the touch page is so much taller.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void TheButtonHeightsAreThePlatesOwnHeights()
         {
             Assert.Equal(PlateHeight("button.png"), LayoutFor(true)[0]);
@@ -1384,7 +1384,7 @@ namespace Simitone.Tests.UI
         /// overlap - which is the concrete form of the class remarks' point that green means
         /// "the affirmative answer" on this page, and nothing here is one.
         /// </remarks>
-        [Fact]
+        [ContentFact]
         public void TheTwoButtonColourwaysAreNotInterchangeable()
         {
             Assert.NotEqual(PlateHeight("button.png"), PlateHeight("greenbutton.png"));

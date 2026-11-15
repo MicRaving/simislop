@@ -325,7 +325,7 @@ namespace Simitone.Tests.Utils
             Assert.Equal("Rezone %s as a %s lot?", SimitoneStrings.Substitute("Rezone %s as a %s lot?", null));
         }
 
-        [Fact]
+        [ContentFact]
         public void EveryShippedStringWithASpecifierStillAgreesWithTheGame()
         {
             // The end-to-end version, over the strings that actually ship: every entry that has a
@@ -410,7 +410,7 @@ namespace Simitone.Tests.Utils
             Assert.Equal(expected, SimitoneStrings.ResolveTablePath(@"C:\game"));
         }
 
-        [Fact]
+        [ContentFact]
         public void TheTableIsActuallyShippedWhereTheGameLooksForIt()
         {
             // The one test here that touches the filesystem, and it is the point of the whole
@@ -422,7 +422,7 @@ namespace Simitone.Tests.Utils
                 + " (see the Content/UI/**/*.cst item in Simitone.Client.csproj).");
         }
 
-        [Fact]
+        [ContentFact]
         public void TheLanguageFolderItselfIsShipped()
         {
             // The folder, not just the file, because ContentStrings decides which folder to read
@@ -446,14 +446,14 @@ namespace Simitone.Tests.Utils
             return File.ReadAllText(SimitoneStrings.ResolveTablePath(AppContext.BaseDirectory));
         }
 
-        [Fact]
+        [ContentFact]
         public void TheShippedTableParses()
         {
             var table = SimitoneStrings.ParseTable(ShippedTableText());
             Assert.NotEmpty(table);
         }
 
-        [Fact]
+        [ContentFact]
         public void EveryShippedEntryIsAWellFormedPair()
         {
             // A line with a missing closing '^' is swallowed by the loader's scan rather than
@@ -467,7 +467,7 @@ namespace Simitone.Tests.Utils
             }
         }
 
-        [Fact]
+        [ContentFact]
         public void NoShippedIdIsRepeated()
         {
             // The loader stores ids in a dictionary and the second one wins, so a duplicate is
@@ -481,7 +481,7 @@ namespace Simitone.Tests.Utils
             Assert.Equal(ids.Count, ids.Distinct(StringComparer.Ordinal).Count());
         }
 
-        [Fact]
+        [ContentFact]
         public void NoShippedTextIsEmpty()
         {
             // SimitoneStrings treats an empty entry as missing, so an empty line in the table is
@@ -499,7 +499,7 @@ namespace Simitone.Tests.Utils
             Assert.Equal("f900", SimitoneStrings.TableIdForFileName(SimitoneStrings.TableFileName));
         }
 
-        [Theory]
+        [ContentTheory]
         // The credits panel's own three strings, the block the table shipped with.
         [InlineData("1", "Credits")]
         [InlineData("2", "Close")]
@@ -529,7 +529,7 @@ namespace Simitone.Tests.Utils
         /// are pinned - the entry's text, and the fallback a build with no table produces.
         /// </para>
         /// </summary>
-        [Theory]
+        [ContentTheory]
         // Options quick settings strip (UISettingsPanel).
         [InlineData("20", "Settings")]
         [InlineData("21", "Apply & Save")]
@@ -731,7 +731,7 @@ namespace Simitone.Tests.Utils
         /// and the fallback at the call site have to ask for the same number of things, because
         /// only one of them is ever the translator's to change.
         /// </summary>
-        [Theory]
+        [ContentTheory]
         [InlineData("413", 2)]
         [InlineData("461", 3)]
         [InlineData("478", 1)]
@@ -756,7 +756,7 @@ namespace Simitone.Tests.Utils
         /// The reverse: a caption that takes nothing must not have picked up a specifier, or a
         /// translation will silently lose a word with nothing left to fill it with.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void NoneOfTheNewIdsThatTakeNothingAsksForAnything()
         {
             // Every id whose call site passes something. A running list, and each wave that adds a
@@ -832,7 +832,7 @@ namespace Simitone.Tests.Utils
             return loader;
         }
 
-        [Fact]
+        [ContentFact]
         public void FreeSOsOwnLoaderFilesTheTableUnderTheSimitoneTableId()
         {
             // The end-to-end check, and the one that matters: not that our parser agrees with
@@ -848,7 +848,7 @@ namespace Simitone.Tests.Utils
                 strings.GetString("f900", "3"));
         }
 
-        [Fact]
+        [ContentFact]
         public void FreeSOsOwnLoaderReadsEveryShippedEntry()
         {
             // A file the loader opens but cannot read past the first entry still files itself
@@ -866,7 +866,7 @@ namespace Simitone.Tests.Utils
             }
         }
 
-        [Fact]
+        [ContentFact]
         public void FreeSOsOwnLoaderDoesNotFindTheTableUnderATs1TableNumber()
         {
             // TS1's own tables are numbered from 100, and a Simitone id that resolved to one
@@ -1038,7 +1038,7 @@ namespace Simitone.Tests.Utils
         /// against a value typed into a test: not one entry may carry a control character, or a
         /// language would be the only one where a caption draws as layout.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void NoShippedEntryCarriesAControlCharacter()
         {
             foreach (var pair in SimitoneStrings.ParseTable(ShippedTableText()))
@@ -1052,7 +1052,7 @@ namespace Simitone.Tests.Utils
         /// ...and no id either, since the id is what a translator matches on and a control
         /// character in it cannot be typed into a lookup by hand.
         /// </summary>
-        [Fact]
+        [ContentFact]
         public void NoShippedIdCarriesAControlCharacter()
         {
             foreach (var id in SimitoneStrings.ParseTable(ShippedTableText()).Keys)
