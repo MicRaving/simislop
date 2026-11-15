@@ -38,12 +38,7 @@ namespace Simitone.Client.UI.Controls
         private bool Active;
         private UIMouseEventRef ClickHandler;
         public event ButtonClickDelegate OnMouseEvent;
-        public delegate void InteractionResultDelegate(UIElement me, bool accepted);
-        public event InteractionResultDelegate OnInteractionResult;
         public UIIQTrackEntry ParentEntry;
-
-        public UIButton AcceptButton;
-        public UIButton DeclineButton;
 
         public float OverlayScale;
         public float RimScale;
@@ -107,19 +102,6 @@ namespace Simitone.Client.UI.Controls
             GameFacade.Screens.Tween.To(this, 0.3f, new Dictionary<string, float>() { { "Y", -60f } }, TweenQuad.EaseIn);
             GameThread.SetTimeout(() => Parent.Remove(this), 300);
             Dead = true;
-        }
-
-        /*
-          actionfaceselection = 0x1B200000001,
-          actionhappy = 0x1B300000001,
-          actionmad = 0x1B400000001,
-          actionneutral = 0x1B500000001,
-          actionsad = 0x1B600000001,
-          */
-
-        public void UpdateInteractionResult(sbyte result)
-        {
-            return;
         }
 
         private void MouseEvt(UIMouseEventType type, UpdateState state)

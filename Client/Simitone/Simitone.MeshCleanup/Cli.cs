@@ -54,16 +54,6 @@ namespace Simitone.MeshCleanup
         public float GetFloat(string key, float fallback = 0f)
             => values.TryGetValue(key, out var v) ? float.Parse(v, CultureInfo.InvariantCulture) : fallback;
 
-        /// <summary>Parses "x,y,z" or "x,y,z,x2,y2,z2".</summary>
-        public static float[] ParseFloats(string text, int expected)
-        {
-            var parts = text.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length != expected) throw new ArgumentException($"expected {expected} comma-separated numbers, got {parts.Length}");
-            var result = new float[expected];
-            for (int i = 0; i < expected; i++) result[i] = float.Parse(parts[i], CultureInfo.InvariantCulture);
-            return result;
-        }
-
         /// <summary>
         /// Splits <c>stem_iff_dgrp</c> (the runtime file naming, e.g.
         /// <c>gargoyle_iff_100.fsom</c>) back into the IFF name the game data uses and the
@@ -83,11 +73,6 @@ namespace Simitone.MeshCleanup
             iffStem = name.Substring(0, marker);
             rawName = name;
             return true;
-        }
-
-        public static void WriteJsonLine(StringBuilder sb, int indent, string key, string value)
-        {
-            sb.Append(' ', indent).Append('"').Append(key).Append("\": ").Append(value).Append(",\n");
         }
     }
 }

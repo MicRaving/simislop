@@ -246,7 +246,7 @@ namespace Simitone.Client.UI.Panels
 
             var nameDesc = neigh.GetHouseNameDesc(houseID);
             var name = nameDesc.Item1;
-            if (name == "") name = StreetTitle.Caption;
+            if (name == "") name = StreetTitle?.Caption ?? "";
 
             LotTitle = new UILabel();
             LotTitle.Position = new Vector2(margin.X, 122 + extra - 64);
@@ -837,26 +837,6 @@ namespace Simitone.Client.UI.Panels
         public void ShowMore(bool more)
         {
             GameFacade.Screens.Tween.To(this, 0.5f, new Dictionary<string, float>() { { "MoreTween", (more)?1f:0f } }, TweenQuad.EaseOut);
-            /*
-            var nonOptionButtons = new UIElement[]
-            {
-                LotDescription,
-                SecondaryText,
-                EnterLot,
-                More
-            };
-
-            foreach (var btn in nonOptionButtons)
-            {
-                var b = btn as UIButton;
-                if (b != null) b.Disabled = more;
-            }
-
-            foreach (var btn in OptionButtons)
-            {
-                btn.Disabled = !more;
-            }
-            */
         }
 
         public void Kill()
@@ -865,7 +845,7 @@ namespace Simitone.Client.UI.Panels
             More.Opacity = 0.99f;
             var screen = GameFacade.Screens.CurrentUIScreen;
             GameFacade.Screens.Tween.To(this, 0.5f, new Dictionary<string, float>() { { "X", (screen.ScreenWidth / -2) - 32 } }, TweenQuad.EaseIn);
-            GameThread.SetTimeout(() => { Parent.Remove(this); }, 500);
+            GameThread.SetTimeout(() => { Parent?.Remove(this); }, 500);
         }
 
         private void InitLabel(UILabel label)
@@ -906,7 +886,6 @@ namespace Simitone.Client.UI.Panels
                 var fam = vm.Context.CreateObjectInstance(sim, LotTilePos.OUT_OF_WORLD, Direction.NORTH, true).BaseObject;
                 var btn = new UIAvatarSelectButton(UIIconCache.GetObject(fam));
                 btn.Opacity = 1f;
-                var id = i;
                 btn.Name = fam.Name;
                 btn.X = baseX + (i++) * 100;
                 btn.Y = 0;

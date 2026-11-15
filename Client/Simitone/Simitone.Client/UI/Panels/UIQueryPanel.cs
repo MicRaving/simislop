@@ -235,7 +235,6 @@ namespace Simitone.Client.UI.Panels
                 if (Thumbnail != null && Disposable) Thumbnail.Dispose();
                 if (Thumb3D != null) Thumb3D.Dispose();
                 Thumbnail = null; Thumb3D = null;
-                Thumbnail = null;
             }
 
             FullHeight = Body.CaptionStyle.LineHeight * Body.NumLines + 45 + 20;
@@ -250,8 +249,11 @@ namespace Simitone.Client.UI.Panels
 
         public override void Removed()
         {
+            base.Removed();
             if (Thumbnail != null && Disposable) Thumbnail.Dispose();
             if (Thumb3D != null) Thumb3D.Dispose();
+            //the lot control re-adds this panel to each new frontend, so nothing disposed may stay referenced
+            Thumbnail = null; Thumb3D = null;
         }
 
         public void SetInfo(Texture2D thumb, string name, string description, int price, bool doDispose)
@@ -282,7 +284,6 @@ namespace Simitone.Client.UI.Panels
             if (Thumb3D != null) Thumb3D.Dispose();
             Thumbnail = null; Thumb3D = null;
             Thumbnail = thumb;
-            //UpdateImagePosition();
             Disposable = doDispose;
         }
 

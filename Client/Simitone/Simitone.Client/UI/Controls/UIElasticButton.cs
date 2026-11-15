@@ -14,16 +14,6 @@ using Simitone.Client.UI.Model;
 namespace Simitone.Client.UI.Controls
 {
     /// <summary>
-    /// Implemented by controls that can carry a <see cref="UIShadow"/>, so generic code (a
-    /// list of buttons, a neighbour-lot card) can drop a shadow behind any of them without
-    /// knowing the concrete type.
-    /// </summary>
-    public interface IUIShadowElement
-    {
-        UIShadow ElementShadow { get; }
-    }
-
-    /// <summary>
     /// A drop shadow drawn from a single texture, offset from the element it belongs to.
     ///
     /// <para>
@@ -78,7 +68,7 @@ namespace Simitone.Client.UI.Controls
         }
     }
 
-    public class UIElasticButton : UIButton, IUIShadowElement
+    public class UIElasticButton : UIButton
     {
         public UIElasticButton(Texture2D tex) : base (tex)
         {

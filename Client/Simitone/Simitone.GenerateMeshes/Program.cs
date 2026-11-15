@@ -297,8 +297,7 @@ namespace Simitone.GenerateMeshes
                                 continue;
                             }
 
-                            using (var fs = File.Create(outPath))
-                                DGRP3DMesh.WriteFSOM(fs, stem + "_" + dgrp.ChunkID, geoms, bounds);
+                            WriteAtomic(outPath, fs => DGRP3DMesh.WriteFSOM(fs, stem + "_" + dgrp.ChunkID, geoms, bounds));
 
                             generated++;
                             if (!o.Quiet)
@@ -413,7 +412,7 @@ namespace Simitone.GenerateMeshes
                                 using (var s = File.OpenRead(animPath)) existing = DGRP3DAnim.Read(s);
                                 if (existing.Version >= DGRP3DAnim.VERSION) { reused++; continue; }
 
-                                if (!o.DryRun) using (var fs = File.Create(animPath)) existing.Write(fs);
+                                if (!o.DryRun) WriteAtomic(animPath, fs => existing.Write(fs));
                                 converted++;
                                 if (!o.Quiet)
                                     Console.WriteLine($"convert {stem}_{baseId}.fsom  v{existing.Version}->v{DGRP3DAnim.VERSION}  {existing.FrameCount} frames, {existing.BlockCount} block(s)");
@@ -439,10 +438,7 @@ namespace Simitone.GenerateMeshes
                         try
                         {
                             var anim = DGRP3DAnim.FromFrames(stem + "_" + baseId, frames);
-                            if (!o.DryRun)
-                            {
-                                using (var fs = File.Create(animPath)) anim.Write(fs);
-                            }
+                            if (!o.DryRun) WriteAtomic(animPath, fs => anim.Write(fs));
 
                             // the base file is now the container; the other frames are redundant
                             for (int i = 1; i < num; i++)
@@ -580,7 +576,7 @@ namespace Simitone.GenerateMeshes
             try
             {
                 var anim = DGRP3DAnim.FromFrames(stem + "_" + baseId, frames);
-                using (var fs = File.Create(outPath)) anim.Write(fs);
+                WriteAtomic(outPath, fs => anim.Write(fs));
                 generated++;
                 if (!o.Quiet)
                     Console.WriteLine($"[{generated,5}] {animRaw}  {num} frames, {anim.BlockCount} block(s), {tris} tris  {watch.ElapsedMilliseconds} ms");
@@ -592,6 +588,27 @@ namespace Simitone.GenerateMeshes
                 Console.Error.WriteLine($"  ! {animRaw}: {e.GetType().Name} {e.Message}");
                 try { if (File.Exists(outPath)) File.Delete(outPath); } catch { }
                 return false; // fall back to per-frame generation
+            }
+        }
+
+        /// <summary>
+        /// Writes <paramref name="path"/> through a sibling temp file and renames it into place, so a
+        /// run that is killed (or a write that throws) mid-file never leaves a truncated .fsom behind.
+        /// That matters because an existing output file is treated as finished and skipped on resume
+        /// ("already present"), so a truncated one would be kept forever.
+        /// </summary>
+        static void WriteAtomic(string path, Action<Stream> write)
+        {
+            var temp = path + ".tmp";
+            try
+            {
+                using (var fs = File.Create(temp)) write(fs);
+                File.Move(temp, path, true);
+            }
+            catch
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+                throw;
             }
         }
 

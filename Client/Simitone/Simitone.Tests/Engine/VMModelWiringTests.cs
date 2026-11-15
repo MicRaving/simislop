@@ -173,15 +173,17 @@ namespace Simitone.Tests.Engine
         // ---- the over-limit rule and its dead twin (E-37) ------------------------------------
 
         [Fact]
-        public void AMotiveRateChangeAsksTheSharedRuleAndDoesNotClamp()
+        public void AMotiveRateChangeAsksTheSharedRuleBeforeAndAfterTheStep()
         {
             var tick = MethodBody(MotiveChange(), "public void Tick(VMAvatar avatar)");
 
             Assert.Contains("IsPastLimit(motive, MaxValue, rate)", tick);
-            Assert.True(Regex.Matches(tick, @"IsPastLimit\(").Count == 1,
-                "VMMotiveChange.Tick tests the over-limit predicate more than once. The second test"
-                + " used to be the clamp that could never fire, because the first had already"
-                + " returned on the identical predicate.");
+            // Once before the step (already over: do nothing) and once after it (clamp to the
+            // limit). The second is reachable - it tests the stepped motive, not the old one.
+            Assert.True(Regex.Matches(tick, @"IsPastLimit\(").Count == 2,
+                "VMMotiveChange.Tick must test the over-limit predicate before the step and clamp"
+                + " with it after the step.");
+            Assert.Contains("motive = MaxValue", tick);
 
             Assert.Contains("AppliesTo(Motive)", tick);
         }

@@ -1,12 +1,6 @@
-using FSO.Client;
-using FSO.Client.UI.Framework;
-using FSO.Files.Formats.IFF.Chunks;
 using Microsoft.Xna.Framework;
 using Simitone.Client.UI.Controls;
-using Simitone.Client.UI.Screens;
 using Simitone.Client.Utils;
-using System;
-using System.Runtime.CompilerServices;
 
 namespace Simitone.Client.UI.Panels.Options
 {
@@ -25,8 +19,6 @@ namespace Simitone.Client.UI.Panels.Options
         public UIOptionsPanel OptTabViewer;
 
         public UIBigButton OKButton { get; }
-
-        public event Action<short> OnResult;
 
         /// <summary>
         /// Creates a new <see cref="UIOptionsAlert"/> that will display the current state of each setting on the
@@ -50,7 +42,6 @@ namespace Simitone.Client.UI.Panels.Options
             SetHeight(520);
 
             OptTabViewer = new UIOptionsPanel(SettingsObjectInstance);
-            //GfxPanel.OnResult += (res) => { OnResult?.Invoke(res); Close(); };
             Add(OptTabViewer);
             OptTabViewer.SetTab();
 
@@ -60,7 +51,6 @@ namespace Simitone.Client.UI.Panels.Options
             };
             OKButton.OnButtonClick += (elem) =>
             {
-                //OnResult?.Invoke(GfxPanel.GetSelectedOption());
                 Close();
             };
             Add(OKButton);
@@ -73,102 +63,6 @@ namespace Simitone.Client.UI.Panels.Options
             base.GameResized();
             OptTabViewer.Position = new Vector2((Width - UIOptionsPanel.DefaultContentWidth) / 2, 90);
             OKButton.Position = new Vector2((Width / 2) - (OKButton.Width / 2), Height - 10 - OKButton.Size.Y);
-        }
-    }
-
-    /// <summary>
-    /// The three pieces of <see cref="TS1GameScreen"/> the Options menu needs, written as
-    /// extension methods.
-    ///
-    /// <para>
-    /// In the upstream change these are ordinary members of <see cref="TS1GameScreen"/>. They
-    /// live here instead because that file belongs to a different piece of work, and an
-    /// extension method is picked up by every existing call site without touching it: when
-    /// the real members land on the screen, C# prefers the instance method and these simply
-    /// stop being candidates. Nothing has to be re-pointed when that happens, and there is
-    /// no duplicate-member conflict to resolve.
-    /// </para>
-    /// </summary>
-    internal static class TS1GameScreenOptionsExtensions
-    {
-        /// <summary>
-        /// The Options dialog currently up, if any. Tracked so opening the menu twice
-        /// re-opens it rather than stacking a second copy on top of the first.
-        /// </summary>
-        private static UIOptionsAlert _openOptionsDialog;
-
-        /// <summary>
-        /// Opens the Options menu.
-        /// </summary>
-        public static void ShowOptionsDialog(this TS1GameScreen game)
-        {
-            if (_openOptionsDialog != null)
-                UIScreen.RemoveDialog(_openOptionsDialog);
-
-            _openOptionsDialog = new UIOptionsAlert(GlobalSettings.Default);
-            UIScreen.GlobalShowDialog(_openOptionsDialog, true);
-        }
-
-        /// <summary>
-        /// Switches the game language behind a transition wipe.
-        ///
-        /// <para>
-        /// The strings are reloaded by <see cref="SimitoneGame.ChangeLanguage"/>; the wipe is
-        /// there so the swap is not a visible pop, and because a lot of the UI text is only
-        /// read once when a panel is built.
-        /// </para>
-        ///
-        /// <para>
-        /// The upstream change draws the language icon from CustomUI here, which needs a new
-        /// <c>UITransDialog</c> factory that takes an arbitrary texture. That file is not
-        /// part of this change, so the stock "normal" transition art is used instead - the
-        /// wipe itself is the same.
-        /// </para>
-        /// </summary>
-        public static void RuntimeChangeLanguage(this TS1GameScreen game, STRLangCode NewLanguage)
-        {
-            new UITransDialog("normal", () => (GameFacade.Game as SimitoneGame)?.ChangeLanguage(NewLanguage));
-        }
-
-        /// <summary>
-        /// The gameplay speed that was in force before <see cref="LockSimSpeed"/> froze it,
-        /// so leaving a paused mode can put it back rather than forcing pause.
-        /// </summary>
-        private sealed class SpeedLock
-        {
-            public int Underlying;
-        }
-
-        private static readonly ConditionalWeakTable<TS1GameScreen, SpeedLock> SpeedLocks = new();
-
-        /// <summary>
-        /// If leaving a mode that is forcing paused gameplay speed, resets the gameplay speed to the one set before <see cref="LockSimSpeed"/>
-        /// </summary>
-        internal static void UnlockSimSpeed(this TS1GameScreen game)
-        {
-            var vm = game.vm;
-            if (vm == null) return;
-            if (vm.SpeedMultiplier != GameplaySpeed.Disabled) return; // unlocked already
-
-            var restore = SpeedLocks.TryGetValue(game, out var held) ? held.Underlying : GameplaySpeed.Disabled;
-            vm.SpeedMultiplier = restore;
-            if (vm.SpeedMultiplier < 0) // oops? - nothing worth restoring
-                vm.SpeedMultiplier = GameplaySpeed.ReverseRemap[GameplaySpeed.Play]; // force speed 1
-            vm.ResetTickAlign();
-        }
-
-        /// <summary>
-        /// If the gameplay is not already locked (<see cref="GameplaySpeed.Disabled"/>), saves the current gameplay speed and disables changing gameplay speed.
-        /// </summary>
-        internal static void LockSimSpeed(this TS1GameScreen game)
-        {
-            var vm = game.vm;
-            if (vm == null) return;
-            if (vm.SpeedMultiplier == GameplaySpeed.Disabled) return; // locked already
-
-            var held = SpeedLocks.GetOrCreateValue(game);
-            held.Underlying = vm.SpeedMultiplier;
-            vm.SpeedMultiplier = GameplaySpeed.Disabled;
         }
     }
 }

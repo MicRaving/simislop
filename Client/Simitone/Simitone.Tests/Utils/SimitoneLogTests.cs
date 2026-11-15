@@ -240,6 +240,22 @@ namespace Simitone.Tests.Utils
         }
 
         [Fact]
+        public void InnerExceptions_AreLoggedOnceEach_IncludingAggregateMembers()
+        {
+            var inner = new InvalidOperationException("root cause");
+            var wrapped = new TypeInitializationException("Some.Type", inner);
+            var agg = new AggregateException("many", wrapped, new ArgumentException("second"));
+
+            SimitoneLog.Error("boom", agg);
+
+            var raw = File.ReadAllText(LogFile);
+            Assert.Contains("| AggregateException: ", raw, StringComparison.Ordinal);
+            Assert.Single(Regex.Matches(raw, "---> InvalidOperationException: root cause"));
+            Assert.Single(Regex.Matches(raw, "---> ArgumentException: second"));
+            Assert.Single(Regex.Matches(raw, "---> TypeInitializationException"));
+        }
+
+        [Fact]
         public void EmbeddedNewlinesInAMessage_AreWrittenThroughVerbatim()
         {
             SimitoneLog.Info("first\nsecond");
@@ -295,7 +311,7 @@ namespace Simitone.Tests.Utils
         // --------------------------------------------------------------- concurrency
 
         [Fact]
-        public void ConcurrentWrites_EachProduceExactlyOneWholeLine()
+        public async Task ConcurrentWrites_EachProduceExactlyOneWholeLine()
         {
             const int writers = 8;
             const int perWriter = 25;
@@ -312,7 +328,7 @@ namespace Simitone.Tests.Utils
                     }
                 }));
             }
-            Task.WaitAll(tasks.ToArray());
+            await Task.WhenAll(tasks);
 
             var lines = ReadAllLines();
             Assert.Equal(writers * perWriter, lines.Count);

@@ -223,11 +223,6 @@ namespace Simitone.Client.Neighbourhood
             Fatal = fatal;
         }
 
-        /// <summary>A requirement that is satisfied, for building a checklist.</summary>
-        public static NeighbourhoodFacadeRequirement Have(NeighbourhoodFacadePiece piece)
-        {
-            return new NeighbourhoodFacadeRequirement(piece, true, null);
-        }
     }
 
     /// <summary>
@@ -1369,9 +1364,17 @@ namespace Simitone.Client.Neighbourhood
                 //neighbourhood view will start simulating an empty lot behind the UI
                 if (world != null)
                 {
+                    //two tries rather than one: a Remove that throws must not skip the Dispose
                     try
                     {
                         GameFacade.Scenes.Remove(world);
+                    }
+                    catch (Exception)
+                    {
+                        //a world the layer will not let go of is a leak, not a crash
+                    }
+                    try
+                    {
                         world.Dispose();
                     }
                     catch (Exception)
@@ -1723,18 +1726,28 @@ namespace Simitone.Client.Neighbourhood
             //one that did not is the whole of the story - see SurfaceUpload.
             var uploadFailure = (string)null;
 
-            facade.Surfaces = new[]
+            //Assigned before the first one is built, so a throw part way through can free what the
+            //earlier ones already uploaded. The generator is still the caller's until Assemble
+            //returns, so the wall and floor textures of a surface that never got built are freed by
+            //TryBuild's finally; the ones a built surface owns are freed by facade.Dispose.
+            facade.Surfaces = new NeighbourhoodFacadeSurface[3];
+            try
             {
-                Surface(device, generator.WallVerts, generator.WallIndices, generator.WallTarget,
-                    lot, ground, offset, ownsTexture: true, index: 0, ref uploadFailure),
+                facade.Surfaces[0] = Surface(device, generator.WallVerts, generator.WallIndices,
+                    generator.WallTarget, lot, ground, offset, ownsTexture: true, index: 0, ref uploadFailure);
                 //the roof texture is the content system's, not ours: RoofComponent hands out
                 //roofs.Get(name).Get(device), one instance shared by every lot with that roof.
                 //Disposing it would take the lot view's roofs down with it.
-                Surface(device, generator.RoofVerts, generator.RoofIndices, generator.RoofTexture,
-                    lot, ground, offset, ownsTexture: false, index: 1, ref uploadFailure),
-                Surface(device, generator.FloorVerts, generator.FloorIndices, generator.FloorTexture,
-                    lot, ground, offset, ownsTexture: true, index: 2, ref uploadFailure)
-            };
+                facade.Surfaces[1] = Surface(device, generator.RoofVerts, generator.RoofIndices,
+                    generator.RoofTexture, lot, ground, offset, ownsTexture: false, index: 1, ref uploadFailure);
+                facade.Surfaces[2] = Surface(device, generator.FloorVerts, generator.FloorIndices,
+                    generator.FloorTexture, lot, ground, offset, ownsTexture: true, index: 2, ref uploadFailure);
+            }
+            catch (Exception)
+            {
+                facade.Dispose();
+                throw;
+            }
 
             //which of the three passes actually produced something. One surface with no geometry is
             //normal - a one-storey house has no roof - and three of them with none is a lot that
@@ -1813,9 +1826,20 @@ namespace Simitone.Client.Neighbourhood
             NeighbourhoodLot lot, float ground, float groundOffset, bool ownsTexture, int index,
             ref string uploadFailure)
         {
-            if (verts == null || indices == null || indices.Length == 0) return null;
+            //No surface means nobody to own the texture, and the caller lets go of the generator
+            //once Assemble returns - so an owned texture that gets no surface is freed here, or it
+            //is a render target (the wall atlas, the floor) that lives for the rest of the process.
+            if (verts == null || indices == null || indices.Length == 0)
+            {
+                if (ownsTexture) texture?.Dispose();
+                return null;
+            }
             var placed = NeighbourhoodFacadeTransform.PlacedVertices(lot, verts, ground, groundOffset);
-            if (placed == null || placed.Length == 0) return null;
+            if (placed == null || placed.Length == 0)
+            {
+                if (ownsTexture) texture?.Dispose();
+                return null;
+            }
 
             var surface = new NeighbourhoodFacadeSurface
             {
@@ -1833,7 +1857,11 @@ namespace Simitone.Client.Neighbourhood
                 //surface.Vertices still holds it for the obj exporter; only the copy that reaches
                 //the GPU is widened. See NeighbourhoodFacadeVertex.
                 var objectVertices = NeighbourhoodFacadeVertex.ToObjectVertices(placed, indices);
-                if (objectVertices == null) return null;
+                if (objectVertices == null)
+                {
+                    if (ownsTexture) texture?.Dispose();
+                    return null;
+                }
                 surface.VertexBuffer = new VertexBuffer(device, typeof(DGRP3DVert), objectVertices.Length, BufferUsage.None);
                 surface.VertexBuffer.SetData(objectVertices);
                 surface.IndexBuffer = new IndexBuffer(device, IndexElementSize.ThirtyTwoBits, indices.Length, BufferUsage.None);

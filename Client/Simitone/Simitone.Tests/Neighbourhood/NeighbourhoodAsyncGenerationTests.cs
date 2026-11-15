@@ -582,7 +582,7 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
-        public void ATimingsScopeBelongsToTheWorkerThatStartedItAndNotToTheCaller()
+        public async Task ATimingsScopeBelongsToTheWorkerThatStartedItAndNotToTheCaller()
         {
             // Two neighbourhoods generating at once must not write into each other's numbers. The
             // scope is published by the refresh, inside its own worker, and that is what keeps it
@@ -591,12 +591,12 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Null(NeighbourhoodGenerationTimings.Current);
 
             NeighbourhoodGenerationTimings theirs = null;
-            Task.Run(() =>
+            await Task.Run(() =>
             {
                 theirs = NeighbourhoodGenerationTimings.Begin();
                 theirs.Record(NeighbourhoodGenerationPhase.MeshBuild, TimeSpan.FromMilliseconds(3));
                 NeighbourhoodGenerationTimings.End();
-            }).Wait();
+            });
 
             Assert.NotNull(theirs);
             Assert.True(theirs.WasMeasured(NeighbourhoodGenerationPhase.MeshBuild));

@@ -174,10 +174,9 @@ namespace Simitone.Client.Neighbourhood
     /// <list type="number">
     ///   <item><description>
     ///     A TS1 lot's own ground is <c>ARRY(0) * 10</c>: <c>VMTS1Activator</c> assigns
-    ///     <c>arch.Terrain.Heights</c> and then <c>Blueprint.Altitude</c> from it, and anchors
-    ///     <c>Blueprint.BaseAlt</c> on the median of that field
-    ///     (<c>Blueprint.AnchorBaseAltitude</c>) so the lot's ground is drawn from its own base
-    ///     level rather than from zero. So one <c>ARRY(0)</c> unit is
+    ///     <c>arch.Terrain.Heights</c> and then <c>Blueprint.Altitude</c> from it (absolute;
+    ///     <c>BaseAlt</c> stays zero and the surround is lifted by the median instead, see
+    ///     <c>SimitoneSurroundingsPlacement.LotGroundAltitudeFor</c>). So one <c>ARRY(0)</c> unit is
     ///     <see cref="LotAltitudeUnitsPerArryUnit"/> blueprint altitude units.
     ///   </description></item>
     ///   <item><description>
@@ -504,7 +503,7 @@ namespace Simitone.Client.Neighbourhood
             NeighbourhoodMap map, NeighbourhoodLot lot,
             out SimitoneNeighbourTerrain terrain, out string reason)
         {
-            return TryBuild(map, lot, SimitoneArryAltitude.None, null, out terrain, out reason);
+            return TryBuild(map, lot, SimitoneArryAltitude.None, out terrain, out reason);
         }
 
         /// <summary>
@@ -549,16 +548,10 @@ namespace Simitone.Client.Neighbourhood
         /// <param name="arry">
         /// The lot's own decoded <c>ARRY(0)</c> plane, or <see cref="SimitoneArryAltitude.None"/>.
         /// </param>
-        /// <param name="roadMask">
-        /// The connector mask read off the 2D neighbourhood map -
-        /// <see cref="NeighbourhoodRoadInference"/>'s answer, in
-        /// <see cref="NeighbourhoodMap.RoadData"/>'s own indexing - or <c>null</c> to read only
-        /// the mask the map already carries.
-        /// </param>
         /// <param name="terrain">The terrain, or the default value when there is none.</param>
         /// <param name="reason">Why there is no terrain, when there is not one.</param>
         public static bool TryBuild(
-            NeighbourhoodMap map, NeighbourhoodLot lot, SimitoneArryAltitude arry, bool[] roadMask,
+            NeighbourhoodMap map, NeighbourhoodLot lot, SimitoneArryAltitude arry,
             out SimitoneNeighbourTerrain terrain, out string reason)
         {
             terrain = default(SimitoneNeighbourTerrain);
@@ -612,7 +605,7 @@ namespace Simitone.Client.Neighbourhood
                 }
             }
 
-            var roads = RoadByteFor(map, roadMask, minX, minY, maxX, maxY);
+            var roads = RoadByteFor(map, minX, minY, maxX, maxY);
 
             // The lot's own ground type, and nothing else: TerrainFill stamps every tile of a
             // lot's footprint with it, so there is no second terrain type for the blend half of
@@ -651,50 +644,12 @@ namespace Simitone.Client.Neighbourhood
         public static byte RoadByteFor(
             NeighbourhoodMap map, int minX, int minY, int maxX, int maxY)
         {
-            return RoadByteFor(map, null, minX, minY, maxX, maxY);
-        }
-
-        /// <summary>
-        /// <see cref="RoadByteFor(NeighbourhoodMap,int,int,int,int)"/> with the connector mask read
-        /// off the 2D neighbourhood map alongside the generated map's own road bytes, so a
-        /// <c>RestoreRoad</c> band lands on the street the 2D map drew rather than on a street
-        /// reconstructed from the gaps between lots.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>Why the two are or-ed rather than one replacing the other.</b> Part 8 §8.4 keeps the
-        /// existing nibble vocabulary, so a supplied mask reaches
-        /// <see cref="NeighbourhoodMap.RoadData"/> through <see cref="RoadGraph.Build"/> and the
-        /// map alone is usually enough. But the mask is a <em>boolean per tile</em> and the nibble
-        /// is a four-way adjacency, so a tile the inference found that the rasteriser's own
-        /// connectivity left unconnected is a tile with a zero nibble - and a lot's border probe
-        /// would walk straight past it. Reading the mask as well is what makes "there is a street
-        /// here" an answer about the map the player was shown rather than about that map's
-        /// encoding of it.
-        /// </para>
-        /// <para>
-        /// <b>A mask of the wrong length is ignored, not fatal.</b> A half-length mask would index
-        /// row <c>y</c> of a different map and paint one neighbourhood's streets onto another's
-        /// ground, so it is dropped here and the map's own bytes answer alone.
-        /// </para>
-        /// </remarks>
-        /// <param name="map">The generated map, or <c>null</c>.</param>
-        /// <param name="roadMask">
-        /// The inferred connector mask, <c>map.Width * map.Height</c> and row-major, or <c>null</c>.
-        /// </param>
-        /// <param name="minX">The lot's west tile, inclusive.</param>
-        /// <param name="minY">The lot's north tile, inclusive.</param>
-        /// <param name="maxX">The lot's east tile, inclusive.</param>
-        /// <param name="maxY">The lot's south tile, inclusive.</param>
-        public static byte RoadByteFor(
-            NeighbourhoodMap map, bool[] roadMask, int minX, int minY, int maxX, int maxY)
-        {
             if (map == null) return 0;
             var roads = (byte)0;
-            if (EdgeHasRoad(map, roadMask, minX, minY, maxX, maxY, 0, -1)) roads |= RoadNorth;
-            if (EdgeHasRoad(map, roadMask, minX, minY, maxX, maxY, 1, 0)) roads |= RoadEast;
-            if (EdgeHasRoad(map, roadMask, minX, minY, maxX, maxY, 0, 1)) roads |= RoadSouth;
-            if (EdgeHasRoad(map, roadMask, minX, minY, maxX, maxY, -1, 0)) roads |= RoadWest;
+            if (EdgeHasRoad(map, minX, minY, maxX, maxY, 0, -1)) roads |= RoadNorth;
+            if (EdgeHasRoad(map, minX, minY, maxX, maxY, 1, 0)) roads |= RoadEast;
+            if (EdgeHasRoad(map, minX, minY, maxX, maxY, 0, 1)) roads |= RoadSouth;
+            if (EdgeHasRoad(map, minX, minY, maxX, maxY, -1, 0)) roads |= RoadWest;
 
             // A corner where two of the lot's edges both have a street is a corner the road turns
             // at, which is what RestoreRoad's corner tilemaps draw. One edge alone is a straight
@@ -707,7 +662,7 @@ namespace Simitone.Client.Neighbourhood
         }
 
         private static bool EdgeHasRoad(
-            NeighbourhoodMap map, bool[] roadMask, int minX, int minY, int maxX, int maxY,
+            NeighbourhoodMap map, int minX, int minY, int maxX, int maxY,
             int stepX, int stepY)
         {
             // A north or south edge is a row and an east or west edge is a column, and the probe
@@ -732,21 +687,18 @@ namespace Simitone.Client.Neighbourhood
                         x = stepX < 0 ? minX - depth : maxX + depth;
                         y = t;
                     }
-                    if (IsRoadAt(map, roadMask, x, y)) return true;
+                    if (IsRoadAt(map, x, y)) return true;
                 }
             }
             return false;
         }
 
-        private static bool IsRoadAt(NeighbourhoodMap map, bool[] roadMask, int x, int y)
+        private static bool IsRoadAt(NeighbourhoodMap map, int x, int y)
         {
             // Outside the map is not road, and is not a crash either: a lot on the edge of the
             // generated world has streets on three sides and no fourth, which is the honest
             // answer and the one the packer's own layout produces.
             if (x < 0 || y < 0 || x >= map.Width || y >= map.Height) return false;
-            if (roadMask != null
-                && (long)roadMask.LongLength >= (long)map.Width * map.Height
-                && roadMask[y * map.Width + x]) return true;
             return map.RoadMaskAt(map.Index(x, y)) != RoadMask.None;
         }
 

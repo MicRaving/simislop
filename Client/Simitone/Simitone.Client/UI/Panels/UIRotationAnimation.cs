@@ -69,7 +69,7 @@ namespace Simitone.Client.UI.Panels
                 { "X", X + (180 - 180*(success ? 1.5f : 0.8f)) },
                 { "Y", Y + (180 - 180*(success ? 1.5f : 0.8f)) }
             }, TweenQuad.EaseIn);
-            GameThread.SetTimeout(() => Parent.Remove(this), 300);
+            GameThread.SetTimeout(() => Parent?.Remove(this), 300);
         }
     }
 }

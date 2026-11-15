@@ -137,18 +137,6 @@ namespace Simitone.Client.UI.Panels
 
         public void SwitchMode(UIMainPanelMode mode)
         {
-            UIButton frontButton;
-            switch (mode)
-            {
-                case UIMainPanelMode.BUILD:
-                    frontButton = BuildButton; break;
-                case UIMainPanelMode.BUY:
-                    frontButton = BuyButton; break;
-                case UIMainPanelMode.OPTIONS:
-                    frontButton = OptionButton; break;
-                default:
-                    frontButton = LiveButton; break;
-            }
             if (OnModeClick?.Invoke(mode) ?? true)
             {
                 //switching mode. show the modes.
@@ -160,19 +148,6 @@ namespace Simitone.Client.UI.Panels
                     GameFacade.Screens.Tween.To(button, 0.5f, new Dictionary<string, float>() { { "Y", (-140)*(i++) } }, TweenQuad.EaseOut);
                     GameFacade.Screens.Tween.To(button, 0.5f, new Dictionary<string, float>() { { "Opacity", 1 } }, TweenQuad.EaseOut);
                 }
-            }
-            else
-            {
-                //become this mode
-                //should happen as part of callback from main panel..
-                /*
-                SendToFront(frontButton);
-                foreach (var button in ButtonOrder)
-                {
-                    GameFacade.Screens.Tween.To(button, 0.5f, new Dictionary<string, float>() { { "Y", 0 } }, TweenQuad.EaseOut);
-                    GameFacade.Screens.Tween.To(button, 0.5f, new Dictionary<string, float>() { { "Opacity", (button != frontButton) ? 0f : 1f } }, TweenQuad.EaseOut);
-                }
-                */
             }
         }
     }

@@ -30,12 +30,12 @@ namespace Simitone.Tests.UI
     /// A test process never builds <c>GameFacade.Strings</c>, so everything asserted here is the
     /// fallback path - the state a stripped install is in, and the state a build whose language
     /// directory has not been translated yet is in. No Content, no VM, no
-    /// <c>GraphicsDevice</c>, and no window: the three panels below each own a small pure
+    /// <c>GraphicsDevice</c>, and no window: the panels below each own a small pure
     /// decision surface, and that is what these reach.
     /// </para>
     ///
     /// <para>
-    /// Two of the three are private, so they are reached by reflection. That is deliberate and
+    /// The panels are private, so they are reached by reflection. That is deliberate and
     /// narrow: the alternative is to widen a panel's surface to suit a test, and the assertion
     /// that matters - that these particular words come out of the table - cannot be written
     /// against a caption assigned inside a constructor that needs a graphics device. Each lookup
@@ -154,45 +154,6 @@ namespace Simitone.Tests.UI
             var table = Table();
             Assert.Equal(table["424"], Direction(AutoFollowAction.TakeHome));
             Assert.Equal(table["425"], Direction(AutoFollowAction.InviteToDowntown));
-        }
-
-        // ------------------------------------------------------------------ the settings strip
-
-        private static string[] SettingsItemNames()
-        {
-            var field = typeof(UISettingsPanel).GetField("ItemNames",
-                BindingFlags.Static | BindingFlags.NonPublic);
-            Assert.True(field != null, "UISettingsPanel has no static ItemNames any more.");
-            return (string[])field.GetValue(null);
-        }
-
-        private static string SettingsOnOff()
-        {
-            var on = typeof(UISettingsPanel).GetField("OnText", BindingFlags.Static | BindingFlags.NonPublic);
-            var off = typeof(UISettingsPanel).GetField("OffText", BindingFlags.Static | BindingFlags.NonPublic);
-            Assert.True(on != null && off != null, "UISettingsPanel has no static OnText/OffText any more.");
-            return (string)on.GetValue(null) + "/" + (string)off.GetValue(null);
-        }
-
-        [Fact]
-        public void TheSettingsStripKeepsItsSevenRowNamesInOrder()
-        {
-            Assert.Null(FSO.Client.GameFacade.Strings);
-
-            // The order is the contract: the toggles, the staged values and the cycle handlers
-            // are all indexed with the same number, so a translation that reordered the array
-            // would put "Lighting" over the anti-aliasing toggle.
-            Assert.Equal(new[]
-            {
-                "Anti-Alias", "Lighting", "Shadows", "Water", "Shaders", "Transitions", "Edge Scroll"
-            }, SettingsItemNames());
-        }
-
-        [Fact]
-        public void TheSettingsStripsToggleValuesStillReadOnAndOff()
-        {
-            Assert.Null(FSO.Client.GameFacade.Strings);
-            Assert.Equal("On/Off", SettingsOnOff());
         }
 
         // ------------------------------------------------------------------ the floor readout

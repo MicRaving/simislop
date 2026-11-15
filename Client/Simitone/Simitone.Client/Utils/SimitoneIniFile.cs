@@ -37,13 +37,17 @@ namespace Simitone.Client.Utils
     /// half-written sidecar is never visible and the previous contents stay in
     /// <c>&lt;path&gt;.bak</c>. Writes <b>throw</b> on failure - the caller decides what a
     /// settings file that cannot be written means for it, and every caller logs a warning
-    /// rather than swallowing. Reads are total: an unreadable file is an empty set of values.
+    /// rather than swallowing. A write whose read-merge step cannot read the existing file is
+     /// aborted (never merged into an empty file). Reads for display are total: an unreadable
+     /// file is an empty set of values.
     /// </para>
     /// </summary>
     public sealed class SimitoneIniFile
     {
         /// <summary>Comment written on the first line of a file this class creates.</summary>
         private readonly string _heading;
+
+        private static readonly object WriteLock = new object();
 
         /// <summary>Full path of the ini, or null when there is no user directory to put it in.</summary>
         public string Path { get; }
@@ -79,8 +83,8 @@ namespace Simitone.Client.Utils
             }
             catch (Exception)
             {
-                // An unreadable settings file is the same as one nobody has written yet. The
-                // caller logs what it is about to write over the top of it.
+                // Display read only: an unreadable file shows defaults. Saves go through
+                // ReadLines, which refuses to write over a file it could not read.
                 return result;
             }
 
@@ -138,7 +142,12 @@ namespace Simitone.Client.Utils
                 else wanted[wanted.FindIndex(p => string.Equals(p.Key, pair.Key, StringComparison.OrdinalIgnoreCase))] = pair;
             }
 
-            AtomicFileCommit.Write(Path, RenderLines(ReadLines(), wanted));
+            //One lock for every instance: two settings sharing simitone.ini are separate objects,
+            //and an unlocked read-merge-write lets one drop the other's keys.
+            lock (WriteLock)
+            {
+                AtomicFileCommit.Write(Path, RenderLines(ReadLines(), wanted));
+            }
         }
 
         // ---- the line shape ------------------------------------------------------------------
@@ -157,10 +166,12 @@ namespace Simitone.Client.Utils
             {
                 if (File.Exists(Path)) result.AddRange(File.ReadAllLines(Path));
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Treated as "no file": the keys being saved are the ones that matter, and
-                // anything unreadable could not have been read back by this build either.
+                // NOT treated as "no file": merging into an empty list and writing would erase
+                // every other key. The save is aborted instead (the caller logs the failure).
+                SimitoneLog.Warn("Could not read " + Path + "; not saving over it", ex);
+                throw new IOException("Could not read " + Path + " before saving; the file was left untouched.", ex);
             }
 
             return result;

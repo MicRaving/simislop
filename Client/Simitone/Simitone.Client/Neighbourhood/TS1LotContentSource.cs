@@ -53,11 +53,6 @@ namespace Simitone.Client.Neighbourhood
         /// </summary>
         private Dictionary<int, int[]> _positions;
 
-        private ITextureRef _backdrop;
-        private bool _backdropTried;
-        private TexBitmap _bitmap;
-        private bool _bitmapTried;
-
         /// <summary>
         /// Read a neighbourhood mode out of an already-open provider.
         /// </summary>
@@ -70,154 +65,6 @@ namespace Simitone.Client.Neighbourhood
         {
             _provider = provider ?? throw new ArgumentNullException(nameof(provider));
             _mode = mode;
-        }
-
-        /// <summary>
-        /// The neighbourhood mode this source reads: the 1-based STR id in
-        /// <c>LotLocations.iff</c>. Needed by the connector inference, which is keyed per mode and
-        /// which this is the only object in the read pipeline that knows.
-        /// </summary>
-        public int Mode
-        {
-            get { return _mode; }
-        }
-
-        /// <summary>
-        /// The mode's 800x600 backdrop bitmap as a texture reference, or <c>null</c> when this
-        /// install has no such file.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Asked for once and remembered, including the answer "there is none", because a missing
-        /// file is a normal thing for an incomplete install and re-resolving a path that does not
-        /// exist on every generation is a cost with no return.
-        /// </para>
-        /// <para>
-        /// <b>Prefer <see cref="BackdropBitmap"/>.</b> This is the reference form
-        /// <see cref="NeighbourhoodRoadInference.Build"/> takes, and it exists because that
-        /// signature is frozen and because a caller that already has an <see cref="ITextureRef"/> -
-        /// a provider lookup, say - can hand it straight over. It does <em>not</em> decode: reading
-        /// it goes through <c>ITextureRef.GetImage()</c>, which in this build
-        /// (<c>AbstractTextureRef.ImageFetchWithDevice</c>) decodes the file and then uploads it to a
-        /// <c>GraphicsDevice</c> to read it back, so it is not usable from a generation worker.
-        /// <see cref="BackdropBitmap"/> is the headless route and the one the builder takes.
-        /// </para>
-        /// </remarks>
-        public ITextureRef BackdropTexture
-        {
-            get
-            {
-                if (_backdropTried) return _backdrop;
-                _backdropTried = true;
-                var path = BackdropPath();
-                if (path != null)
-                {
-                    try
-                    {
-                        _backdrop = new FileTextureRef(path);
-                    }
-                    catch (Exception e)
-                    {
-                        SimitoneLog.Warn("NeighbourhoodLayoutBuilder: '" + path + "' could not be named"
-                            + " as a texture reference.", e);
-                        _backdrop = null;
-                    }
-                }
-                return _backdrop;
-            }
-        }
-
-        /// <summary>
-        /// The mode's backdrop bitmap decoded headlessly, or <c>null</c> when it is not there or
-        /// will not decode. This is what <see cref="NeighbourhoodRoadInference"/> is given.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Decoded through <see cref="BitmapDecoder"/>, Simitone's own ImageSharp reader, which is
-        /// what the game already installs as FreeSO's bitmap hook - so an 8-bit indexed BMP is read
-        /// by the same code the 2D panel's texture goes through, on a worker thread, with no
-        /// graphics device anywhere. That last part is the reason this exists rather than
-        /// <c>ITextureRef.GetImage()</c>: generation runs off the game thread and
-        /// <c>GetImage()</c> needs a <c>GraphicsDevice</c>.
-        /// </para>
-        /// <para>
-        /// Decoded once and remembered for the session, per mode. The decode is the expensive part
-        /// of <see cref="NeighbourhoodRoadInference"/> and it depends on nothing but the file.
-        /// </para>
-        /// </remarks>
-        public TexBitmap BackdropBitmap
-        {
-            get
-            {
-                if (_bitmapTried) return _bitmap;
-                _bitmapTried = true;
-
-                var path = BackdropPath();
-                if (path == null) return null;
-
-                try
-                {
-                    var decoded = BitmapDecoder.Read(File.OpenRead(path));
-                    if (decoded == null)
-                    {
-                        SimitoneLog.Warn("NeighbourhoodLayoutBuilder: the backdrop for mode " + _mode
-                            + ", '" + path + "', did not decode; the connectors will be inferred from"
-                            + " the lot lattice instead.");
-                        return null;
-                    }
-
-                    //TexBitmap is documented as BGRA; BitmapDecoder returns RGBA, and the road
-                    //classifier is symmetric in the two ends (it only ever asks for max, min and a
-                    //luma), so the buffer is handed over as-is rather than swizzled. That is stated
-                    //here because it is the one place a reader would otherwise assume the channels
-                    //have been put in order.
-                    _bitmap = new TexBitmap
-                    {
-                        Data = decoded.Item1,
-                        Width = decoded.Item2,
-                        Height = decoded.Item3,
-                        PixelSize = 4,
-                    };
-                }
-                catch (Exception e)
-                {
-                    SimitoneLog.Warn("NeighbourhoodLayoutBuilder: the backdrop for mode " + _mode
-                        + ", '" + path + "', could not be read; the connectors will be inferred from"
-                        + " the lot lattice instead.", e);
-                    _bitmap = null;
-                }
-
-                return _bitmap;
-            }
-        }
-
-        /// <summary>
-        /// Where this mode's backdrop bitmap is, or <c>null</c> when it cannot be worked out.
-        /// </summary>
-        /// <remarks>
-        /// The 2D panel's own table supplies the file name; the neighbourhood's own
-        /// <c>UserData</c> folder supplies the directory, because that is where a TS1
-        /// neighbourhood keeps its picture - <c>UserData\Nbhd\NScreen.BMP</c> and its five
-        /// expansion siblings. The two are composed here rather than in either of them because
-        /// neither owns both halves, and this is the only place that needs the whole path.
-        /// </remarks>
-        private string BackdropPath()
-        {
-            var file = Simitone.Client.UI.Panels.UINeighborhoodSelectionPanel.BitmapOf((ushort)_mode);
-            if (string.IsNullOrEmpty(file)) return null;
-            var root = _provider?.UserPath;
-            if (string.IsNullOrEmpty(root)) return null;
-            try
-            {
-                var path = Path.Combine(root, file.Replace('\\', Path.DirectorySeparatorChar));
-                return File.Exists(path) ? path : null;
-            }
-            catch (Exception e)
-            {
-                SimitoneLog.Warn("NeighbourhoodLayoutBuilder: the backdrop path for mode " + _mode
-                    + " could not be built.", e);
-                return null;
-            }
         }
 
         public IReadOnlyList<string> LotLocationLines(int mode)
@@ -378,9 +225,15 @@ namespace Simitone.Client.Neighbourhood
                 //neighbourhood. Report it as an empty plot so the rest of the map is unaffected.
                 SimitoneLog.Warn("NeighbourhoodLayoutBuilder: house " + id + " at '" + path
                     + "' could not be read; it will be treated as an empty plot.", e);
+                //every field the try above may have filled before it threw goes back to the
+                //documented "zero when there is no house", so an empty plot never carries half a
+                //house's rotation or ground
                 read.HasHouse = false;
                 read.HouseHash = 0u;
                 read.Size = 0;
+                read.Rotation = 0;
+                read.BaseHeight = 0;
+                read.HasGrassVariation = false;
             }
 
             return read;

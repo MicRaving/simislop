@@ -464,7 +464,7 @@ namespace Simitone.Tests.Neighbourhood
             string reason;
             Assert.True(SimitoneNeighbourTerrain.TryBuild(map, lot, out flat, out reason), reason);
             Assert.True(SimitoneNeighbourTerrain.TryBuild(
-                map, lot, arry, null, out graded, out reason), reason);
+                map, lot, arry, out graded, out reason), reason);
 
             Assert.False(flat.IsGraded);
             Assert.True(graded.IsGraded);
@@ -497,7 +497,7 @@ namespace Simitone.Tests.Neighbourhood
             //rather than a refusal
             SimitoneNeighbourTerrain none;
             Assert.True(SimitoneNeighbourTerrain.TryBuild(
-                map, lot, SimitoneArryAltitude.None, null, out none, out reason), reason);
+                map, lot, SimitoneArryAltitude.None, out none, out reason), reason);
             Assert.False(none.IsGraded);
             Assert.Equal(flat.BaseLevel, none.BaseLevel);
         }
@@ -525,7 +525,7 @@ namespace Simitone.Tests.Neighbourhood
             string reason;
             Assert.True(SimitoneNeighbourTerrain.TryBuild(map, lot, out fromMap, out reason), reason);
             Assert.True(SimitoneNeighbourTerrain.TryBuild(
-                map, lot, new SimitoneArryAltitude(plane, lot.Size), null,
+                map, lot, new SimitoneArryAltitude(plane, lot.Size),
                 out fromPlane, out reason), reason);
 
             Assert.False(fromMap.IsGraded);

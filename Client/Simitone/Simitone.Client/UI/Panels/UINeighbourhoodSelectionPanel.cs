@@ -283,15 +283,13 @@ namespace Simitone.Client.UI.Panels
             }
         }
 
-        private Texture2D texture;
         private int Mode;
 
         // ------------------------------------------------------------------ lot facts and filters
 
         /// <summary>
         /// The two facts a lot filter can ask about, for every lot on this map, in the order the
-        /// lot buttons are stacked: top of the map first, so "next lot" walks the map rather than
-        /// the numbering.
+        /// lot buttons are stacked: top of the map first.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -315,8 +313,7 @@ namespace Simitone.Client.UI.Panels
 
         /// <summary>
         /// The lot numbers the player can actually pick right now, in map order: on this map, not
-        /// filtered out, and not one the view has taken off limits. This is what the Next and
-        /// Previous buttons step through, so neither of them can land on a lot that is not there.
+        /// filtered out, and not one the view has taken off limits. Used to hit-test the map.
         /// </summary>
         private readonly List<int> _selectableLots = new List<int>();
 
@@ -333,46 +330,12 @@ namespace Simitone.Client.UI.Panels
         }
 
         /// <summary>
-        /// Whether the map currently on screen has a lot-location table at all. False for a map
-        /// whose STR chunk is missing, which is the only way this tree reaches a view with no lots
-        /// in it - the six-slot band, a stripped neighbourhood folder, a hand-edited table.
-        /// <see cref="NeighbourhoodModeMap"/> can name the lot numbers a view draws from, but a
-        /// view with no table has no lots to put in them, and the two are different facts.
-        /// </summary>
-        public bool HasLotLocationTable { get; private set; }
-
-        /// <summary>
         /// Every lot on this map with the two facts a filter asks about, in map order. Rebuilt by
         /// <see cref="RefreshLotState"/>, so read it after calling that rather than caching it.
         /// </summary>
         public IReadOnlyList<NeighLotFacts> LotFacts
         {
             get { return _lotFacts; }
-        }
-
-        /// <summary>How many of them are on show at the moment.</summary>
-        public int VisibleLotCount
-        {
-            get { return _selectableLots.Count; }
-        }
-
-        /// <summary>
-        /// The lot the player last clicked, i.e. the one whose panel is open. Null when nothing is
-        /// selected. The camera already has it in <c>_selectedHouse</c>; this is the same value
-        /// under a name that says what it means, for <see cref="StepToAdjacentLot"/>'s callers and
-        /// for anything else that has to ask the map what it is showing.
-        /// </summary>
-        public int? SelectedLot
-        {
-            get { return _selectedHouse; }
-        }
-
-        /// <summary>
-        /// The lot numbers the player can pick right now, in map order.
-        /// </summary>
-        public IReadOnlyList<int> SelectableLots
-        {
-            get { return _selectableLots; }
         }
 
         /// <summary>
@@ -456,8 +419,7 @@ namespace Simitone.Client.UI.Panels
         }
 
         /// <summary>
-        /// Hides the lots the current filter set rules out, and rebuilds the list Next and Previous
-        /// step through.
+        /// Hides the lots the current filter set rules out, and rebuilds the list of lots that can be picked.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -480,11 +442,11 @@ namespace Simitone.Client.UI.Panels
         {
             var passes = LotPasses();
 
-            //Two loops over the same list, back to back, so "on show" and "can be stepped to"
+            //Two loops over the same list, back to back, so "on show" and "can be picked"
             //cannot disagree: the second reads the visibility the first just set. A lot the view
             //takes off limits - a residential lot in the visit-a-lot flow - stays off limits
-            //whatever the filters say, and stays out of the Next/Previous list: the panel can open
-            //no panel for it, so stepping onto it would move the camera somewhere with nothing to
+            //whatever the filters say, and stays out of the selectable list: the panel can open
+            //no panel for it, so picking it would move the camera somewhere with nothing to
             //click. The visibility itself is <see cref="ApplyLotVisibility"/> rather than an
             //expression written here, because the 3D swap has to be able to put the same answer
             //back and there must only be one of them.
@@ -552,81 +514,6 @@ namespace Simitone.Client.UI.Panels
                 button.Visible = button.Enabled
                     && passes.TryGetValue(button.HouseNumber, out shown) && shown;
             }
-        }
-
-        /// <summary>
-        /// The Next and Previous buttons: picks the neighbouring lot and selects it.
-        /// </summary>
-        /// <remarks>
-        /// Routed through <see cref="SelectHouse"/> with the click-to-deselect behaviour turned
-        /// off, so the camera, the lot panel and the 3D world's focus all move by exactly the same
-        /// path a click on the lot takes - there is no second, simpler way for a lot to become
-        /// selected, which is what keeps the three in step. Turning the toggle off matters: with
-        /// one lot left under a filter, a second press of Next would otherwise land on the lot
-        /// that is already selected and deselect it, which is not what a pair of arrows means.
-        /// </remarks>
-        /// <param name="direction">Positive for next, negative for previous.</param>
-        /// <returns>The lot now selected, or null when there was nowhere to step to.</returns>
-        public int? StepToAdjacentLot(int direction)
-        {
-            var next = NeighLotNavigator.Step(_selectableLots, _selectedHouse, direction);
-            if (!next.HasValue) return null;
-            SelectHouse(next.Value, false);
-            return next;
-        }
-
-        /// <summary>
-        /// The Add Lot button.
-        /// </summary>
-        /// <remarks>
-        /// Always routes through <see cref="NeighAddLot.Plan"/> and shows whatever comes back, so
-        /// the button is never a dead control: on a build with a lot-creation path it would create
-        /// one, and on this one it says why it cannot. <see cref="NeighAddLot"/> is where the
-        /// honest answer lives, and its remarks are the reason.
-        /// </remarks>
-        public void RequestAddLot()
-        {
-            var screen = UIScreen.Current as TS1GameScreen;
-            RefreshLotState();
-
-            //Every lot on the map, not the ones currently on show: a filter hides lots, it does
-            //not free them, and "every lot in use" has to be answered about the map rather than
-            //about what the player happens to be looking at.
-            var lots = new List<int>(_lotFacts.Count);
-            foreach (var facts in _lotFacts) lots.Add(facts.Lot);
-
-            var plan = NeighAddLot.Plan(new NeighAddLotFacts(
-                onMapScreen: screen != null && screen.TS1NeighPanel == this,
-                lotsOnMap: lots,
-                //no table means no runs, which is how "this map has no lot table" is spelled. A
-                //map with a table always gets its view's real runs, so the four refusals are all
-                //reachable and the order they are asked in is the one that matters.
-                lotRanges: HasLotLocationTable
-                    ? NeighbourhoodModeMap.LotRangesForMode((ushort)Mode)
-                    : new NeighLotRange[0],
-                //The one thing this tree cannot do. See NeighAddLot: a lot is a line in a fixed
-                //table, a house file, a family record and a zoning line, and nothing here writes
-                //any of them.
-                lotCreationAvailable: false));
-
-            if (!plan.IsRefusal)
-            {
-                //Unreachable today, and deliberately not a stub: a writer would set the lot up here
-                //and then RefreshLotState() would pick it up, because the bar is already asking
-                //for the state on every press.
-                SimitoneLog.Warn("Neighbourhood lot " + plan.Lot + " was planned but this build has no"
-                    + " lot-creation path, so nothing was created. See NeighAddLot.");
-                return;
-            }
-
-            if (screen == null)
-            {
-                SimitoneLog.Warn("Add Lot was pressed with no game screen, so the refusal could not"
-                    + " be shown: " + plan.Message);
-                return;
-            }
-
-            screen.Dialogs.ShowAlert(plan.Title, plan.Message, plan.Detail);
         }
 
         /// <summary>
@@ -835,7 +722,7 @@ namespace Simitone.Client.UI.Panels
         /// the view setting defaults to 3D and all seven capability flags default off, so the world
         /// was carrying the picture, the painted map's lot sprites were hidden because nothing was
         /// left to click, and the click that was supposed to replace them was refused. A fresh
-        /// install could not open a house by clicking one; Next and Previous were the only way.
+        /// install could not open a house by clicking one.
         /// </para>
         /// <para>
         /// So this is now the exact negation of <see cref="PaintedMapLayersVisible"/>: whatever hides
@@ -1146,7 +1033,6 @@ namespace Simitone.Client.UI.Panels
                 // into a map like this leaves the previous map's zoomed-in state behind with
                 // nothing left to click to get out of it.
                 DetachWorld();
-                HasLotLocationTable = false;
                 ViewSelection = NeighbourhoodViewSelection.Bitmap(NeighbourhoodView.Off,
                     "this map has no lot location table, so there is nothing to place in a world");
                 //Straight assignment rather than ApplyDecision, because this path is not a fallback
@@ -1169,7 +1055,6 @@ namespace Simitone.Client.UI.Panels
             var rawLocations = new List<string>(locations.Length);
             for (int i = 0; i < locations.Length; i++) rawLocations.Add(locations.GetString(i));
 
-            HasLotLocationTable = true;
             var buttons = new List<UINeighborhoodHouseButton>();
             foreach (var loc in LotLocationParser.ParseLotLocationTable(rawLocations))
             {
@@ -1189,8 +1074,7 @@ namespace Simitone.Client.UI.Panels
             }
 
             //Map order, not table order: the buttons are stacked top of the map first so the top
-            //lot is drawn over the ones below it, and the filter bar's Next/Previous walk the same
-            //list. The lot state is built from this list rather than from `buttons`, so it is in
+            //lot is drawn over the ones below it, and the lot state is built from this list rather than from `buttons`, so it is in
             //the same order and holds one entry per lot even where the table lists a lot twice.
             var ordered = buttons.OrderBy(x => x.Y).ToList();
             _lotButtons.Clear();
@@ -1713,9 +1597,8 @@ namespace Simitone.Client.UI.Panels
         /// <para>
         /// <b>Why the lot panel is not opened here.</b> It is the management surface - bulldoze,
         /// evict, rezone, edit family, and the price of an empty lot - and the player still wants it.
-        /// It is reached from the painted map's own house sprites and from the filter bar's Next and
-        /// Previous buttons, both of which go through <see cref="SelectHouse(int)"/> and open it
-        /// exactly as before. Only the click on the 3D world itself is collapsed, because that is the
+        /// It is reached from the painted map's own house sprites, which goes through
+        /// <see cref="SelectHouse(int)"/> and opens it exactly as before. Only the click on the 3D world itself is collapsed, because that is the
         /// gesture §8.1 says must take control.
         /// </para>
         /// <para>
@@ -2811,30 +2694,13 @@ namespace Simitone.Client.UI.Panels
         public UIHouseSelectPanel LastHS;
 
         /// <summary>
-        /// A lot on the map was picked. Also the <see cref="Action{T}"/> every lot button is built
-        /// with, so it has to be a one-argument method rather than one with an optional second
-        /// parameter - a method group with two parameters does not convert to <c>Action&lt;int&gt;</c>.
+        /// A lot on the map was picked: opens its panel, or - for a lot that is already selected -
+        /// puts the selection away. Also the <see cref="Action{T}"/> every lot button is built with.
         /// </summary>
         /// <param name="house">The lot number.</param>
         public void SelectHouse(int house)
         {
-            SelectHouse(house, true);
-        }
-
-        /// <summary>
-        /// <see cref="SelectHouse(int)"/>, with the click-to-deselect behaviour under the caller's
-        /// control.
-        /// </summary>
-        /// <param name="house">The lot number.</param>
-        /// <param name="toggleSelection">
-        /// True for a click, which deselects a lot that is already selected. False for the Next and
-        /// Previous buttons, which step rather than toggle: with one lot left under a filter, a
-        /// second press of Next lands on the lot that is already open, and a toggle there would
-        /// close the panel the player is using the arrows to move between.
-        /// </param>
-        public void SelectHouse(int house, bool toggleSelection)
-        {
-            if (toggleSelection && LastHS != null && LastHS.HouseID == house)
+            if (LastHS != null && LastHS.HouseID == house)
             {
                 // clicking the same lot again toggles the selection off. ResetZoom clears
                 // _selectedHouse as well as the panel.
@@ -2901,18 +2767,19 @@ namespace Simitone.Client.UI.Panels
         {
             base.Removed();
             BgSound?.RemoveOwner(-25);
+            //the lot panel is added to the screen rather than to this panel's children, so
+            //removing the panel does not take it away either
+            if (LastHS != null)
+            {
+                LastHS.Kill();
+                LastHS = null;
+            }
             //the 3D world lives in GameFacade.Scenes, not in this panel's children, so removing
             //the panel from the screen does not take it with it: it has to be torn down here or it
             //would go on drawing behind whatever came next
             DetachWorld();
             _transparentBackdrop?.Dispose();
             _transparentBackdrop = null;
-        }
-
-        public override void Draw(UISpriteBatch batch)
-        {
-            base.Draw(batch);
-            //DrawLocalTexture(batch, texture, new Vector2());
         }
 
         public override void Update(UpdateState state)
@@ -3199,7 +3066,6 @@ namespace Simitone.Client.UI.Panels
         private Texture2D HouseTex;
         private Texture2D HouseOpenTex;
         private float HouseScale;
-        private bool Hovered;
         private THMB Offsets;
         public float AlphaTime { get; set; }
 
@@ -3210,7 +3076,7 @@ namespace Simitone.Client.UI.Panels
         public bool Enabled { get; set; } = true;
 
         /// <summary>
-        /// The lot this button stands for. Read by the filter bar and the Next/Previous buttons
+        /// The lot this button stands for. Read by the filter bar
         /// through <see cref="UINeighborhoodSelectionPanel.RefreshLotState"/>, which cannot ask
         /// the click callback what lot it was given without capturing it here.
         /// </summary>
@@ -3248,10 +3114,10 @@ namespace Simitone.Client.UI.Panels
                         case UIMouseEventType.MouseOver:
                             GameFacade.Screens.Tween.To(this, 0.5f, new Dictionary<string, float>() { { "AlphaTime", 1f } });
                             HITVM.Get().PlaySoundEvent(FSO.Client.UI.Model.UISounds.NeighborhoodRollover);
-                            Hovered = true; break;
+                            break;
                         case UIMouseEventType.MouseOut:
                             GameFacade.Screens.Tween.To(this, 0.5f, new Dictionary<string, float>() { { "AlphaTime", 0f } });
-                            Hovered = false; break;
+                            break;
                     }
                 });
         }
@@ -3275,6 +3141,7 @@ namespace Simitone.Client.UI.Panels
 
         public override void Removed()
         {
+            base.Removed();
             HouseTex?.Dispose();
             HouseOpenTex?.Dispose();
         }

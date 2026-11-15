@@ -163,7 +163,7 @@ namespace Simitone.Client.UI.Panels
             GameFacade.Scenes.AddExternal(HeadScene); //AddExternal(HeadScene);
         }
 
-        public void RotateHeadCam(Vector2 point)
+        public void RotateHeadCam()
         {
             curRot = Vector2.Lerp(curRot, currentTarget, lerpSpeed);
             double xdir = Math.Atan(-curRot.X / 100.0);
@@ -198,7 +198,7 @@ namespace Simitone.Client.UI.Panels
                 m_Bg.X = (float)m_BgGrow * (-100);
                 m_Bg.Y = (float)m_BgGrow * (-100);
             }
-            RotateHeadCam(GlobalPoint(new Vector2(state.MouseState.X, state.MouseState.Y)));
+            RotateHeadCam();
             ShiftDown = state.ShiftDown;
         }
 
@@ -314,7 +314,6 @@ namespace Simitone.Client.UI.Panels
         void PieButtonHover(UIElement button)
         {
             var uiB = (UIButton)button;
-            int index = m_PieButtons.IndexOf(uiB);
             currentTarget = button.Position + new Vector2(uiB.Width / 2f, uiB.Size.Y / 2f);
             HITVM.Get().PlaySoundEvent(UISounds.PieMenuHighlight);
         }

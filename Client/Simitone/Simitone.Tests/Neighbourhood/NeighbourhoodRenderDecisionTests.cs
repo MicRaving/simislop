@@ -96,14 +96,14 @@ namespace Simitone.Tests.Neighbourhood
                 for (int y = 0; y < NeighbourhoodTerrainTextures.Size; y++)
                 {
                     Assert.Equal(
-                        NeighbourhoodTerrainTextures.WrappedPixel(type, 0, y),
-                        NeighbourhoodTerrainTextures.WrappedPixel(type, NeighbourhoodTerrainTextures.Size, y));
+                        NeighbourhoodTerrainTextures.NoiseAt(0, y, type),
+                        NeighbourhoodTerrainTextures.NoiseAt(NeighbourhoodTerrainTextures.Size, y, type));
                 }
                 for (int x = 0; x < NeighbourhoodTerrainTextures.Size; x++)
                 {
                     Assert.Equal(
-                        NeighbourhoodTerrainTextures.WrappedPixel(type, x, 0),
-                        NeighbourhoodTerrainTextures.WrappedPixel(type, x, NeighbourhoodTerrainTextures.Size));
+                        NeighbourhoodTerrainTextures.NoiseAt(x, 0, type),
+                        NeighbourhoodTerrainTextures.NoiseAt(x, NeighbourhoodTerrainTextures.Size, type));
                 }
             }
         }
@@ -116,11 +116,11 @@ namespace Simitone.Tests.Neighbourhood
             {
                 var size = NeighbourhoodTerrainTextures.Size;
                 Assert.Equal(
-                    NeighbourhoodTerrainTextures.WrappedPixel(type, 0, 0),
-                    NeighbourhoodTerrainTextures.WrappedPixel(type, size, size));
+                    NeighbourhoodTerrainTextures.NoiseAt(0, 0, type),
+                    NeighbourhoodTerrainTextures.NoiseAt(size, size, type));
                 Assert.Equal(
-                    NeighbourhoodTerrainTextures.WrappedPixel(type, size, 0),
-                    NeighbourhoodTerrainTextures.WrappedPixel(type, 0, size));
+                    NeighbourhoodTerrainTextures.NoiseAt(size, 0, type),
+                    NeighbourhoodTerrainTextures.NoiseAt(0, size, type));
             }
         }
 
@@ -987,7 +987,7 @@ namespace Simitone.Tests.Neighbourhood
 
             for (int i = 0; i < NeighbourhoodFoliageTint.ModelCount; i++)
             {
-                var name = NeighbourhoodFoliage.FileNameFor(i);
+                var name = NeighbourhoodFoliageTint.FileNameFor(i);
                 Assert.NotNull(name);
                 Assert.True(File.Exists(Path.Combine(folder, name)),
                     "model index " + i + " asks for " + name + ", which is not in " + folder);
@@ -1046,7 +1046,7 @@ namespace Simitone.Tests.Neighbourhood
                         var model = NeighbourhoodFoliageTint.ModelFor(tint, terrain, variant);
                         Assert.True(model >= 0 && model < NeighbourhoodFoliageTint.ModelCount,
                             "tint " + tint + " variant " + variant + " asked for model " + model);
-                        var name = NeighbourhoodFoliage.FileNameFor(model);
+                        var name = NeighbourhoodFoliageTint.FileNameFor(model);
                         Assert.NotNull(name);
                         Assert.True(shipped.Contains(name),
                             "tint " + tint + " variant " + variant + " asked for " + name
@@ -1105,7 +1105,7 @@ namespace Simitone.Tests.Neighbourhood
                 {
                     var model = NeighbourhoodFoliageTint.ModelFor(tint, NeighbourhoodTerrain.Snow, variant);
                     Assert.True(model >= NeighbourhoodFoliageTint.SnowModelBase,
-                        "snowy ground asked for model " + model + " (" + NeighbourhoodFoliage.FileNameFor(model) + ")");
+                        "snowy ground asked for model " + model + " (" + NeighbourhoodFoliageTint.FileNameFor(model) + ")");
                     Assert.True(model < NeighbourhoodFoliageTint.ModelCount);
                 }
             }
@@ -1125,8 +1125,8 @@ namespace Simitone.Tests.Neighbourhood
             var names = new HashSet<string>();
             for (int i = 0; i < NeighbourhoodFoliageTint.ModelCount; i++)
             {
-                Assert.True(names.Add(NeighbourhoodFoliage.FileNameFor(i)),
-                    "two model indices resolve to " + NeighbourhoodFoliage.FileNameFor(i));
+                Assert.True(names.Add(NeighbourhoodFoliageTint.FileNameFor(i)),
+                    "two model indices resolve to " + NeighbourhoodFoliageTint.FileNameFor(i));
             }
             Assert.Equal(NeighbourhoodFoliageTint.ModelCount, names.Count);
         }

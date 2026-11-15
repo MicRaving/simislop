@@ -709,14 +709,5 @@ namespace Simitone.Tests.Utils
         {
             Assert.Equal(expected, GraphicsOptions.DescribeAntiAlias(level));
         }
-
-        [Fact]
-        public void TheSettingsStripAgreesWithTheOptionsPageAboutEveryName()
-        {
-            // two places describe the same steps; if they drift, the strip and the page will
-            // disagree about what a stored value means
-            Assert.Equal(GraphicsOptions.DescribeLightingMode(2), UISettingsPanel.DescribeLightingMode(2));
-            Assert.Equal(GraphicsOptions.DescribeAntiAlias(1), UISettingsPanel.DescribeAntiAlias(1));
-        }
     }
 }

@@ -287,7 +287,8 @@ namespace Simitone.Client.UI.Panels
         private PipFeed _ActiveFeed = PipFeed.Auto;
         private float _Magnification = 1f;
         private float _HoldSeconds;
-        private bool LastHadCaption;
+        //null until the first Layout, so the label sizes are set even for a window opened without a caption
+        private bool? LastHadCaption;
         private PipFeedUnavailableReason LoggedReason;
         private string _StatusText = PipFeedFallback.StatusFor(PipFeed.Auto, PipFeedUnavailableReason.None);
         private string _FallbackCaption;
@@ -971,19 +972,18 @@ namespace Simitone.Client.UI.Panels
         /// first.
         ///
         /// <para>
-        /// A multisampled render target is not a legal texture binding, and the lot backbuffer is
-        /// created with the anti-aliasing sample count (<c>PPXDepthEngine.CreateRenderTarget</c>
-        /// passes <c>PPXDepthEngine.MSAA</c> straight through). So with 4x or 8x MSAA selected
-        /// there is nothing to read here.
+        /// The lot backbuffer is created with the anti-aliasing sample count
+        /// (<c>PPXDepthEngine.CreateRenderTarget</c> passes <c>PPXDepthEngine.MSAA</c> straight
+        /// through), and this deliberately only trusts one with no samples; the multisampled
+        /// ones are never read directly here.
         /// </para>
         ///
         /// <para>
-        /// That used to be the whole story, and the window reported that the player had to turn
-        /// anti-aliasing off for it. It is not: <see cref="ResolveLotSource"/> only reaches this
-        /// answer after the snapshot has been ruled out, and the snapshot is a copy into a target
-        /// with no samples, so the live view is available at every setting. This is now the
-        /// second-choice path - the backbuffer read directly, which is cheaper than copying and is
-        /// what runs when the copy could not be made.
+        /// <see cref="ResolveLotSource"/> only reaches this answer after the snapshot has been
+        /// ruled out, and the snapshot is a copy into a target with no samples, so the live view
+        /// is available at every setting. This is the second-choice path - the backbuffer read
+        /// directly, which is cheaper than copying and is what runs when the copy could not be
+        /// made.
         /// </para>
         /// </summary>
         public static bool CanSample(bool targetExists, int multiSampleCount)

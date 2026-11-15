@@ -124,13 +124,9 @@ namespace Simitone.Client.Neighbourhood
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>CHANGED by Part 8 §8.3's "the lot view renders the same map".</b> This used to be the
-        /// radius of the crop, and the crop was forty tiles past the property on every side: a
-        /// 144x144 square of a 512x512 world, about five per cent of it, which is what a player
-        /// reported as "graphical glitches beyond the property" and what the audit called a crop of
-        /// the map rather than the map. <see cref="For(NeighbourhoodMap,NeighbourhoodLot)"/> no
-        /// longer builds its drawn region at this radius - it builds the whole connected map, which
-        /// is <see cref="SimitoneSurroundingsCull.ConnectedMap"/>, the same rectangle the
+        /// The drawn region is not built at this radius: <see cref="For(NeighbourhoodMap,NeighbourhoodLot)"/>
+        /// builds the whole connected map, which is <see cref="SimitoneSurroundingsCull.ConnectedMap"/>,
+        /// the same rectangle the
         /// neighbourhood view draws and the same <see cref="NeighbourhoodMap"/> the map view's
         /// terrain renderer read. What is left at this radius is the <em>neighbour</em> budget: how
         /// close a lot has to be to be stood up as a real <c>SubWorldComponent</c> with its own
@@ -196,11 +192,10 @@ namespace Simitone.Client.Neighbourhood
         /// <remarks>
         /// <para>
         /// This is §8.3's "the lot view renders the same map" and it is a rectangle, not a second
-        /// world. It is the same <see cref="NeighbourhoodMap"/> instance the map view's
-        /// <c>NeighbourhoodTerrainRenderer</c> holds - both are handed out by
-        /// <c>NeighbourhoodSharedWorld</c> - so the terrain, the inferred connectors, the
-        /// neighbouring lots and their facades are a pure function of one raster and cannot
-        /// disagree about what the neighbourhood looks like. Before this it was a 144x144 crop of
+        /// world. It is the same generated <see cref="NeighbourhoodMap"/> raster the map view
+        /// draws (each view builds its own mesh from it - the removed <c>NeighbourhoodSharedWorld</c>
+        /// no longer hands one instance to both), so the terrain, the neighbouring lots and their
+        /// facades are a pure function of one raster. Before this it was a 144x144 crop of
         /// that raster centred on the active lot, which is what made the lot view a second,
         /// truncated view of the same world rather than a closer look at it.
         /// </para>
@@ -266,6 +261,40 @@ namespace Simitone.Client.Neighbourhood
                 return Matrix.CreateTranslation(-MapTileOrigin)
                     * Matrix.CreateScale(LotViewUnitsPerTile);
             }
+        }
+
+        /// <summary>
+        /// Where the player's own lot ground sits in the lot view, in blueprint altitude units, as
+        /// the surround has to be raised to meet it: the median of the lot's altitude field less
+        /// the <c>BaseAlt</c> its terrain is already drawn with. Zero for a blueprint with no
+        /// field, so the surround is then left where it always was.
+        /// </summary>
+        /// <remarks>
+        /// The played TS1 lot keeps <c>BaseAlt</c> at zero (walls, roofs and avatars bake the
+        /// altitude into their geometry when built), so its ground is at an absolute
+        /// <c>median * TerrainFactor * 3</c> and the surround - measured down to the lot's own
+        /// ground, <see cref="GroundOriginFor"/> - is lifted by exactly that instead.
+        /// </remarks>
+        /// <param name="blueprint">The live lot's blueprint, or <c>null</c>.</param>
+        public static int LotGroundAltitudeFor(FSO.LotView.Model.Blueprint blueprint)
+        {
+            if (blueprint == null || blueprint.Altitude == null || blueprint.Altitude.Length == 0)
+            {
+                return 0;
+            }
+            return FSO.LotView.Model.Blueprint.MedianAltitude(blueprint.Altitude) - blueprint.BaseAlt;
+        }
+
+        /// <summary>
+        /// <see cref="WorldMatrix"/> lifted by a lot-ground altitude, in blueprint altitude units
+        /// (<see cref="LotGroundAltitudeFor"/>). Exactly <see cref="WorldMatrix"/> when it is zero.
+        /// </summary>
+        /// <param name="lotGroundAltitude">The lot's ground, in blueprint altitude units.</param>
+        public Matrix WorldMatrixAt(int lotGroundAltitude)
+        {
+            if (lotGroundAltitude == 0) return WorldMatrix;
+            return WorldMatrix * Matrix.CreateTranslation(0f,
+                lotGroundAltitude * SimitoneNeighbourTerrain.LotTerrainFactor * LotViewUnitsPerTile, 0f);
         }
 
         /// <summary>
@@ -665,9 +694,8 @@ namespace Simitone.Client.Neighbourhood
         /// <para>
         /// <b>The median is the lot's own, and it is subtracted.</b> A <c>ARRY(0)</c> altitude is
         /// absolute and the field this writes is relative, so the reference has to be the level the
-        /// lot's own ground is measured from - which is what
-        /// <c>Blueprint.AnchorBaseAltitude</c> does to the player's lot, and what the same median
-        /// does to a neighbour. Without the subtraction a graded lot would be lifted by its whole
+        /// lot's own ground is measured from - the same median the player's lot is lifted to meet
+        /// (<see cref="LotGroundAltitudeFor"/>). Without the subtraction a graded lot would be lifted by its whole
         /// own altitude, which is precisely the S1 defect moved from the player's lot to its
         /// neighbours.
         /// </para>
@@ -847,9 +875,9 @@ namespace Simitone.Client.Neighbourhood
         /// <summary>
         /// The elevation byte at a map tile, or zero outside the map - the same refusal the rest of
         /// this file makes, so a lot on the edge of the world is measured against the edge rather
-        /// than against a wrap or a throw. Public because
-        /// <see cref="SimitoneSurroundingsRestore.GroundIsTheSurroundsGround"/> asks the surround's
-        /// question the way the mesh answers it rather than by a second reading of the map.
+        /// than against a wrap or a throw. Public because the surround's ground question
+        /// (<c>GroundIsTheSurroundsGround</c>, now gone) was asked the way the mesh answers it
+        /// rather than by a second reading of the map.
         /// </summary>
         public static byte ElevationByteAt(NeighbourhoodMap map, int mapX, int mapZ)
         {
@@ -1135,24 +1163,9 @@ namespace Simitone.Client.Neighbourhood
         /// <param name="lot">The lot, or <c>null</c>.</param>
         public static byte RoadByteFor(NeighbourhoodMap map, NeighbourhoodLot lot)
         {
-            return RoadByteFor(map, null, lot);
-        }
-
-        /// <summary>
-        /// <see cref="RoadByteFor(NeighbourhoodMap,NeighbourhoodLot)"/> with the connector mask
-        /// read off the 2D neighbourhood map, so the band is laid on the street the player was
-        /// shown rather than on one reconstructed from the gaps between lots.
-        /// </summary>
-        /// <param name="map">The generated map, or <c>null</c>.</param>
-        /// <param name="roadMask">
-        /// <see cref="NeighbourhoodRoadInference"/>'s mask for this neighbourhood, or <c>null</c>.
-        /// </param>
-        /// <param name="lot">The lot, or <c>null</c>.</param>
-        public static byte RoadByteFor(NeighbourhoodMap map, bool[] roadMask, NeighbourhoodLot lot)
-        {
             if (map == null || lot == null) return 0;
             var size = Math.Max(0, lot.Size);
-            return SimitoneNeighbourTerrain.RoadByteFor(map, roadMask,
+            return SimitoneNeighbourTerrain.RoadByteFor(map,
                 lot.WorldX, lot.WorldY, lot.WorldX + size - 1, lot.WorldY + size - 1);
         }
 
@@ -1344,11 +1357,10 @@ namespace Simitone.Client.Neighbourhood
 
         private readonly byte[] _tiles;
         private readonly IReadOnlyList<NeighbourhoodLot> _lots;
-        private readonly bool[] _roadMask;
 
         private SimitoneLotViewRoadBand(
             NeighbourhoodMap map, int minX, int minZ, int width, int height,
-            IReadOnlyList<NeighbourhoodLot> lots, bool[] roadMask = null)
+            IReadOnlyList<NeighbourhoodLot> lots)
         {
             Map = map;
             MinX = minX;
@@ -1357,7 +1369,6 @@ namespace Simitone.Client.Neighbourhood
             Height = Math.Max(0, height);
             _tiles = new byte[Width * Height];
             _lots = lots ?? new NeighbourhoodLot[0];
-            _roadMask = roadMask;
         }
 
         /// <summary>
@@ -1419,47 +1430,16 @@ namespace Simitone.Client.Neighbourhood
         public static SimitoneLotViewRoadBand For(
             NeighbourhoodMap map, IReadOnlyList<NeighbourhoodLot> lots, Rectangle region)
         {
-            return For(map, null, lots, region);
-        }
-
-        /// <summary>
-        /// <see cref="For(NeighbourhoodMap,IReadOnlyList{NeighbourhoodLot},Rectangle)"/> with the
-        /// connector mask read off the 2D neighbourhood map, so each lot's half-street is stamped
-        /// along the edge the 2D map actually has a street on.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Part 8's connectors, read where the lot view reads them. The mask is
-        /// <see cref="NeighbourhoodRoadInference"/>'s - a boolean per tile, straight off the
-        /// backdrop bitmap - and it is consulted through
-        /// <see cref="SimitoneNeighbourTerrain.RoadByteFor(NeighbourhoodMap,bool[],int,int,int,int)"/>
-        /// beside the map's own nibbles, so an edge the bitmap drew a street along gets a band even
-        /// where the rasteriser's own connectivity left the nibble at zero.
-        /// </para>
-        /// <para>
-        /// A neighbourhood with no mask bound is on the map's own bytes, which is the pre-Part-8
-        /// behaviour and the answer for a mode whose backdrop could not be read.
-        /// </para>
-        /// </remarks>
-        /// <param name="map">The generated map, or <c>null</c>.</param>
-        /// <param name="roadMask">
-        /// The inferred connector mask, <c>map.Width * map.Height</c> and row-major, or <c>null</c>.
-        /// </param>
-        /// <param name="lots">The lots whose frontage is in the region.</param>
-        /// <param name="region">The tiles the surround draws, in map tiles.</param>
-        public static SimitoneLotViewRoadBand For(
-            NeighbourhoodMap map, bool[] roadMask, IReadOnlyList<NeighbourhoodLot> lots, Rectangle region)
-        {
             if (map == null || region.Width <= 0 || region.Height <= 0)
             {
                 return new SimitoneLotViewRoadBand(null, region.X, region.Y,
-                    Math.Max(0, region.Width), Math.Max(0, region.Height), lots, roadMask);
+                    Math.Max(0, region.Width), Math.Max(0, region.Height), lots);
             }
 
             var clipped = Rectangle.Intersect(region,
                 new Rectangle(0, 0, map.Width, map.Height));
             var band = new SimitoneLotViewRoadBand(map, clipped.X, clipped.Y,
-                Math.Max(0, clipped.Width), Math.Max(0, clipped.Height), lots, roadMask);
+                Math.Max(0, clipped.Width), Math.Max(0, clipped.Height), lots);
             if (clipped.Width <= 0 || clipped.Height <= 0 || lots == null) return band;
 
             //every lot's own band first, then the fills, so a fill never stamps over the pavement
@@ -1568,7 +1548,7 @@ namespace Simitone.Client.Neighbourhood
         private void AddLot(NeighbourhoodMap map, NeighbourhoodLot lot)
         {
             var size = Math.Max(0, lot.Size);
-            var roads = SimitoneLotViewRoad.RoadByteFor(map, _roadMask, lot);
+            var roads = SimitoneLotViewRoad.RoadByteFor(map, lot);
             if (roads == 0) return;
 
             var minX = lot.WorldX;
@@ -1633,7 +1613,7 @@ namespace Simitone.Client.Neighbourhood
         private void FillCorridor(NeighbourhoodMap map, NeighbourhoodLot lot)
         {
             var size = Math.Max(0, lot.Size);
-            var roads = SimitoneLotViewRoad.RoadByteFor(map, _roadMask, lot);
+            var roads = SimitoneLotViewRoad.RoadByteFor(map, lot);
             if (roads == 0) return;
 
             var minX = lot.WorldX;
@@ -2297,14 +2277,9 @@ namespace Simitone.Client.Neighbourhood
     /// a full-map build would have submitted, and a test can count them without a GPU.
     /// </para>
     ///
-    /// <para><b>And what it keeps now.</b> <see cref="SimitoneSurroundingsCull.ConnectedMap"/> -
-    /// the whole map, which is what the lot view passes in production, so the crop is currently a
-    /// pass-through that copies every quad out of the source mesh and adds the bank. That is
-    /// deliberate rather than wasted: it is the same operation for the two shapes of question the
-    /// crop is asked (how much of this map is the player's lot surrounded by, and how much of this
-    /// map is drawn at all), the pass-through is what makes the two answers comparable, and the
-    /// per-frame reduction belongs to a chunked submission rather than to a filter here. A caller
-    /// that wants a narrower region still gets one - the tests are built on it.</para>
+    /// <para><b>What it keeps.</b> In production the region is <see cref="SimitoneSurroundingsCull.ConnectedMap"/>,
+    /// the whole map, so the crop is a pass-through that copies every quad and adds the bank. A
+    /// caller that wants a narrower region still gets one - the tests are built on it.</para>
     ///
     /// <para><b>Why it is not a vertex-range draw.</b> A quad's four vertices are re-emitted
     /// rather than referenced, so the kept triangles are contiguous and the buffers hold nothing
@@ -2324,7 +2299,7 @@ namespace Simitone.Client.Neighbourhood
     ///
     /// <para><b>And the street is both grammars, not one of them.</b> The mesh's own road quads
     /// are the map's real connectors - the streets and driveways read off the 2D neighbourhood
-    /// bitmap, which is what Part 8 asks for - and the band is the lot view's own
+    /// bitmap - and the band is the lot view's own
     /// <c>RestoreRoad</c> seam, the tiles no sub-world draws. Before this they were an either/or, and
     /// the either was the band, which has no driveways: the space between two lots was then a strip
     /// of band with the map's own connectors missing and the grass texture showing through where
@@ -2440,55 +2415,6 @@ namespace Simitone.Client.Neighbourhood
             result.RoadVertices = roads.ToArray();
             result.RoadPrimitives = roads.Count / 2;
             result.RoadIndices = BuildIndices(result.RoadPrimitives);
-            return result;
-        }
-
-        /// <summary>
-        /// The lot-view band alone, as a crop result with no ground and no map connectors: the one
-        /// street grammar the surround still draws itself now that the ground and the generated
-        /// map's own connector quads come from the shared lifted <c>CityGeometry</c>.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// The surround used to build the whole map and crop it to the region, which is the second
-        /// implementation the rework retires (docs/NEIGHBOURHOOD_3D_AUDIT_AND_FIX_PLAN.md Part 9).
-        /// What the shared geometry does <em>not</em> carry is the lot view's own
-        /// <c>RestoreRoad</c> band: the half-street each sub-world stamps and the reserved corridor
-        /// between two lots that no sub-world draws. That band is a lot-view property - it lands at
-        /// fixed tiles relative to a lot rectangle - so it stays here, built from the same
-        /// <see cref="SimitoneLotViewRoadBand"/> and drawn opaque in its own pass.
-        /// </para>
-        /// <para>
-        /// Pure, like the full crop: a band in, a result out, no device and no mesh.
-        /// </para>
-        /// </remarks>
-        /// <param name="band">The lot view's street over a map region, or <c>null</c>.</param>
-        public static SimitoneSurroundingsCropResult BandOnly(SimitoneLotViewRoadBand band)
-        {
-            var result = new SimitoneSurroundingsCropResult
-            {
-                LayerVertices = new NeighbourhoodTerrainVertex[NeighbourhoodCityMeshBuilder.LayerCount][],
-                LayerIndices = new int[NeighbourhoodCityMeshBuilder.LayerCount][],
-                LayerPrimitives = new int[NeighbourhoodCityMeshBuilder.LayerCount],
-                RoadVertices = new NeighbourhoodTerrainVertex[0],
-                RoadIndices = new int[0],
-                RoadSource = "nothing was drawn"
-            };
-            for (int i = 0; i < NeighbourhoodCityMeshBuilder.LayerCount; i++)
-            {
-                result.LayerVertices[i] = new NeighbourhoodTerrainVertex[0];
-                result.LayerIndices[i] = new int[0];
-            }
-            if (band == null || band.IsEmpty) return result;
-
-            var bandRoads = BandRoads(band);
-            result.RoadVertices = bandRoads.ToArray();
-            result.RoadPrimitives = bandRoads.Count / 2;
-            result.RoadIndices = BuildIndices(result.RoadPrimitives);
-            result.BandRoadTiles = band.RoadTileCount;
-            result.BandRoadPrimitives = bandRoads.Count / 2;
-            result.RoadSource = "the lot view's own RestoreRoad band ("
-                + band.TarmacTileCount + " tarmac, " + band.PavementTileCount + " pavement)";
             return result;
         }
 

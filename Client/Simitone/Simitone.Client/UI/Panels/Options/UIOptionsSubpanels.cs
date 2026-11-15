@@ -304,7 +304,7 @@ namespace Simitone.Client.UI.Panels.Options
                     // GlobalSettings value: the engine reads VM.FreeWillEnabled, and the
                     // property is only where the choice is parked between sessions. The
                     // descriptor writes the property like any other and OnSettingsChanged pushes
-                    // it into the engine, which is the one step a reflected checkbox cannot do
+                    // it into the engine, which is the one step a reflected switch cannot do
                     // for itself.
                     new UIBoolPropOptionDescription(typeof(GlobalSettings).GetProperty(FreeWillSetting.SettingsKey)) {
                         LocalizationInfo = new(FreeWillTitle, AboutFreeWill, FreeWillDesc)
@@ -321,7 +321,7 @@ namespace Simitone.Client.UI.Panels.Options
         /// <para>
         /// The base class writes the <c>TS1FreeWill</c> property and saves the ini, which is
         /// all a reflected control can do; nothing in <c>GlobalSettings</c> is what the lot
-        /// reads, so without this the checkbox would save a preference the VM would never look
+        /// reads, so without this the switch would save a preference the VM would never look
         /// at. Ordered after the base call on purpose: the base call rebuilds the page's
         /// controls from the settings object, so the row the player just clicked is rebuilt
         /// showing the value that was persisted.

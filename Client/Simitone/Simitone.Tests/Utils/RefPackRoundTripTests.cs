@@ -33,7 +33,7 @@ namespace Simitone.Tests.Utils
     public sealed class RefPackRoundTripTests
     {
         /// <summary>The nine bytes of header a compressed FAR3 entry carries ahead of its
-        /// commands: a 4-byte compressed size, the 0xFB10 magic, a 3-byte little-endian
+        /// commands: a 4-byte compressed size, the 0xFB10 magic, a 3-byte big-endian
         /// decompressed size. <c>FAR3Archive.GetEntry</c> steps over all nine.</summary>
         private const int RefPackHeaderLength = 9;
 
@@ -49,12 +49,12 @@ namespace Simitone.Tests.Utils
             declaredSize = writer.DecompressedSize;
 
             //the same nine bytes, read off the block the same way the archive reads them: a
-            //4-byte compressed size, the 0xFB10 magic, and the 3-byte little-endian
+            //4-byte compressed size, the 0xFB10 magic, and the 3-byte big-endian
             //decompressed size, so the size is at bytes 6..8
             Assert.Equal((uint)(compressedBlock.Length - RefPackHeaderLength), BitConverter.ToUInt32(compressedBlock, 0));
             Assert.Equal((ushort)0xFB10, BitConverter.ToUInt16(compressedBlock, 4));
-            Assert.Equal((uint)data.Length, (uint)(compressedBlock[6]
-                | (compressedBlock[7] << 8) | (compressedBlock[8] << 16)));
+            Assert.Equal((uint)data.Length, (uint)((compressedBlock[6] << 16)
+                | (compressedBlock[7] << 8) | compressedBlock[8]));
 
             var reader = new Decompresser();
             reader.CompressedSize = compressedBlock.Length - RefPackHeaderLength;

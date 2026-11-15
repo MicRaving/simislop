@@ -175,9 +175,9 @@ namespace Simitone.Tests.Engine
 
             Assert.Equal(total, bySelector);
             Assert.Equal(
-                total,
                 VMTS1TutorialInstructHelper.ShippedEnableSiteCount
-                    + VMTS1TutorialInstructHelper.ShippedDisableSiteCount);
+                    + VMTS1TutorialInstructHelper.ShippedDisableSiteCount,
+                total);
 
             // No selector may appear in the census twice: the two halves of the census have to be
             // able to agree about how many sites each selector owns.

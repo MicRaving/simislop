@@ -362,7 +362,7 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void AWorldBecomesASceneSourceThePanelCanDraw()
         {
-            var layout = NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed);
             var world = NeighbourhoodGeneratedWorld.Built(Slot, layout,
                 NeighbourhoodMap.Create(MapSize()),
                 NeighbourhoodRefreshPlan.Decide(NeighbourhoodView.World3D, layout, _seed,
@@ -385,7 +385,7 @@ namespace Simitone.Tests.Neighbourhood
             // back may be the instance sitting in the shared cache that M4's in-lot surroundings
             // and the next visit both read; the panel holds its source for as long as the view is
             // up, and the renderer writes nothing but must not be able to reach the shared one.
-            var layout = NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed);
             var map = NeighbourhoodMap.Create(MapSize());
             var world = NeighbourhoodGeneratedWorld.Built(Slot, layout, map,
                 NeighbourhoodRefreshPlan.Decide(NeighbourhoodView.World3D, layout, _seed,
@@ -401,7 +401,7 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void AFailedRefreshBecomesTheBitmapAndSaysWhy()
         {
-            var layout = NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed);
             var world = NeighbourhoodGeneratedWorld.Failed(Slot, layout,
                 NeighbourhoodRefreshPlan.Decide(NeighbourhoodView.World3D, layout, _seed,
                     NeighbourhoodLayoutBuilder.CurrentGeneratorVersion, null, false),
@@ -439,7 +439,7 @@ namespace Simitone.Tests.Neighbourhood
             // "Generation failed" with nothing to say why is still a neighbourhood that has to
             // open, and still a log line somebody can act on. The plan's own selection reason is
             // the fallback.
-            var layout = NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed);
             var world = NeighbourhoodGeneratedWorld.Failed(Slot, layout,
                 NeighbourhoodRefreshPlan.Decide(NeighbourhoodView.World3D, layout, _seed,
                     NeighbourhoodLayoutBuilder.CurrentGeneratorVersion, null, false), null);
@@ -456,7 +456,7 @@ namespace Simitone.Tests.Neighbourhood
         {
             // The panel's log is the only place a player who asked for 3D and got 2D can find out
             // why, so no path through the hand-over may produce an empty sentence.
-            var layout = NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed);
             var worlds = new[]
             {
                 null,

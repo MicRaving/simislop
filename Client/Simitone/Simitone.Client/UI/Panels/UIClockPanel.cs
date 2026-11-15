@@ -57,7 +57,6 @@ namespace Simitone.Client.UI.Panels
         /// table is one edit away from disagreeing with the shared constants, and the disagreement
         /// would only surface as a <see cref="System.Collections.Generic.KeyNotFoundException"/>
         /// inside <see cref="Update"/>, once per frame, for any speed the VM has grown since.
-        /// </para>
         /// The -1 is dropped on purpose: it is not one of the four buttons, it is "gameplay may
         /// not advance", and <see cref="Update"/> clamps it to pause with <c>Math.Max(0, ...)</c>.
         /// </remarks>

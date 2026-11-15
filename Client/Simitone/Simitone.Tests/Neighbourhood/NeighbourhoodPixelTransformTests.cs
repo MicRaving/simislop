@@ -126,7 +126,7 @@ namespace Simitone.Tests.Neighbourhood
             // one of the four cut corners where the mesh builder emits neither ground nor roads -
             // "disconnected houses floating in a void, without lighting". Swept at the corners, the
             // edges and the centre: the fit covers the whole bitmap, so nothing on it can miss.
-            var size = NeighbourhoodPixelTransform.MapSizeForBitmap();
+            var size = NeighbourhoodLayout.DefaultMapSize;
             var misses = new List<string>();
 
             foreach (var pixelX in new[] { 0, 1, 200, 400, 599, 799, 800 })
@@ -148,7 +148,7 @@ namespace Simitone.Tests.Neighbourhood
             // transformed bitmap is inside the diamond", which is a property of the fit: this is the
             // lot positions the game actually reads, one line each, and the assertion is the one
             // RW0 exists for - every real lot has ground and roads under it.
-            var size = NeighbourhoodPixelTransform.MapSizeForBitmap();
+            var size = NeighbourhoodLayout.DefaultMapSize;
             var misses = new List<string>();
             var worst = int.MaxValue;
 
@@ -217,12 +217,9 @@ namespace Simitone.Tests.Neighbourhood
             // the middle of the drawn island is half a tile above the middle of the square - and
             // that half tile is the difference between "centred on the map" and "centred on the
             // thing the player can see".
-            var size = NeighbourhoodPixelTransform.MapSizeForBitmap();
+            var size = NeighbourhoodLayout.DefaultMapSize;
             var centre = NeighbourhoodPixelTransform.TileForPixel(new Vector2(400, 300), size);
-            var drawn = NeighbourhoodPixelTransform.CentreFor(size);
 
-            Assert.Equal(drawn.X, centre.X, 3);
-            Assert.Equal(drawn.Y, centre.Y, 3);
             Assert.Equal(NeighbourhoodCityMeshBuilder.MapSize / 2f, centre.X, 3);
             Assert.True(InsideDiamond(centre));
         }
@@ -236,7 +233,7 @@ namespace Simitone.Tests.Neighbourhood
         [InlineData(800, 600)]
         public void TheRoundTripIsExact(int pixelX, int pixelY)
         {
-            var size = NeighbourhoodPixelTransform.MapSizeForBitmap();
+            var size = NeighbourhoodLayout.DefaultMapSize;
 
             var tile = NeighbourhoodPixelTransform.TileForPixel(new Vector2(pixelX, pixelY), size);
             var back = NeighbourhoodPixelTransform.PixelForTile(tile, size);
@@ -252,7 +249,7 @@ namespace Simitone.Tests.Neighbourhood
             // which is back with Part 9. A step right on the bitmap is a step right-and-up in the
             // world; a step down it is a step right-and-down. Getting a sign wrong here mirrors the
             // neighbourhood diagonally, which looks like a layout problem and is not.
-            var size = NeighbourhoodPixelTransform.MapSizeForBitmap();
+            var size = NeighbourhoodLayout.DefaultMapSize;
             var origin = NeighbourhoodPixelTransform.TileForPixel(new Vector2(300, 300), size);
             var right = NeighbourhoodPixelTransform.TileForPixel(new Vector2(400, 300), size);
             var down = NeighbourhoodPixelTransform.TileForPixel(new Vector2(300, 400), size);
@@ -277,7 +274,7 @@ namespace Simitone.Tests.Neighbourhood
             // on the two 45-degree diagonals, and each must be scaled onto exactly the room its own
             // diagonal has. A single divisor instead would satisfy the first half and throw half the
             // island's width away.
-            var size = NeighbourhoodPixelTransform.MapSizeForBitmap();
+            var size = NeighbourhoodLayout.DefaultMapSize;
             var origin = NeighbourhoodPixelTransform.TileForPixel(new Vector2(300, 300), size);
             var right = NeighbourhoodPixelTransform.TileForPixel(new Vector2(310, 300), size);
             var down = NeighbourhoodPixelTransform.TileForPixel(new Vector2(300, 310), size);
@@ -289,46 +286,6 @@ namespace Simitone.Tests.Neighbourhood
             //neither axis touches the other diagonal, so the two are the projection's own
             Assert.Equal(right.X - origin.X, NeighbourhoodPixelTransform.DifferenceInside() * 10 / 800f / 2f, 3);
             Assert.Equal(down.X - origin.X, NeighbourhoodPixelTransform.SumInside() * 10 / 600f / 2f, 3);
-        }
-
-        [Fact]
-        public void ThePerAxisHelpersAreTheTransformsOwnContributions()
-        {
-            // The scalar forms exist for callers in a per-lot loop. With a diamond-aligned transform
-            // a bitmap position has two contributions rather than one per axis, so each helper is
-            // one term of the sum - and what has to hold is that the terms really are the terms, or
-            // the mask and the rectangles would be in slightly different worlds and nobody would
-            // find out from a screenshot.
-            //
-            // CHANGED by the Part 9 TSO-alignment rework. This asserted that
-            // TileXForPixelX(px) == TileForPixel(px, px).X, which is only true of an axis-aligned
-            // mapping; it now asserts the composition instead.
-            var size = NeighbourhoodPixelTransform.MapSizeForBitmap();
-            foreach (var pixel in new[] { 0, 17, 199, 400, 511, 800 })
-            {
-                var alongX = NeighbourhoodPixelTransform.TileXForPixelX(pixel, size)
-                    - NeighbourhoodPixelTransform.TileXForPixelX(0, size);
-                var alongY = NeighbourhoodPixelTransform.TileYForPixelY(pixel, size)
-                    - NeighbourhoodPixelTransform.TileYForPixelY(0, size);
-
-                var a = NeighbourhoodPixelTransform.TileForPixel(new Vector2(pixel, 300), size);
-                var b = NeighbourhoodPixelTransform.TileForPixel(new Vector2(0, 300), size);
-                Assert.Equal(a.X - b.X, alongX, 3);
-                //and the same contribution moves the row the other way, which is what makes it a
-                //shear rather than a per-axis scale
-                Assert.Equal(a.Y - b.Y, -alongX, 3);
-
-                var c = NeighbourhoodPixelTransform.TileForPixel(new Vector2(300, pixel), size);
-                var d = NeighbourhoodPixelTransform.TileForPixel(new Vector2(300, 0), size);
-                Assert.Equal(c.X - d.X, alongY, 3);
-                Assert.Equal(c.Y - d.Y, alongY, 3);
-
-                //and the floored back-projection lands on the bitmap
-                Assert.InRange(NeighbourhoodPixelTransform.PixelXForTileX((int)a.X, size),
-                    0, NeighbourhoodPixelTransform.BitmapWidth);
-                Assert.InRange(NeighbourhoodPixelTransform.PixelYForTileY((int)c.Y, size),
-                    0, NeighbourhoodPixelTransform.BitmapHeight);
-            }
         }
 
         [Fact]
@@ -390,49 +347,6 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
-        public void EveryTileCoversSomeOfTheBitmapAndNoPixelIsMissed()
-        {
-            // The road inference reads a tile's worth of backdrop out of the bitmap, so "which
-            // pixels is tile 300" has to answer something. Checked by counting, over every tile of
-            // the real map size: each reports a non-empty rectangle inside the bitmap, and every
-            // pixel is inside the rectangle of the tile it transforms to.
-            //
-            // CHANGED by the Part 9 TSO-alignment rework. This used to ask for a *partition* -
-            // each pixel in exactly one tile - which an axis-aligned transform can give and a
-            // diamond-aligned one cannot, because one tile's preimage is a rotated square. It asks
-            // for coverage instead, which is what the classifier needs: a pixel is never missed,
-            // and never read from outside the map's own footprint.
-            const int size = 512;
-            var covered = new bool[NeighbourhoodPixelTransform.BitmapWidth
-                * NeighbourhoodPixelTransform.BitmapHeight];
-            var empty = 0;
-            var outside = 0;
-
-            for (int ty = 0; ty < size; ty++)
-            {
-                for (int tx = 0; tx < size; tx++)
-                {
-                    NeighbourhoodPixelTransform.PixelBoundsForTile(tx, ty, size,
-                        out var left, out var top, out var right, out var bottom);
-                    if (right <= left || bottom <= top) { empty++; continue; }
-                    if (left < 0 || top < 0
-                        || right > NeighbourhoodPixelTransform.BitmapWidth
-                        || bottom > NeighbourhoodPixelTransform.BitmapHeight) outside++;
-                    for (var y = top; y < bottom; y++)
-                    {
-                        for (var x = left; x < right; x++) covered[y * 800 + x] = true;
-                    }
-                }
-            }
-
-            Assert.Equal(0, empty);
-            Assert.Equal(0, outside);
-            var missed = 0;
-            for (int i = 0; i < covered.Length; i++) if (!covered[i]) missed++;
-            Assert.Equal(0, missed);
-        }
-
-        [Fact]
         public void DegenerateMapSizesDoNotDivideByZero()
         {
             // A camera that has just lost its device asks this question with a default-constructed
@@ -444,10 +358,6 @@ namespace Simitone.Tests.Neighbourhood
             var back = NeighbourhoodPixelTransform.PixelForTile(tile, -5);
             Assert.False(float.IsNaN(back.X));
             Assert.False(float.IsNaN(back.Y));
-
-            NeighbourhoodPixelTransform.PixelBoundsForTile(0, 0, 0,
-                out var left, out var top, out var right, out var bottom);
-            Assert.True(right > left && bottom > top);
         }
 
         /// <summary>The exporter's own projection, at its own divisor.</summary>
@@ -464,7 +374,8 @@ namespace Simitone.Tests.Neighbourhood
         /// </summary>
         private static bool InsideDiamond(Vector2 tile)
         {
-            if (!NeighbourhoodPixelTransform.IsInsideDrawnRegion(tile)) return false;
+            if (!NeighbourhoodCityMeshBuilder.IsInsideDiamond(
+                (int)Math.Floor(tile.X), (int)Math.Floor(tile.Y))) return false;
             var row = (int)Math.Floor(tile.Y);
             var column = (int)Math.Floor(tile.X);
             return column > NeighbourhoodCityMeshBuilder.DiamondLeft(row)

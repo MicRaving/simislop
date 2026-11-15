@@ -375,36 +375,6 @@ namespace Simitone.Client.Neighbourhood
         public long Seed { get; }
 
         /// <summary>
-        /// The connector mask read off the 2D neighbourhood map, in this map's own tile space, or
-        /// <c>null</c> when there is none and <see cref="RoadGraph"/> should measure its streets.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Part 8 §8.4's second extension, and the reason the generated world's roads stopped being
-        /// a reconstruction of the packing: the streets are pixels on the 2D map, so they are
-        /// carried as pixels' answer rather than invented as gaps.
-        /// <see cref="NeighbourhoodRoadInference"/> produces it and
-        /// <see cref="NeighbourhoodMapAdapter.InputFor"/> hands it over; the mask is
-        /// <c>MapSize * MapSize</c>, row-major, in exactly <see cref="NeighbourhoodMap.RoadData"/>'s
-        /// indexing, and it is a *seed* rather than a command - <see cref="RoadGraph"/> still clips
-        /// it out of lot interiors, still routes driveways onto it and still writes the existing
-        /// nibble encoding.
-        /// </para>
-        /// <para>
-        /// A mask of the wrong length is refused rather than trusted: a half-length mask would put
-        /// one neighbourhood's roads into another's ground without a word, so it is dropped here
-        /// with a warning and the synthetic path answers instead.
-        /// </para>
-        /// </remarks>
-        public bool[] RoadMask { get; }
-
-        /// <summary>Whether a connector mask was supplied, whatever it turned out to contain.</summary>
-        public bool HasRoadMask
-        {
-            get { return RoadMask != null; }
-        }
-
-        /// <summary>
         /// The side length of the map to generate. <see cref="NeighbourhoodMap.DefaultSize"/> (512)
         /// for the game; tests use a smaller one because the generator is O(size^2) and a test
         /// that builds a dozen 512x512 maps is a test nobody waits for.
@@ -430,38 +400,18 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// Creates a generation input with no connector mask, so the road graph measures its own
-        /// streets. The shape every canned lot list in the tests uses, and the shape a mode whose
-        /// backdrop could not be read ends up with.
-        /// </summary>
-        /// <param name="seed">The world seed.</param>
-        /// <param name="mapSize">The side length of the map; 512 for a real one.</param>
-        /// <param name="lots">The lots, in any order. <c>null</c> means an empty neighbourhood.</param>
-        public NeighbourhoodMapInput(long seed, int mapSize, IEnumerable<NeighbourhoodLotInput> lots)
-            : this(seed, mapSize, lots, null)
-        {
-        }
-
-        /// <summary>
         /// Creates a generation input.
         /// </summary>
         /// <param name="seed">The world seed.</param>
         /// <param name="mapSize">The side length of the map; 512 for a real one.</param>
         /// <param name="lots">The lots, in any order. <c>null</c> means an empty neighbourhood.</param>
-        /// <param name="roadMask">
-        /// The connector mask read off the 2D map, <c>mapSize * mapSize</c> and row-major, or
-        /// <c>null</c> to have the road graph measure its own streets. A mask of the wrong length
-        /// is refused with a warning and treated as <c>null</c>.
-        /// </param>
-        public NeighbourhoodMapInput(long seed, int mapSize, IEnumerable<NeighbourhoodLotInput> lots,
-            bool[] roadMask)
+        public NeighbourhoodMapInput(long seed, int mapSize, IEnumerable<NeighbourhoodLotInput> lots)
         {
             if (mapSize < 4) throw new ArgumentOutOfRangeException(
                 nameof(mapSize), mapSize, "a map must be at least 4 tiles across.");
 
             Seed = seed;
             MapSize = mapSize;
-            RoadMask = AcceptMask(roadMask, mapSize);
 
             _lots = lots == null ? new NeighbourhoodLotInput[0] : new List<NeighbourhoodLotInput>(lots).ToArray();
 
@@ -472,27 +422,6 @@ namespace Simitone.Client.Neighbourhood
             }
             _usable = usable.ToArray();
         }
-
-        /// <summary>
-        /// A mask this map can actually index, or <c>null</c>.
-        /// </summary>
-        /// <remarks>
-        /// Refused rather than padded or truncated, and loudly: a mask half the length of the map
-        /// would index row <c>y</c> of the wrong map and paint one neighbourhood's streets into
-        /// another's ground, which is the kind of wrong that looks like a layout bug.
-        /// </remarks>
-        private static bool[] AcceptMask(bool[] mask, int mapSize)
-        {
-            if (mask == null) return null;
-            var wanted = (long)mapSize * mapSize;
-            if (mask.LongLength == wanted) return mask;
-
-            SimitoneLog.Warn("NeighbourhoodMapInput: ignoring a road mask of " + mask.LongLength
-                + " tile(s); a " + mapSize + "x" + mapSize + " map indexes " + wanted
-                + ", so the streets will be measured from the lots instead.");
-            return null;
-        }
-
         private static bool OverlapsMap(NeighbourhoodLotInput lot, int mapSize)
         {
             return lot.WorldX < mapSize && lot.WorldY < mapSize
@@ -508,20 +437,6 @@ namespace Simitone.Client.Neighbourhood
         public static NeighbourhoodMapInput Of(long seed, int mapSize, params NeighbourhoodLotInput[] lots)
         {
             return new NeighbourhoodMapInput(seed, mapSize, lots);
-        }
-
-        /// <summary>
-        /// <see cref="Of(long,int,NeighbourhoodLotInput[])"/> with a connector mask, for a caller
-        /// that has inferred one and wants the whole input in one expression.
-        /// </summary>
-        /// <param name="seed">The world seed.</param>
-        /// <param name="mapSize">The side length of the map.</param>
-        /// <param name="roadMask">The connector mask, or <c>null</c>.</param>
-        /// <param name="lots">The lots to place.</param>
-        public static NeighbourhoodMapInput WithMask(
-            long seed, int mapSize, bool[] roadMask, params NeighbourhoodLotInput[] lots)
-        {
-            return new NeighbourhoodMapInput(seed, mapSize, lots, roadMask);
         }
     }
 

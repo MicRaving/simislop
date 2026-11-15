@@ -35,7 +35,7 @@ namespace Simitone.Tests.UI
             // This is the whole point of the change. A section that is hidden from the "Other"
             // tab and has no button of its own is a section that does not exist as far as a
             // player is concerned, however completely the engine implements it.
-            Assert.False(InventorySections.HiddenByDefault.Contains(InventorySections.VacationTokenType));
+            Assert.DoesNotContain(InventorySections.VacationTokenType, InventorySections.HiddenByDefault);
             Assert.True(InventorySections.Matches(InventorySections.VacationTokenType, InventorySections.SortAll));
         }
 
@@ -44,7 +44,7 @@ namespace Simitone.Tests.UI
         {
             // Nothing in this tree says what section 2 holds. It is shown rather than hidden,
             // but with no button and no name: visible, and not mislabelled.
-            Assert.False(InventorySections.HiddenByDefault.Contains(InventorySections.UnidentifiedTokenType));
+            Assert.DoesNotContain(InventorySections.UnidentifiedTokenType, InventorySections.HiddenByDefault);
             Assert.True(InventorySections.Matches(InventorySections.UnidentifiedTokenType, InventorySections.SortAll));
         }
 
@@ -53,8 +53,8 @@ namespace Simitone.Tests.UI
         {
             // Otherwise "Other" would be the whole inventory three times over, and the two
             // buttons that were already there would stop narrowing anything.
-            Assert.True(InventorySections.HiddenByDefault.Contains(InventorySections.MagicTokenType));
-            Assert.True(InventorySections.HiddenByDefault.Contains(InventorySections.IngredientTokenType));
+            Assert.Contains(InventorySections.MagicTokenType, InventorySections.HiddenByDefault);
+            Assert.Contains(InventorySections.IngredientTokenType, InventorySections.HiddenByDefault);
             Assert.False(InventorySections.Matches(InventorySections.MagicTokenType, InventorySections.SortAll));
             Assert.False(InventorySections.Matches(InventorySections.IngredientTokenType, InventorySections.SortAll));
         }
@@ -81,7 +81,7 @@ namespace Simitone.Tests.UI
             // could change what every panel instance considered visible.
             var first = InventorySections.HiddenByDefault;
             first.Add(99);
-            Assert.False(InventorySections.HiddenByDefault.Contains(99));
+            Assert.DoesNotContain(99, InventorySections.HiddenByDefault);
         }
 
         // ---- the four buttons -------------------------------------------------------------------

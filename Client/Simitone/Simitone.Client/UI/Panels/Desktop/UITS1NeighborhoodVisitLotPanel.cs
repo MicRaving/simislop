@@ -95,11 +95,6 @@ namespace Simitone.Client.UI.Panels.Desktop
             GameResized();
         }
 
-        public override void Update(UpdateState state)
-        {
-            base.Update(state);
-        }
-
         public override void GameResized()
         {
             base.GameResized();
@@ -108,7 +103,8 @@ namespace Simitone.Client.UI.Panels.Desktop
 
             var gameScr = GameFacade.Screens.CurrentUIScreen;
             captionBg.BodySize = new Point(gameScr.ScreenWidth, captionBg.BodySize.Y);
-            caption.Caption = getTitle(); // todo: use UIText entry for this so it is localised // bisquick
+            // The title is picked once, in create(): re-rolling it here changed the heading on
+            // every window resize.
             var desiredSize = caption.CaptionStyle.MeasureString(caption.Caption);
             caption.Position = new Vector2((gameScr.ScreenWidth / 2) - (desiredSize.X / 2), 20);
         }

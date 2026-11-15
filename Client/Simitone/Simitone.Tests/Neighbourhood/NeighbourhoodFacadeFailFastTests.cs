@@ -390,6 +390,58 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
+        public void TakeHandsTheMeshToOneOwnerOnly()
+        {
+            // Two live NeighbourhoodFacades used to be handed the same mesh, and whichever
+            // dropped it first freed the other's buffers.
+            NeighbourhoodFacadeMeshCache.Clear();
+            var lot = Lot(11, 200, 300, 0xDEADBEEF);
+            var mesh = new Simitone.Client.Neighbourhood.NeighbourhoodFacade
+            {
+                Lot = lot,
+                Surfaces = new Simitone.Client.Neighbourhood.NeighbourhoodFacadeSurface[1]
+            };
+            NeighbourhoodFacadeMeshCache.Store(mesh, lot.HouseHash);
+
+            var first = NeighbourhoodFacadeMeshCache.Take(lot, f => true);
+            var second = NeighbourhoodFacadeMeshCache.Take(lot, f => true);
+
+            Assert.Same(mesh, first);
+            Assert.Null(second);
+            Assert.False(NeighbourhoodFacadeMeshCache.Contains(11));
+
+            // handed back, it can be taken again - by one owner
+            NeighbourhoodFacadeMeshCache.Store(first, lot.HouseHash);
+            Assert.Same(mesh, NeighbourhoodFacadeMeshCache.Take(lot, f => true));
+            Assert.Null(NeighbourhoodFacadeMeshCache.Take(lot, f => true));
+            NeighbourhoodFacadeMeshCache.Clear();
+        }
+
+        [Fact]
+        public void AMeshTheStoreRefusesStaysInTheStore()
+        {
+            NeighbourhoodFacadeMeshCache.Clear();
+            var lot = Lot(12, 0, 0, 0x1);
+            NeighbourhoodFacadeMeshCache.Store(new Simitone.Client.Neighbourhood.NeighbourhoodFacade
+            {
+                Lot = lot,
+                Surfaces = new Simitone.Client.Neighbourhood.NeighbourhoodFacadeSurface[1]
+            }, lot.HouseHash);
+
+            Assert.Null(NeighbourhoodFacadeMeshCache.Take(lot, f => false));
+            Assert.True(NeighbourhoodFacadeMeshCache.Contains(12));
+            NeighbourhoodFacadeMeshCache.Clear();
+        }
+
+        [Fact]
+        public void TheCapacityCoversEveryLotNumber()
+        {
+            // 98 lots in one neighbourhood must not evict a live mesh.
+            Assert.True(NeighbourhoodFacadeMeshCache.DefaultCapacity
+                >= Simitone.Client.Neighbourhood.LotTravelService.MaxLotNumber);
+        }
+
+        [Fact]
         public void AStoreWithNothingInItAdoptsNothing()
         {
             // The state every session starts in, and the one the "second visit is free" claim

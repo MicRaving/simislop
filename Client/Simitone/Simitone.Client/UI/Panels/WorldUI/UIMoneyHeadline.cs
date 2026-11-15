@@ -31,7 +31,7 @@ namespace Simitone.Client.UI.Panels.WorldUI
             }
             else
             {
-                Text = (value > 0) ? ("§" + value) : ("-§" + value);
+                Text = (value > 0) ? ("§" + value) : ("-§" + (-value));
                 Style.Color = Model.UIStyle.Current.Text;
             }
             var measure = Style.MeasureString(Text);
@@ -68,6 +68,7 @@ namespace Simitone.Client.UI.Panels.WorldUI
 
         public override Texture2D DrawFrame(World world)
         {
+            if (MoneyTarget == null) return null;
             DrawNewFrame();
             return MoneyTarget;
         }
@@ -75,6 +76,10 @@ namespace Simitone.Client.UI.Panels.WorldUI
         public override void Dispose()
         {
             base.Dispose();
+            // One target per headline, built in the constructor and handed back by DrawFrame:
+            // nothing else owns it, so it went to the GC finalizer every time a headline expired.
+            MoneyTarget?.Dispose();
+            MoneyTarget = null;
         }
     }
 }

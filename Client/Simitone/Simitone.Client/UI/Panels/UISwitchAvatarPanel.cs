@@ -57,7 +57,7 @@ namespace Simitone.Client.UI.Panels
             }
             GameFacade.Screens.Tween.To(this, 0.3f, new Dictionary<string, float>() { { "Opacity", 0f } }, TweenQuad.EaseOut);
             OnEnd?.Invoke();
-            GameThread.SetTimeout(() => Parent.Remove(this), 300);
+            GameThread.SetTimeout(() => Parent?.Remove(this), 300);
         }
 
         public override void Draw(UISpriteBatch batch)

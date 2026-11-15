@@ -357,7 +357,7 @@ namespace Simitone.Tests.UI
             // The panel's per-frame row count must not have to special-case the empty case.
             var result = BuyCatalogService.SearchCategory(new List<UICatalogElement>(), "sofa");
 
-            Assert.Equal(0, result.Count);
+            Assert.Empty(result);
             Assert.False(result.Any());
         }
     }

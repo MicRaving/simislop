@@ -21,34 +21,19 @@ namespace Simitone.Client.Neighbourhood
     /// house buttons are the same story: they are placed at <c>HousePositions</c>, in bitmap space,
     /// and the 3D camera has to be aimed so the two spaces mean the same neighbourhood.</para>
     ///
-    /// <para><b>It is <see cref="NeighbourhoodPixelTransform"/>, and nothing else.</b> Since Part 8
-    /// the layout builder places a lot at <c>TileForPixel(MapX, MapY)</c> and nothing moves it, so
-    /// the position this type reports <em>is</em> the position the rectangle is at - which is the
-    /// property the whole thing exists for. Before Part 8 this type reproduced the OBJ exporter's
-    /// isometric projection and its fit into the map, and it documented at length why it could not
-    /// be the inverse of the packer: the packer relaxed overlapping rectangles afterwards and
-    /// clamped them into the map, so a lot's final <c>WorldX</c> was not derivable from its bitmap
-    /// position at all, and the camera had to prefer the packed rectangle over the projection and
-    /// fall back to the projection only for a lot the layout did not contain. That is gone. There is
-    /// a bijection between bitmap positions and tile positions, the layout uses it, and the camera
-    /// uses it.</para>
+    /// <para><b>It is <see cref="NeighbourhoodPixelTransform"/>, and nothing else.</b> This type only
+    /// converts bitmap coordinates to world tiles and back. It does <em>not</em> describe where the
+    /// packer places lots: <see cref="NeighbourhoodLayoutBuilder.PackOnGrid(IReadOnlyList{NeighbourhoodLotRead}, int, int, int)"/>
+    /// lays them out on a shelf grid, independently of their bitmap positions.</para>
     ///
-    /// <para><b>What is kept, and why.</b> <see cref="MapSize"/> and <see cref="LotCount"/> are the
-    /// facts a caller asks about the world rather than about the arithmetic.
-    /// <see cref="BitmapToWorld"/>, <see cref="BitmapToWorldTile"/>,
-    /// <see cref="WorldToBitmap"/> and <see cref="PackedCentre"/> are the four things the camera
-    /// placement, the renderer and the tests call, unchanged in signature and in meaning.
-    /// <see cref="Scale"/>, <see cref="Fit"/>, <see cref="PadX"/>, <see cref="PadY"/>,
-    /// <see cref="MinProjectedX"/> and <see cref="MinProjectedY"/> are gone: they were the
-    /// projection and the fit, and there is no projection and no fit left to describe. So is the
-    /// <see cref="Fitted"/> factory, which existed only to build them.</para>
+    /// <para><b>Bitmap space is not the shelf's space.</b> A bitmap position lands where the
+    /// transform says, but the shipped layout packs lots on a shelf grid, so a lot's own position is
+    /// <see cref="PackedCentre"/> - never <see cref="BitmapToWorld"/> of its button. The camera,
+    /// the click test and the facade plan all use the packed rectangle; <see cref="BitmapToWorld"/>
+    /// remains only as the focus fallback for a lot the layout does not contain at all.</para>
     ///
     /// <para><b>Exact invertibility.</b> The transform is a per-axis scale, so
-    /// <see cref="WorldToBitmap"/> undoes <see cref="BitmapToWorld"/> to the last bit, and a round
-    /// trip through both is meaningful. The floored integer form is
-    /// <see cref="BitmapToWorldTile"/>, which is the layout builder's own answer for a rectangle's
-    /// origin plus half its side - see <see cref="LotCentre"/> for why the two differ by half a
-    /// lot.</para>
+    /// <see cref="WorldToBitmap"/> undoes <see cref="BitmapToWorld"/> to the last bit.</para>
     /// </summary>
     public readonly struct NeighbourhoodWorldMapping
     {
@@ -113,23 +98,6 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// A bitmap position as a whole tile, floored: the centre tile of the lot's rectangle.
-        /// </summary>
-        /// <remarks>
-        /// The layout's <see cref="NeighbourhoodLot.WorldX"/> is the rectangle's <em>origin</em>,
-        /// which is this minus half the lot's side, so this and <see cref="PackedCentre"/> agree
-        /// within half a tile rather than exactly. That is the transform's precision and §8.6 asks
-        /// for nothing finer; <see cref="LotCentre"/> is the exact answer for a lot the layout has.
-        /// </remarks>
-        /// <param name="mapX">Bitmap x.</param>
-        /// <param name="mapY">Bitmap y.</param>
-        public Point BitmapToWorldTile(int mapX, int mapY)
-        {
-            var world = BitmapToWorld(mapX, mapY);
-            return new Point((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
-        }
-
-        /// <summary>
         /// A tile position as a continuous bitmap position. The exact inverse of
         /// <see cref="BitmapToWorld"/>.
         /// </summary>
@@ -144,12 +112,10 @@ namespace Simitone.Client.Neighbourhood
         /// The centre of a lot's rectangle in world tiles, exactly: the origin plus half its side.
         /// </summary>
         /// <remarks>
-        /// <b>This is the answer the camera should use for a lot the layout contains</b>, and it is
-        /// now equal to the lot's bitmap position through the transform rather than approximately
-        /// equal to it, because the layout builder placed the rectangle from that same transform.
-        /// <see cref="BitmapToWorldTile"/> is the fallback for a lot the layout does not have, and
-        /// the two are kept distinct rather than merged because they are two different questions: one
-        /// is "where is the rectangle", the other is "where does the map say this lot is".
+        /// <b>This is the answer for a lot the layout contains.</b> The shelf packer places the
+        /// rectangle independently of the lot's bitmap position, so the two are different questions:
+        /// this is where the rectangle is, <see cref="BitmapToWorld"/> is where the 2D map says the
+        /// lot is.
         /// </remarks>
         /// <param name="lot">The lot, or <c>null</c>.</param>
         public static Vector2 PackedCentre(NeighbourhoodLot lot)
@@ -157,75 +123,6 @@ namespace Simitone.Client.Neighbourhood
             if (lot == null) return Vector2.Zero;
             var size = Math.Max(0, lot.Size);
             return new Vector2(lot.WorldX + size / 2f, lot.WorldY + size / 2f);
-        }
-
-        /// <summary>
-        /// Which lot covers a world tile, preferring the one whose bitmap centre is nearest to that
-        /// tile's bitmap position.
-        /// </summary>
-        /// <remarks>
-        /// <b>The tie-break is the new part, and it is why this exists.</b> Real lots overlap by two
-        /// tiles on TSO's own <c>Size - 2</c> pitch, so a tile in the overlap belongs to two lots and
-        /// <see cref="NeighbourhoodLayout.LotAt"/>'s first-match answer is whichever lot number is
-        /// lower. That is a stable but arbitrary answer, and it is the wrong one for a click: the
-        /// player clicked the house drawn at a particular button, and the lot whose <em>map
-        /// position</em> is that button is the one they meant.
-        /// </remarks>
-        /// <param name="layout">The layout, or <c>null</c>.</param>
-        /// <param name="worldX">Tile x.</param>
-        /// <param name="worldY">Tile y.</param>
-        public static NeighbourhoodLot LotAt(NeighbourhoodLayout layout, int worldX, int worldY)
-        {
-            if (layout == null) return null;
-
-            var covering = layout.LotAt(worldX, worldY);
-            if (covering == null) return covering;
-
-            //a tile in no lot's overlap needs no tie-break, and asking anyway would cost a scan of
-            //every lot on every click for an answer the first match already gave
-            var rivals = 0;
-            for (int i = 0; i < layout.Lots.Count; i++)
-            {
-                var other = layout.Lots[i];
-                if (ReferenceEquals(other, covering)) continue;
-                if (worldX >= other.WorldX && worldX < other.WorldX + Math.Max(0, other.Size)
-                    && worldY >= other.WorldY && worldY < other.WorldY + Math.Max(0, other.Size))
-                {
-                    rivals++;
-                }
-            }
-            if (rivals == 0) return covering;
-
-            var pixel = NeighbourhoodPixelTransform.PixelForTile(
-                new Vector2(worldX + 0.5f, worldY + 0.5f), layout.MapSize);
-            var best = covering;
-            var bestDistance = DistanceTo(covering, pixel);
-            for (int i = 0; i < layout.Lots.Count; i++)
-            {
-                var other = layout.Lots[i];
-                if (ReferenceEquals(other, covering)) continue;
-                if (worldX < other.WorldX || worldX >= other.WorldX + Math.Max(0, other.Size)
-                    || worldY < other.WorldY || worldY >= other.WorldY + Math.Max(0, other.Size))
-                {
-                    continue;
-                }
-                var distance = DistanceTo(other, pixel);
-                //strictly less, so a tie goes to the lower lot index and the answer does not depend
-                //on the order the scan reached the two lots in
-                if (distance < bestDistance)
-                {
-                    bestDistance = distance;
-                    best = other;
-                }
-            }
-            return best;
-        }
-
-        private static float DistanceTo(NeighbourhoodLot lot, Vector2 pixel)
-        {
-            var dx = pixel.X - lot.MapX;
-            var dy = pixel.Y - lot.MapY;
-            return dx * dx + dy * dy;
         }
 
         public override string ToString()

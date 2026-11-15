@@ -42,16 +42,6 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
         private UILabel MagiCoinLabel;
 
         /// <summary>
-        /// The token types the "Other" tab keeps to itself, because they have a button.
-        /// </summary>
-        /// <remarks>
-        /// Kept as a member so the panel's own answer to "what does Other hide" has a name, but
-        /// a fresh set per read: this used to be a field, which meant anything holding a
-        /// reference to it could change what every panel instance considered visible.
-        /// </remarks>
-        public HashSet<int> HiddenCats => InventorySections.HiddenByDefault;
-
-        /// <summary>
         /// Taller than the shared 128px strip: the four sort buttons fill the left column, and
         /// the MagiCoin readout needs a row of its own underneath them.
         /// </summary>

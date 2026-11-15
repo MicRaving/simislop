@@ -36,14 +36,6 @@ namespace Simitone.Windows.GameLocator
             registry = reader ?? new WindowsRegistryReader();
         }
 
-        public string FindTheSimsOnline()
-        {
-            // Simitone is a single-player TS1 game. The Sims Online is not supported, so this
-            // exists only to satisfy ILocator; the old registry probe for it was dead code that
-            // could never be reached and would have thrown on a machine without a TSO install.
-            return "";
-        }
-
         public string FindTheSims1()
         {
             // A lambda rather than a method group: FindTheSimsLegacySteam takes the app id with a

@@ -457,8 +457,10 @@ namespace Simitone.Tests.Engine
         {
             // the compatibility requirement, stated first: the bounds must not be tight enough to
             // refuse a real save. One and two elements have to read; so, separately below, does zero
-            Read(serialise(1), read);
-            Read(serialise(2), read);
+            var one = Record.Exception(() => Read(serialise(1), read));
+            Assert.True(one is null, $"{field} (sentinel: {hasSentinel}): one element must read, got {one}");
+            var two = Record.Exception(() => Read(serialise(2), read));
+            Assert.True(two is null, $"{field} (sentinel: {hasSentinel}): two elements must read, got {two}");
         }
 
         [Theory]
@@ -496,7 +498,8 @@ namespace Simitone.Tests.Engine
 
             var thrown = Assert.Throws<MarshalFormatException>(
                 () => Read(WithCount(serialise(1), offset, int.MaxValue), read));
-            Assert.Contains(field, thrown.Message);
+            Assert.True(thrown.Message.Contains(field, StringComparison.Ordinal),
+                $"{field} (sentinel: {hasSentinel}) not named in: {thrown.Message}");
         }
 
         [Theory]
@@ -519,7 +522,8 @@ namespace Simitone.Tests.Engine
 
             var thrown = Assert.Throws<MarshalFormatException>(
                 () => Read(WithCount(bytes, offset, tooMany), read));
-            Assert.Contains(field, thrown.Message);
+            Assert.True(thrown.Message.Contains(field, StringComparison.Ordinal),
+                $"{field} (sentinel: {hasSentinel}) not named in: {thrown.Message}");
             Assert.Contains("bytes left", thrown.Message);
         }
 
@@ -536,7 +540,8 @@ namespace Simitone.Tests.Engine
             var thrown = Assert.Throws<MarshalFormatException>(
                 () => Read(bytes.Take(offset).ToArray(), read));
             Assert.Contains("truncated", thrown.Message);
-            Assert.Contains(field, thrown.Message);
+            Assert.True(thrown.Message.Contains(field, StringComparison.Ordinal),
+                $"{field} (sentinel: {hasSentinel}) not named in: {thrown.Message}");
         }
 
         #endregion

@@ -392,7 +392,7 @@ namespace Simitone.Tests.Neighbourhood
                     if (!own.Contains(chunk)) others.Add(chunk);
                 }
                 NeighbourhoodCityMeshBuilder.VisibleDrawRanges(starts, others, visible);
-                Assert.Equal(0, visible.Count);
+                Assert.Empty(visible);
             }
 
             //the partition itself, stated as a fact about the chunk grid
@@ -688,12 +688,12 @@ namespace Simitone.Tests.Neighbourhood
             }
 
             //a rectangle entirely off the map, and one on the far corner
-            Assert.Equal(0, NeighbourhoodCityMeshBuilder.SlicesInRegion(
-                new Rectangle(-100, -100, 10, 10)).Length);
-            Assert.Equal(0, NeighbourhoodCityMeshBuilder.SlicesInRegion(
-                new Rectangle(NeighbourhoodCityMeshBuilder.MapSize, 0, 10, 10)).Length);
-            Assert.Equal(1, NeighbourhoodCityMeshBuilder.SlicesInRegion(
-                new Rectangle(0, 0, 1, 1)).Length);
+            Assert.Empty(NeighbourhoodCityMeshBuilder.SlicesInRegion(
+                new Rectangle(-100, -100, 10, 10)));
+            Assert.Empty(NeighbourhoodCityMeshBuilder.SlicesInRegion(
+                new Rectangle(NeighbourhoodCityMeshBuilder.MapSize, 0, 10, 10)));
+            Assert.Single(NeighbourhoodCityMeshBuilder.SlicesInRegion(
+                new Rectangle(0, 0, 1, 1)));
         }
 
         private static long Key(int x, int z)

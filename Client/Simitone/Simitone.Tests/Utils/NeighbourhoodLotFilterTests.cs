@@ -17,8 +17,8 @@ using Xunit;
 namespace Simitone.Tests.Utils
 {
     /// <summary>
-    /// The neighbourhood map's new controls: the lot filters, the Next/Previous pair and the
-    /// Add Lot button, plus the view-id table that makes the base map reachable again.
+    /// The neighbourhood map's lot filters, plus the view-id table that makes the base map
+    /// reachable again.
     ///
     /// <para>
     /// All of it is pure - no graphics device, no content, no audio, no neighbourhood - so every
@@ -65,9 +65,6 @@ namespace Simitone.Tests.Utils
         {
             var wanted = new List<string> { "ngbh_filterbar.png" };
             foreach (var filter in NeighLotFilters.Each()) wanted.Add(NeighLotFilters.IconName(filter));
-            wanted.Add("ngbh_addlot.png");
-            wanted.Add(NeighLotNavigator.IconName(NeighLotNavigator.Forward));
-            wanted.Add(NeighLotNavigator.IconName(NeighLotNavigator.Backward));
             foreach (var mode in new ushort[] { 1, 2, 3, 4, 5, 7 })
             {
                 wanted.Add(NeighbourhoodModeMap.TravelIcon(mode));
@@ -349,265 +346,6 @@ namespace Simitone.Tests.Utils
                 NeighLotFilter.Vacant, MixedMap()));
         }
 
-        // ------------------------------------------------------------------ Next / Previous
-
-        private static readonly int[] MapOrder = { 5, 2, 9, 1, 7 };
-
-        [Fact]
-        public void NextWalksTheListInTheOrderItWasGiven()
-        {
-            Assert.Equal(2, NeighLotNavigator.Step(MapOrder, 5, NeighLotNavigator.Forward));
-            Assert.Equal(7, NeighLotNavigator.Step(MapOrder, 1, NeighLotNavigator.Forward));
-        }
-
-        [Fact]
-        public void NextWrapsAtTheEndAndPreviousAtTheStart()
-        {
-            // a "next" that stopped at the last lot would be a button that does nothing, with no
-            // way for a player to tell that from a broken one
-            Assert.Equal(5, NeighLotNavigator.Step(MapOrder, 7, NeighLotNavigator.Forward));
-            Assert.Equal(7, NeighLotNavigator.Step(MapOrder, 5, NeighLotNavigator.Backward));
-            // MapOrder is {5, 2, 9, 1, 7}: previous from 2 is 5, and from 5 wraps to 7
-            Assert.Equal(5, NeighLotNavigator.Step(MapOrder, 2, NeighLotNavigator.Backward));
-        }
-
-        [Fact]
-        public void WithNothingSelectedNextTakesTheTopOfTheMapAndPreviousTheBottom()
-        {
-            Assert.Equal(5, NeighLotNavigator.First(MapOrder, NeighLotNavigator.Forward));
-            Assert.Equal(7, NeighLotNavigator.First(MapOrder, NeighLotNavigator.Backward));
-        }
-
-        [Fact]
-        public void ASelectionThatIsNotInTheListIsTreatedAsNoSelection()
-        {
-            // which is what a filter that just hid the selected lot leaves behind, except the
-            // panel resets the selection in that case; this is the belt to that pair of braces
-            Assert.Equal(5, NeighLotNavigator.Step(MapOrder, 99, NeighLotNavigator.Forward));
-            Assert.Equal(7, NeighLotNavigator.Step(MapOrder, 99, NeighLotNavigator.Backward));
-        }
-
-        [Fact]
-        public void AnEmptyMapIsNowhereToStepTo()
-        {
-            Assert.Null(NeighLotNavigator.Step(new int[0], null, NeighLotNavigator.Forward));
-            Assert.Null(NeighLotNavigator.Step(new int[0], 1, NeighLotNavigator.Backward));
-            Assert.Null(NeighLotNavigator.Step(null, 1, NeighLotNavigator.Forward));
-            Assert.Null(NeighLotNavigator.First(null, NeighLotNavigator.Forward));
-        }
-
-        [Fact]
-        public void ADirectionOfZeroIsNotAStep()
-        {
-            Assert.Null(NeighLotNavigator.Step(MapOrder, 5, 0));
-        }
-
-        [Fact]
-        public void OneLotStepsToItselfRatherThanNowhere()
-        {
-            var one = new[] { 4 };
-            Assert.Equal(4, NeighLotNavigator.Step(one, null, NeighLotNavigator.Forward));
-            Assert.Equal(4, NeighLotNavigator.Step(one, 4, NeighLotNavigator.Forward));
-            Assert.Equal(4, NeighLotNavigator.Step(one, 4, NeighLotNavigator.Backward));
-        }
-
-        [Fact]
-        public void AnyPositiveDirectionIsForwardAndAnyNegativeOneIsBackward()
-        {
-            Assert.Equal(2, NeighLotNavigator.Step(MapOrder, 5, 3));
-            Assert.Equal(7, NeighLotNavigator.Step(MapOrder, 5, -7));
-        }
-
-        [Fact]
-        public void IndexOfFindsALotAndReportsAMiss()
-        {
-            Assert.Equal(2, NeighLotNavigator.IndexOf(MapOrder, 9));
-            Assert.Equal(-1, NeighLotNavigator.IndexOf(MapOrder, 99));
-            Assert.Equal(-1, NeighLotNavigator.IndexOf(MapOrder, null));
-            Assert.Equal(-1, NeighLotNavigator.IndexOf(null, 1));
-        }
-
-        [Fact]
-        public void TheTwoArrowsAreNamedAndDrawnForTheirDirection()
-        {
-            Assert.Equal("Next lot", NeighLotNavigator.Caption(NeighLotNavigator.Forward));
-            Assert.Equal("Previous lot", NeighLotNavigator.Caption(NeighLotNavigator.Backward));
-            Assert.NotEqual(NeighLotNavigator.IconName(NeighLotNavigator.Forward),
-                NeighLotNavigator.IconName(NeighLotNavigator.Backward));
-            Assert.Equal(NeighLotNavigator.IconName(NeighLotNavigator.Forward),
-                NeighLotNavigator.IconName(1));
-            Assert.Equal(NeighLotNavigator.IconName(NeighLotNavigator.Backward),
-                NeighLotNavigator.IconName(-1));
-        }
-
-        // ------------------------------------------------------------------ Add Lot
-
-        [Fact]
-        public void ANewLotTakesTheLowestNumberNobodyHas()
-        {
-            // the lot numbers are what the family records, the zoning file and the house file names
-            // are all keyed on, so a gap is worth more than a fresh number above the top
-            Assert.Equal(1, NeighAddLot.NextFreeLot(new[] { 2, 3, 4 }, 1, 5));
-            Assert.Equal(4, NeighAddLot.NextFreeLot(new[] { 1, 2, 3, 5 }, 1, 5));
-            Assert.Equal(1, NeighAddLot.NextFreeLot(new int[0], 1, 5));
-            Assert.Equal(1, NeighAddLot.NextFreeLot(null, 1, 5));
-        }
-
-        [Fact]
-        public void AFullSetOfRunsHasNoFreeLot()
-        {
-            Assert.Null(NeighAddLot.NextFreeLot(new[] { 1, 2, 3 }, 1, 3));
-            Assert.Null(NeighAddLot.NextFreeLot(new int[0], 1, 0));
-            Assert.Null(NeighAddLot.NextFreeLot(new int[0], 5, 1));
-            Assert.Null(NeighAddLot.NextFreeLot(new int[0], 0, 0));
-            Assert.Null(NeighAddLot.NextFreeLot(new int[0], (IReadOnlyList<NeighLotRange>)null));
-        }
-
-        [Fact]
-        public void ALotsHouseFileIsNamedTheWayTheGameNamesIt()
-        {
-            Assert.Equal("House07.iff", NeighAddLot.HouseFileName(7));
-            Assert.Equal("House00.iff", NeighAddLot.HouseFileName(0));
-            Assert.Equal("House99.iff", NeighAddLot.HouseFileName(99));
-            Assert.Null(NeighAddLot.HouseFileName(-1));
-        }
-
-        private static NeighAddLotFacts RoomToAdd() =>
-            new NeighAddLotFacts(true, new[] { 21, 22, 23 },
-                NeighbourhoodModeMap.LotRangesForMode(NeighbourhoodModeMap.Downtown), true);
-
-        [Fact]
-        public void AddLotCreatesWhenThereIsRoomAndAWayToDoIt()
-        {
-            var plan = NeighAddLot.Plan(RoomToAdd());
-            Assert.Equal(NeighAddLotDecision.Create, plan.Decision);
-            Assert.False(plan.IsRefusal);
-            // the slot the refusals above already worked out, so a writer has the number in hand
-            Assert.Equal(24, plan.Lot);
-            Assert.Equal("House24.iff", NeighAddLot.HouseFileName(plan.Lot.Value));
-            Assert.Null(plan.Message);
-        }
-
-        [Fact]
-        public void AddLotRefusesWhenThisGameCannotWriteTheFiles()
-        {
-            // the case every build is in today, and the one the button exists to explain
-            var plan = NeighAddLot.Plan(new NeighAddLotFacts(true, new[] { 21, 22 },
-                NeighbourhoodModeMap.LotRangesForMode(NeighbourhoodModeMap.Downtown), false));
-            Assert.Equal(NeighAddLotDecision.NoLotCreationPath, plan.Decision);
-            Assert.True(plan.IsRefusal);
-            Assert.Null(plan.Lot);
-            Assert.Equal("Simitone cannot add a lot to a neighbourhood.", plan.Message);
-            Assert.Equal(NeighAddLot.NoCreationPathDetail, plan.Detail);
-            Assert.Equal("Add Lot", plan.Title);
-        }
-
-        [Fact]
-        public void AddLotRefusesBeforeTheGameQuestionWhenThereIsNoRoom()
-        {
-            // a full map cannot be fixed by a better writer, so the more specific answer wins
-            var plan = NeighAddLot.Plan(new NeighAddLotFacts(true, new[] { 21, 22, 23 },
-                new[] { new NeighLotRange(21, 23) }, false));
-            Assert.Equal(NeighAddLotDecision.EveryLotInUse, plan.Decision);
-            Assert.Contains("in use", plan.Message, StringComparison.Ordinal);
-            Assert.Equal(NeighAddLot.EveryLotInUseDetail, plan.Detail);
-        }
-
-        [Fact]
-        public void AddLotRefusesAMapWithNoLotNumbers()
-        {
-            // an empty run is how "this map has no lot table" is spelled
-            var plan = NeighAddLot.Plan(new NeighAddLotFacts(true, new int[0],
-                new[] { new NeighLotRange(0, 0) }, true));
-            Assert.Equal(NeighAddLotDecision.NoLotTable, plan.Decision);
-            Assert.Equal(NeighAddLot.NoLotTableDetail, plan.Detail);
-
-            var unknown = NeighAddLot.Plan(new NeighAddLotFacts(true, null, null, true));
-            Assert.Equal(NeighAddLotDecision.NoLotTable, unknown.Decision);
-        }
-
-        [Fact]
-        public void AddLotRefusesARequestThatDidNotComeFromTheMap()
-        {
-            // asked first, and alone: a request from anywhere else is not a request about this map
-            var plan = NeighAddLot.Plan(new NeighAddLotFacts(false, new[] { 21 },
-                NeighbourhoodModeMap.LotRangesForMode(NeighbourhoodModeMap.Downtown), true));
-            Assert.Equal(NeighAddLotDecision.NotOnMapScreen, plan.Decision);
-            Assert.Equal("A lot can only be added from the neighbourhood map.", plan.Message);
-            Assert.Null(plan.Detail);
-        }
-
-        [Fact]
-        public void EveryRefusalSaysSomethingAndNamesTheButton()
-        {
-            var downtown = NeighbourhoodModeMap.LotRangesForMode(NeighbourhoodModeMap.Downtown);
-            var refusals = new[]
-            {
-                new NeighAddLotFacts(false, new[] { 21 }, downtown, true),
-                new NeighAddLotFacts(true, null, null, true),
-                new NeighAddLotFacts(true, new[] { 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 }, downtown, false),
-                new NeighAddLotFacts(true, new[] { 21 }, downtown, false)
-            };
-
-            foreach (var facts in refusals)
-            {
-                var plan = NeighAddLot.Plan(facts);
-                Assert.True(plan.IsRefusal, plan.Decision + " was expected to be a refusal.");
-                Assert.Equal("Add Lot", plan.Title);
-                Assert.False(string.IsNullOrWhiteSpace(plan.Message), plan.Decision + " has no message.");
-                Assert.EndsWith(".", plan.Message, StringComparison.Ordinal);
-                Assert.Null(plan.Lot);
-            }
-        }
-
-        [Fact]
-        public void TheFactsslotCountIsTheRunsNotTheMap()
-        {
-            Assert.Equal(11, RoomToAdd().SlotsOnMap);
-            Assert.Equal(3, RoomToAdd().LotsOnMapCount);
-            Assert.Equal(24, RoomToAdd().NextFreeLot);
-
-            // Downtown really is 21..31
-            var full = new NeighAddLotFacts(true,
-                Enumerable.Range(21, 11).ToArray(), downtownRanges(), true);
-            Assert.Equal(11, full.SlotsOnMap);
-            Assert.Null(full.NextFreeLot);
-
-            // the base map's two runs are 20 + 31, with the Downtown and Vacation numbers between
-            // them belonging to other views
-            var baseMap = new NeighAddLotFacts(true, new[] { 1, 2, 3 },
-                NeighbourhoodModeMap.LotRangesForMode(NeighbourhoodModeMap.BaseResidential), true);
-            Assert.Equal(51, baseMap.SlotsOnMap);
-            Assert.Equal(4, baseMap.NextFreeLot);
-
-            var noRange = new NeighAddLotFacts(true, new[] { 1 }, new NeighLotRange[0], true);
-            Assert.Equal(0, noRange.SlotsOnMap);
-        }
-
-        private static NeighLotRange[] downtownRanges() =>
-            NeighbourhoodModeMap.LotRangesForMode(NeighbourhoodModeMap.Downtown);
-
-        [Fact]
-        public void ANewLotOnTheBaseMapSkipsTheLotsOtherViewsOwn()
-        {
-            // 1-20 then 50-80, so filling the residential block first and only then the community
-            // block - a new lot must never be handed a Downtown or Vacation number
-            var baseMap = NeighbourhoodModeMap.LotRangesForMode(NeighbourhoodModeMap.BaseResidential);
-            var taken = new List<int>();
-            for (int i = 0; i < 51; i++)
-            {
-                var next = NeighAddLot.NextFreeLot(taken, baseMap);
-                Assert.True(next.HasValue, "the map filled up at " + i + " lots.");
-                Assert.False(NeighbourhoodModeMap.OwnsLot(NeighbourhoodModeMap.Downtown, next.Value));
-                Assert.False(NeighbourhoodModeMap.OwnsLot(NeighbourhoodModeMap.Vacation, next.Value));
-                taken.Add(next.Value);
-            }
-            Assert.Equal(51, taken.Count);   // the whole of 1..20 and then all of 50..80
-            Assert.Equal(20, taken[19]);     // the last of the residential block
-            Assert.Equal(50, taken[20]);     // and then straight to the community block
-            Assert.Null(NeighAddLot.NextFreeLot(taken, baseMap));
-        }
-
         // ------------------------------------------------------------------ which view is which
 
         /// <summary>
@@ -734,7 +472,7 @@ namespace Simitone.Tests.Utils
         {
             // Unleashed is a second background over the base map's lots, not a different set: a view
             // that claimed different numbers would be claiming lots its location table has no entry
-            // for, and Add Lot would hand out numbers nothing else in the file has a slot for.
+            // for, and a new lot would be handed a number nothing else has a slot for.
             var baseMap = NeighbourhoodModeMap.LotRangesForMode(NeighbourhoodModeMap.BaseResidential);
             var unleashed = NeighbourhoodModeMap.LotRangesForMode(NeighbourhoodModeMap.Unleashed);
             Assert.Equal(baseMap.Length, unleashed.Length);
@@ -896,7 +634,7 @@ namespace Simitone.Tests.Utils
         private static readonly string[] Owned =
         {
             "240", "241", "242", "243", "244", "245", "246", "247", "248", "249",
-            "250", "251", "252", "253", "254", "255", "256", "257", "258", "259", "269"
+            "258", "259", "269"
         };
 
         [Theory]
@@ -910,14 +648,6 @@ namespace Simitone.Tests.Utils
         [InlineData("247", "Show only the lots a family cannot move into")]
         [InlineData("248", "Filter lots - click the bar to show them all")]
         [InlineData("249", "Lots shown: %d of %d")]
-        [InlineData("250", "Next lot")]
-        [InlineData("251", "Previous lot")]
-        [InlineData("252", "Add a lot")]
-        [InlineData("253", "Add Lot")]
-        [InlineData("254", "A lot can only be added from the neighbourhood map.")]
-        [InlineData("255", "This map has no lot table, so there is nowhere to put a new lot.")]
-        [InlineData("256", "Every lot on this map is in use, so there is nowhere to put another.")]
-        [InlineData("257", "Simitone cannot add a lot to a neighbourhood.")]
         [InlineData("258", "The base neighbourhood")]
         [InlineData("259", "Unleashed")]
         [InlineData("269", "No lot on this map matches that filter.")]
@@ -960,8 +690,6 @@ namespace Simitone.Tests.Utils
             Assert.Equal("Filter lots - click the bar to show them all", NeighLotFilters.BarTooltip());
             Assert.Equal("No lot on this map matches that filter.", NeighLotFilters.UnavailableTooltip(NeighLotFilter.Occupied));
             Assert.Equal("Lots shown: 2 of 2", NeighLotFilters.CountText(2, 2));
-            Assert.Equal("Next lot", NeighLotNavigator.Caption(NeighLotNavigator.Forward));
-            Assert.Equal("Previous lot", NeighLotNavigator.Caption(NeighLotNavigator.Backward));
             Assert.Equal("The base neighbourhood",
                 NeighbourhoodModeMap.TravelTooltip(NeighbourhoodModeMap.BaseResidential));
             Assert.Equal("Unleashed", NeighbourhoodModeMap.TravelTooltip(NeighbourhoodModeMap.Unleashed));

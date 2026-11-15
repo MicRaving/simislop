@@ -1,4 +1,4 @@
-/*
+﻿/*
 This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
 If a copy of the MPL was not distributed with this file, You can obtain one at
 http://mozilla.org/MPL/2.0/.
@@ -525,7 +525,7 @@ namespace Simitone.Client.Neighbourhood
         /// <para>
         /// <b>The plane is never the active lot's.</b> The lot the player is standing in is drawn by
         /// the lot view from its own <c>ARRY(0)</c> with
-        /// <c>Blueprint.AnchorBaseAltitude</c> anchoring it on its own median, and the plan reads the
+        /// absolute altitude (the surround is lifted to meet it), and the plan reads the
         /// generated map's pinned value for
         /// <see cref="SimitoneSurroundingsPlan.ActiveTerrain"/> exactly as it did before this field
         /// existed. Grading the neighbours is what puts the street on one plane; re-deriving the
@@ -1105,6 +1105,25 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
+        /// The same plan holding only the neighbours that carry contents. Blank neighbours - the
+        /// ones past the per-load hollow-build budget, or whose house file could not be read - are
+        /// empty plots, so withholding their facades leaves a hole where a house should be.
+        /// </summary>
+        public SimitoneSurroundingsPlan WithoutBlankNeighbours()
+        {
+            var kept = new List<SimitoneSurroundingsNeighbour>(Neighbours.Count);
+            for (int i = 0; i < Neighbours.Count; i++)
+            {
+                if (Neighbours[i].IsHollow) kept.Add(Neighbours[i]);
+            }
+            if (kept.Count == Neighbours.Count) return this;
+            return new SimitoneSurroundingsPlan(ActiveLot, ActiveTerrain, RadiusTiles,
+                RoadReachability, new ReadOnlyCollection<SimitoneSurroundingsNeighbour>(kept),
+                Warnings, Failure, Store, SelectionOrder, DeferredNumbers, SubWorldBudget,
+                ArryPlanes);
+        }
+
+        /// <summary>
         /// This plan with the given lots' contents filled in, and the reasons the rest stayed blank
         /// appended to its warnings.
         /// </summary>
@@ -1430,16 +1449,6 @@ namespace Simitone.Client.Neighbourhood
         public static bool RadiusIsShared(int planRadiusTiles, int cullRadiusTiles)
         {
             return Math.Max(0, planRadiusTiles) == Math.Max(0, cullRadiusTiles);
-        }
-
-        /// <summary>
-        /// Whether a lot number is one of this plan's neighbours - the sub-world side of
-        /// <see cref="NeighbourhoodRenderDecision"/>, read off the plan rather than recomputed.
-        /// </summary>
-        /// <param name="lotNumber">The lot number.</param>
-        public bool IsNeighbour(int lotNumber)
-        {
-            return Contains(lotNumber);
         }
 
         /// <summary>
@@ -2013,7 +2022,7 @@ namespace Simitone.Client.Neighbourhood
 
             SimitoneNeighbourTerrain terrain;
             string reason;
-            if (!SimitoneNeighbourTerrain.TryBuild(map, candidate, arry, null, out terrain, out reason))
+            if (!SimitoneNeighbourTerrain.TryBuild(map, candidate, arry, out terrain, out reason))
             {
                 // A lot the map cannot answer about is skipped, not fatal. B2's acceptance
                 // criterion is that a neighbour which will not build costs that neighbour and

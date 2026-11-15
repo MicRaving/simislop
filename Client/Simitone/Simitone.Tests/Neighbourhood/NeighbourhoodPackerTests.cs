@@ -189,77 +189,12 @@ namespace Simitone.Tests.Neighbourhood
         // ---- the invariants --------------------------------------------------------------------
 
         [Fact]
-        public void ALotLandsWhereItsBitmapPositionSays()
-        {
-            // The headline property since Part 8, and the one §8.6's acceptance rests on: a lot sits
-            // at its LotLocations bitmap position, relative to its neighbours, within the
-            // transform's precision. Asserted against the transform rather than against a copied-out
-            // number so a change to the transform has to change this test.
-            var layout = NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, Seed);
-
-            Assert.Equal(20, layout.LotCount);
-            foreach (var lot in layout.Lots)
-            {
-                var centre = NeighbourhoodPixelTransform.TileForPixel(
-                    new Vector2(lot.MapX, lot.MapY), layout.MapSize);
-                var origin = NeighbourhoodPixelTransform.OriginForCentre(
-                    new Vector2(lot.MapX, lot.MapY), lot.Size, layout.MapSize);
-
-                //the transform's own answer, to the half-tile the floor introduces
-                Assert.InRange(centre.X, origin.X, origin.X + lot.Size);
-                Assert.InRange(centre.Y, origin.Y, origin.Y + lot.Size);
-                //and clamped into the map rather than left hanging off the edge
-                Assert.InRange(origin.X, 0, layout.MapSize - lot.Size);
-                Assert.InRange(origin.Y, 0, layout.MapSize - lot.Size);
-            }
-        }
-
-        [Fact]
-        public void NeighboursOnTheBitmapStayNeighboursInTheWorld()
-        {
-            // The arrangement the player recognises is preserved. Two lots either side of each other on the
-            // bitmap stay either side of each other in the world: the one further right on the bitmap
-            // is further along the map's own difference diagonal, and the one further down it is
-            // further along the sum diagonal.
-            //
-            // CHANGED by the Part 9 TSO-alignment rework. This asserted that the sign of one lot's
-            // bitmap-x delta equalled the sign of its world-x delta, and the same for y - that is,
-            // that the two axes were separable, which is what the axis-aligned square mapping gave
-            // and what put lots in the diamond's four cut corners with no ground under them. The two
-            // diagonals are the map's axes now.
-            var layout = NeighbourhoodLayoutBuilder.Pack(WideResidential(), Slot, Seed);
-
-            for (int i = 0; i < layout.LotCount; i++)
-            {
-                for (int j = 0; j < layout.LotCount; j++)
-                {
-                    if (i == j) continue;
-                    var a = layout.Lots[i];
-                    var b = layout.Lots[j];
-                    var sumA = a.WorldX + a.WorldY;
-                    var sumB = b.WorldX + b.WorldY;
-                    var differenceA = a.WorldX - a.WorldY;
-                    var differenceB = b.WorldX - b.WorldY;
-                    if (a.MapY == b.MapY)
-                    {
-                        Assert.Equal(Math.Sign(b.MapX - a.MapX),
-                            Math.Sign(differenceB - differenceA));
-                    }
-                    else if (a.MapX == b.MapX)
-                    {
-                        Assert.Equal(Math.Sign(b.MapY - a.MapY), Math.Sign(sumB - sumA));
-                    }
-                }
-            }
-        }
-
-        [Fact]
         public void AWidelySpacedNeighbourhood_HasNoOverlappingLots()
         {
             // Disjointness is a property of the coordinates rather than of the builder, and this is
             // the fixture that has them: twelve 64-tile lots a 74- and a 78-tile pitch apart on a 512 map.
             // (CHANGED by the Part 9 TSO-alignment rework: it was twenty, at a 109- and a 162-tile pitch.)
-            var layout = NeighbourhoodLayoutBuilder.Pack(WideResidential(), Slot, Seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(WideResidential(), Slot, Seed);
             Assert.Equal(12, layout.LotCount);
             AssertNoOverlaps(layout, 0);
         }
@@ -267,7 +202,7 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void AWidelySpacedNeighbourhood_LeavesRoomForTheSidewalks()
         {
-            var layout = NeighbourhoodLayoutBuilder.Pack(WideResidential(), Slot, Seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(WideResidential(), Slot, Seed);
 
             //the footprints - size plus margin - must not touch, or the sidewalk strip the road
             //graph draws would have nowhere to go
@@ -338,51 +273,6 @@ namespace Simitone.Tests.Neighbourhood
             }
         }
 
-        [Fact]
-        public void AMapDerivedNeighbourhoodIsAllowedToOverlapItself()
-        {
-            // The other half of the same change, stated so a future reader cannot mistake it for an
-            // oversight: twenty 64-tile lots at the bitmap's own spacing produce overlapping
-            // rectangles, and that is the correct answer rather than a defect. What has to survive
-            // it is that every rectangle is still inside the map and that the whole generator -
-            // lot mask, road graph, terrain fill, seam solver - can be run over the result.
-            var layout = NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, Seed);
-
-            Assert.True(NeighbourhoodLayoutBuilder.CountOverlaps(layout) > 0,
-                "twenty 64-tile lots at TSO's Size-2 pitch are expected to overlap; if this fails"
-                + " the fixture's bitmap spacing has changed, not the builder");
-            AssertInsideMap(layout);
-        }
-
-        [Fact]
-        public void AnOverlappingNeighbourhoodStillGeneratesAMap()
-        {
-            // The end-to-end answer to "does anything downstream crash on a legal overlap?". Four
-            // 64-tile lots at TSO's own pitch on a 128-tile map, pushed through the whole generator:
-            // the lot mask unions them, the road graph refuses to draw inside either, the terrain
-            // fill's nearest-lot ownership breaks the tie on lot order, and the seam solver pins the
-            // borders. A crash in any of those is the failure this asserts against.
-            const int mapSize = 128;
-            var reads = new List<NeighbourhoodLotRead>
-            {
-                new NeighbourhoodLotRead { Number = 1, MapX = 260, MapY = 150, HasHouse = true, Size = 64 },
-                new NeighbourhoodLotRead { Number = 2, MapX = 340, MapY = 150, HasHouse = true, Size = 64 },
-                new NeighbourhoodLotRead { Number = 3, MapX = 260, MapY = 350, HasHouse = true, Size = 64 },
-                new NeighbourhoodLotRead { Number = 4, MapX = 340, MapY = 350, HasHouse = true, Size = 64 },
-            };
-
-            var layout = NeighbourhoodLayoutBuilder.Pack(reads, Slot, Seed, mapSize);
-            Assert.True(NeighbourhoodLayoutBuilder.CountOverlaps(layout) > 0,
-                "these four lots are at TSO's Size-2 pitch and must overlap");
-
-            var map = NeighbourhoodMapGenerator.Generate(NeighbourhoodMapAdapter.InputFor(layout));
-
-            Assert.Equal(mapSize, map.Width);
-            Assert.Equal(mapSize * mapSize, map.RoadData.Length);
-            //and there is still a road network, because "lots overlap" must not become "no streets"
-            Assert.True(CountRoad(map) > 0, "the generated map has no road at all");
-        }
-
         private static int CountRoad(NeighbourhoodMap map)
         {
             var n = 0;
@@ -440,48 +330,14 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void EveryLotStaysInsideTheMap()
         {
-            AssertInsideMap(NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, Seed));
-        }
-
-        [Fact]
-        public void TwoLotsOnTheSameBitmapSpot_ShareTheirPositionAndStayLegal()
-        {
-            //A corrupt or hand-edited table can name the same position twice. Since Part 8 the two
-            //lots are then genuinely on the same spot - that is what the file says - and what has to
-            //hold is not that they were pushed apart but that the builder produces a layout the rest
-            //of the pipeline can consume: every rectangle inside the map, no crash, no invented
-            //position. The lot mask, the road graph's interior clip and the terrain fill all tolerate
-            //overlap, which is the same tolerance TSO's own Size-2 pitch needs.
-            var reads = new List<NeighbourhoodLotRead>
-            {
-                new NeighbourhoodLotRead { Number = 21, MapX = 200, MapY = 200, HasHouse = true, Size = 32 },
-                new NeighbourhoodLotRead { Number = 22, MapX = 200, MapY = 200, HasHouse = true, Size = 32 },
-                new NeighbourhoodLotRead { Number = 23, MapX = 201, MapY = 200, HasHouse = true, Size = 32 }
-            };
-
-            var layout = NeighbourhoodLayoutBuilder.Pack(reads, Slot, Seed);
-
-            Assert.Equal(3, layout.LotCount);
-            AssertInsideMap(layout);
-
-            //21 and 22 name the same pixel, so they are the same tile to the last bit
-            var a = layout.FindLot(21);
-            var b = layout.FindLot(22);
-            Assert.Equal(a.WorldX, b.WorldX);
-            Assert.Equal(a.WorldY, b.WorldY);
-
-            //and a map can be generated out of the overlap without throwing - which is the property
-            //the layout is really being asked for
-            var input = NeighbourhoodMapAdapter.InputFor(layout);
-            var map = NeighbourhoodMapGenerator.Generate(input);
-            Assert.Equal(layout.MapSize, map.Width);
+            AssertInsideMap(NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, Seed));
         }
 
         [Fact]
         public void PackingIsStableAcrossRuns()
         {
-            var first = NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, Seed);
-            var second = NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, Seed);
+            var first = NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, Seed);
+            var second = NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, Seed);
 
             Assert.Equal(first.ToString(), second.ToString());
             for (int i = 0; i < first.Lots.Count; i++)
@@ -504,8 +360,8 @@ namespace Simitone.Tests.Neighbourhood
             var reordered = new List<NeighbourhoodLotRead>(reads.Count);
             for (int i = 0; i < order.Length; i++) reordered.Add(reads[order[i]]);
 
-            var a = NeighbourhoodLayoutBuilder.Pack(reads, Slot, Seed);
-            var b = NeighbourhoodLayoutBuilder.Pack(reordered, Slot, Seed);
+            var a = NeighbourhoodLayoutBuilder.PackOnGrid(reads, Slot, Seed);
+            var b = NeighbourhoodLayoutBuilder.PackOnGrid(reordered, Slot, Seed);
 
             for (int i = 0; i < a.Lots.Count; i++)
             {
@@ -522,8 +378,8 @@ namespace Simitone.Tests.Neighbourhood
             //terrain, roads and foliage. Pinning that down here means a later change to the
             //builder cannot quietly start making the layout depend on a value the cache key
             //already covers - which would be harmless, but would be surprising.
-            var a = NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, 1);
-            var b = NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, 2);
+            var a = NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, 1);
+            var b = NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, 2);
 
             for (int i = 0; i < a.Lots.Count; i++)
             {
@@ -542,39 +398,6 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal(20, layout.LotCount);
             AssertNoOverlaps(layout, 0);
             AssertInsideMap(layout);
-        }
-
-        [Fact]
-        public void ANeighbourhoodWithNoBitmapPositions_IsShelvedRatherThanStacked()
-        {
-            // The case the shelf arrangement exists for: a missing, empty or corrupt location table
-            // leaves every lot at bitmap (0, 0), so the transform puts every rectangle in the map's
-            // top-left corner. Twenty lots on one tile is not a neighbourhood a player can use, and
-            // the shelf is the only arrangement that gives each lot a rectangle without inventing a
-            // position for it.
-            var reads = new List<NeighbourhoodLotRead>();
-            for (int i = 0; i < 12; i++)
-            {
-                reads.Add(new NeighbourhoodLotRead
-                {
-                    Number = (short)(i + 1),
-                    MapX = 0,
-                    MapY = 0,
-                    HasHouse = true,
-                    Size = 24,
-                });
-            }
-
-            var stacked = NeighbourhoodLayoutBuilder.Pack(reads, Slot, Seed);
-            //all twelve do land on the same tile, which is the honest reading of "no position"
-            Assert.Equal(1, stacked.Lots
-                .Select(l => l.WorldX * 100000 + l.WorldY)
-                .Distinct()
-                .Count());
-            //and the shelf gives them each a rectangle
-            var shelf = NeighbourhoodLayoutBuilder.PackOnGrid(reads, Slot, Seed);
-            AssertNoOverlaps(shelf, 0);
-            AssertInsideMap(shelf);
         }
 
         [Fact]
@@ -652,7 +475,7 @@ namespace Simitone.Tests.Neighbourhood
                 });
             }
 
-            var layout = NeighbourhoodLayoutBuilder.Pack(reads, Slot, Seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(reads, Slot, Seed);
 
             Assert.Equal(60, layout.LotCount);
             AssertInsideMap(layout);
@@ -669,7 +492,7 @@ namespace Simitone.Tests.Neighbourhood
             };
 
             //a map too small to hold the lot at all: the layout must still be a legal one
-            var layout = NeighbourhoodLayoutBuilder.Pack(reads, Slot, Seed, 32);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(reads, Slot, Seed, 32);
 
             Assert.Equal(1, layout.LotCount);
             var lot = layout.Lots[0];
@@ -681,7 +504,7 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void AnEmptyNeighbourhood_PacksToNothing()
         {
-            var layout = NeighbourhoodLayoutBuilder.Pack(new List<NeighbourhoodLotRead>(), Slot, Seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(new List<NeighbourhoodLotRead>(), Slot, Seed);
 
             Assert.Equal(0, layout.LotCount);
             Assert.Equal(0, NeighbourhoodLayoutBuilder.CountOverlaps(layout));
@@ -691,7 +514,7 @@ namespace Simitone.Tests.Neighbourhood
         public void ANullMapSize_IsRefusedRatherThanSilentlyMadeSmall()
         {
             Assert.Throws<ArgumentOutOfRangeException>(
-                () => NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, Seed, 0));
+                () => NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, Seed, 0));
             Assert.Throws<ArgumentOutOfRangeException>(
                 () => NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, Seed, -1));
         }
@@ -699,14 +522,11 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void OverlapCounting_IsTheDiagnosticItAlwaysWas()
         {
-            // No longer an invariant - a map-derived layout is allowed to overlap - but still the
-            // question a diagnostic asks, so it still has to answer it. Zero for a null layout, zero
-            // for the shelf arrangement, and non-zero for the real thing.
+            // The question a diagnostic asks: zero for a null layout and zero for the shelf
+            // arrangement.
             Assert.Equal(0, NeighbourhoodLayoutBuilder.CountOverlaps((NeighbourhoodLayout)null));
             Assert.Equal(0, NeighbourhoodLayoutBuilder.CountOverlaps(
                 NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, Seed)));
-            Assert.True(NeighbourhoodLayoutBuilder.CountOverlaps(
-                NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, Seed)) > 0);
 
             //and it can count a specific arrangement exactly: 1 overlaps 2, 2 overlaps 3, and
             //1 and 3 are exactly adjacent
@@ -762,72 +582,6 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal((mapY * 2 - mapX) / scale, z, 4);
         }
 
-        [Fact]
-        public void ThePixelTransformIsTheOneTheBuilderPlacesLotsWith()
-        {
-            // The two transforms are not interchangeable and this is the difference stated as an
-            // assertion: the OBJ exporter's projection shears, so a step right on the bitmap is a
-            // step right-and-up in the world; the pixel transform does not, so the same step is a
-            // step right. The exporter's is kept for the meshes already made through it; the pixel
-            // transform is what the generated world, the camera and the buttons share.
-            var reads = new List<NeighbourhoodLotRead>
-            {
-                new NeighbourhoodLotRead { Number = 21, MapX = 100, MapY = 100, HasHouse = true, Size = 20 },
-                new NeighbourhoodLotRead { Number = 22, MapX = 260, MapY = 100, HasHouse = true, Size = 20 }
-            };
-
-            var layout = NeighbourhoodLayoutBuilder.Pack(reads, Slot, Seed);
-            var a = layout.FindLot(21);
-            var b = layout.FindLot(22);
-
-            //the builder's answer is the transform's, exactly
-            var expected = NeighbourhoodPixelTransform.OriginForCentre(
-                new Vector2(260, 100), b.Size, layout.MapSize);
-            Assert.Equal(expected.X, b.WorldX);
-            Assert.Equal(expected.Y, b.WorldY);
-
-            //And it is diamond-aligned, sharing the exporter's shear: a step right on the bitmap is
-            //a step right-and-up in the world. This asserted the opposite - that a step right moved
-            //tile x and left tile y alone, which is what an axis-aligned square mapping does, and
-            //what put lots in the diamond's four cut corners with no ground under them (Part 9).
-            Assert.True(b.WorldX > a.WorldX,
-                "a lot further right on the bitmap is further right in the world");
-            Assert.True(b.WorldY < a.WorldY,
-                "a lot further right on the bitmap is further up the world");
-            NeighbourhoodLayoutBuilder.ProjectMapPosition(100, 100, 2, out _, out var az);
-            NeighbourhoodLayoutBuilder.ProjectMapPosition(260, 100, 2, out _, out var bz);
-            Assert.True(bz < az,
-                "the exporter's projection shears; the pixel transform shares that shape now");
-        }
-
-        [Fact]
-        public void NearlyCoincidentLots_StayLegalRatherThanBeingPushedApart()
-        {
-            // Three lots two bitmap pixels apart on a map small enough that two pixels is less than
-            // a tile. The builder used to separate them; it now places all three within a tile of
-            // each other, because that is what the file says, and the contract it has to keep is
-            // that the result is a layout the pipeline can consume.
-            var reads = new List<NeighbourhoodLotRead>
-            {
-                new NeighbourhoodLotRead { Number = 21, MapX = 100, MapY = 100, HasHouse = true, Size = 40 },
-                new NeighbourhoodLotRead { Number = 22, MapX = 102, MapY = 100, HasHouse = true, Size = 40 },
-                new NeighbourhoodLotRead { Number = 23, MapX = 104, MapY = 100, HasHouse = true, Size = 40 }
-            };
-
-            var layout = NeighbourhoodLayoutBuilder.Pack(reads, Slot, Seed, 128);
-
-            AssertInsideMap(layout);
-            //the lot mask, the road graph and the terrain fill all have to survive the overlap
-            var mask = NeighbourhoodLotMask.Build(
-                NeighbourhoodMapAdapter.InputFor(layout).UsableLots, layout.MapSize);
-            var tiles = 0;
-            for (int i = 0; i < mask.Interior.Length; i++)
-            {
-                if (mask.Interior[i]) tiles++;
-            }
-            Assert.True(tiles > 0);
-        }
-
         // ---- door side -------------------------------------------------------------------------
 
         [Theory]
@@ -858,37 +612,11 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
-        public void DoorSideComesFromTheRoadMaskWhereThereIsOne()
-        {
-            // Part 8's replacement for "the edge nearest a map border": the edge the 2D map's own
-            // pixels put a road on. A 64x64 lot at the middle of a 128 map with a road band across
-            // its south edge and nothing on the other three.
-            const int size = 64;
-            const int mapSize = 128;
-            var mask = new bool[mapSize * mapSize];
-            for (int x = 32; x < 96; x++)
-            {
-                for (var y = 100; y < 104; y++) mask[y * mapSize + x] = true;
-            }
-
-            NeighbourhoodLotSide side;
-            Assert.True(NeighbourhoodLayoutBuilder.TryDoorSideFromRoad(32, 32, size, mask, mapSize, out side));
-            Assert.Equal(NeighbourhoodLotSide.South, side);
-
-            //no road at all anywhere near: the answer is "ask the old way", not a guess
-            Assert.False(NeighbourhoodLayoutBuilder.TryDoorSideFromRoad(
-                32, 32, size, new bool[mapSize * mapSize], mapSize, out side));
-
-            //and a mask of the wrong size is refused rather than indexed
-            Assert.False(NeighbourhoodLayoutBuilder.TryDoorSideFromRoad(32, 32, size, mask, 256, out side));
-        }
-
-        [Fact]
         public void EveryDoorSide_IsOneOfTheFourRectangleEdges()
         {
             foreach (var layout in new[]
             {
-                NeighbourhoodLayoutBuilder.Pack(BaseResidential(), Slot, Seed),
+                NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, Seed),
                 NeighbourhoodLayoutBuilder.PackOnGrid(BaseResidential(), Slot, Seed)
             })
             {

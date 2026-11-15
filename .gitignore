@@ -253,8 +253,8 @@ Client/Simitone/Simitone.Client/Content/
 
 # Manual mesh cleanup workspaces (docs/MESH_MANUAL_CLEANUP.md): per-object OBJ,
 # Blender and scoring scratch, plus candidate meshes. The shipped result
-# (Content/MeshReplace + cleaned-meshes.txt) IS committed; only the authoring
-# workspace is ignored.
+# (Content/MeshReplace + cleaned-meshes.txt) lives in the ignored Content folder;
+# only the authoring workspace is ignored here.
 .meshcleanup/
 
 # Local scratch
@@ -340,5 +340,5 @@ ModelManifest.xml
 # FAKE - F# Make
 .fake/
 
-Client/Simitone/Simitone/
-Client/Simitone/TS1.Scripts
+# Local Claude Code session state (handoff briefs); never part of the source.
+.claude/

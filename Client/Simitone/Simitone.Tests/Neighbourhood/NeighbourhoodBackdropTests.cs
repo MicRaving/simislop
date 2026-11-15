@@ -293,7 +293,7 @@ namespace Simitone.Tests.Neighbourhood
             // The guard against the rule being too eager, on real data: pack, generate, probe, and
             // the health the panel would build from all of that has to promote to 3D. A rule that
             // never fell back passes every test above; this is the one that catches it.
-            var layout = NeighbourhoodLayoutBuilder.Pack(new[]
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(new[]
             {
                 // CHANGED by the Part 9 TSO-alignment rework. Forty bitmap pixels are twenty-six tiles apart
                 // under the axis-aligned square mapping and twenty-two under the diamond-aligned

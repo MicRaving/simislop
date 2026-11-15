@@ -246,6 +246,23 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
+        public void SixtyFramesOfASixtiethAdvanceTheClockOneGameMinute()
+        {
+            //The screen ticks once a frame and a 60 fps frame is half a sub-minute tick. Rounding
+            //each call on its own gave 0 or 1 tick depending on frame jitter (never, above 60 fps),
+            //so a neighbourhood with B6 on kept no time. The remainder is banked.
+            var clock = Clock();
+            var store = new LotStore();
+            var layout = Layout(11);
+            var simulator = Sim_();
+            var before = clock.Ticks;
+
+            for (int frame = 0; frame < 60; frame++) simulator.Tick(1.0 / 60.0, clock, store, layout);
+
+            Assert.Equal(before + WorldClock.TicksPerMinuteTs1, clock.Ticks);
+        }
+
+        [Fact]
         public void PausedDoesNotTouchAMotives()
         {
             var clock = Clock();

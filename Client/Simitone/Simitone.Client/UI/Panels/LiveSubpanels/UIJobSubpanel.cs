@@ -179,8 +179,10 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
             }
             else
             {
-                var myLevel = job.JobLevels[level];
-
+                // person data is a raw short the scripts write freely, so the level is clamped
+                // onto the track instead of trusted (OpenCareerPage guards the same index)
+                var levels = job.JobLevels;
+                var myLevel = levels[Math.Max(0, Math.Min((int)level, levels.Length - 1))];
                 if (myLevel != LastJobLevel)
                 {
                     JobTitle.Caption = myLevel.JobName;
@@ -189,8 +191,8 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
                     // call site is written with the same order, and carries no specifier, so with
                     // no table at all this is the string it has always been.
                     var salary = myLevel.Salary.ToString();
-                    var start = ToTime(myLevel.StartTime);
-                    var end = ToTime(myLevel.EndTime);
+                    var start = CareerLadder.ShiftTime(myLevel.StartTime);
+                    var end = CareerLadder.ShiftTime(myLevel.EndTime);
                     SalaryTitle.Caption = SimitoneStrings.Format("461",
                         "Salary: §" + salary + " (" + start + "-" + end + ")",
                         salary, start, end);
@@ -205,19 +207,15 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
                     PerformanceBar.MotiveValue = performance;
                     LastPerformance = performance;
                 }
+                var needed = CareerLadder.RequiredSkillsOf(myLevel);
                 for (int i = 0; i < 6; i++)
-                    Skills[i].Needed = myLevel.MinRequired[i + 1] / 100;
+                    Skills[i].Needed = needed[i];
             }
 
             for (int i = 0; i < 6; i++)
             {
                 Skills[i].Value = sel.GetPersonData(SkillInd[i]) / 100;
             }
-        }
-
-        private string ToTime(int time)
-        {
-            return ((time > 12) ? (time - 12) : time) + ((time >= 12) ? "pm" : "am");
         }
 
         private void InitLabel(UILabel label)

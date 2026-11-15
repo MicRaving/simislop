@@ -1,4 +1,4 @@
-﻿using FSO.Client;
+using FSO.Client;
 using FSO.Client.UI.Controls;
 using FSO.Client.UI.Framework;
 using FSO.Client.UI.Model;
@@ -276,6 +276,9 @@ namespace Simitone.Client.UI.Panels.Desktop
 
             UpdateBuildBuy();
             LastBuildBuyEnabled = Game.vm.Context.Architecture.BuildBuyEnabled;
+            //seed the last-seen funds from the current ones, or the first Update reads the whole
+            //balance as a gain and floats a "+§N" label
+            LastMoney = GetMoney();
             UpdateMoneyDisplay();
             UpdateZoomButton();
         }
@@ -368,6 +371,29 @@ namespace Simitone.Client.UI.Panels.Desktop
             UpdateBuildBuy();
         }
 
+        /// <summary>
+        /// The speed button for a VM multiplier. The VM can hold a multiplier that is not one of
+        /// the four the buttons name (a cheat or script can set any value), so an unknown value
+        /// highlights the fastest button whose multiplier it reaches, and anything below the
+        /// first step reads as normal speed, instead of failing the lookup every frame.
+        /// </summary>
+        private static int ButtonForMultiplier(int multiplier)
+        {
+            if (multiplier < 0) multiplier = 0;
+            if (RemapSpeed.TryGetValue(multiplier, out var exact)) return exact;
+
+            int best = -1, bestKey = int.MinValue;
+            foreach (var kvp in RemapSpeed)
+            {
+                if (kvp.Key > 0 && kvp.Key <= multiplier && kvp.Key > bestKey)
+                {
+                    bestKey = kvp.Key;
+                    best = kvp.Value;
+                }
+            }
+            return best != -1 ? best : RemapSpeed[1];
+        }
+
         public override void Update(UpdateState state)
         {
             var vm = Game.vm;
@@ -402,13 +428,9 @@ namespace Simitone.Client.UI.Panels.Desktop
             //test on purpose: entering Buy/Build from a real pause leaves the highlighted button
             //the same, and without it the lock would never be drawn.
             bool disabled = vm.SpeedMultiplier == GameplaySpeed.Disabled;
-            var speed = disabled ? GameplaySpeed.Pause : RemapSpeed[Math.Max(0, vm.SpeedMultiplier)];
+            var speed = disabled ? GameplaySpeed.Pause : ButtonForMultiplier(vm.SpeedMultiplier);
             if (speed != LastSpeed || disabled != LastSpeedDisabled)
             {
-                /*
-                if (speed == 4) InnerBg.Texture = Content.Get().CustomUI.Get("clockinbg_pause.png").Get(GameFacade.GraphicsDevice);
-                else if (LastSpeed == 4) InnerBg.Texture = Content.Get().CustomUI.Get("clockinbg.png").Get(GameFacade.GraphicsDevice);
-                */
 
                 for (int i = 0; i < 4; i++)
                 {
@@ -428,11 +450,10 @@ namespace Simitone.Client.UI.Panels.Desktop
             
             RefreshBuildBuyIfChanged();
 
-            if (LastCut != Game.LotControl.WallsMode)
+            var lotControl = Game.LotControl;
+            if (lotControl != null && LastCut != lotControl.WallsMode)
             {
-                LastCut = Game.LotControl.WallsMode;
-                var ui = Content.Get().CustomUI;
-
+                LastCut = lotControl.WallsMode;
                 RoofButton.Selected = LastCut == 3;
                 WallsUpButton.Selected = LastCut == 2;
                 WallsCutButton.Selected = LastCut == 1;
@@ -453,9 +474,9 @@ namespace Simitone.Client.UI.Panels.Desktop
             //flag onto the button every frame rather than only at the points the player can
             //change it. Only while visible - in Live mode the button is hidden and the tool is
             //not available, so there is nothing to reflect.
-            if (EyedropperButton.Visible && Game.LotControl?.ObjectHolder != null)
+            if (EyedropperButton.Visible && lotControl?.ObjectHolder != null)
             {
-                EyedropperButton.Selected = Game.LotControl.ObjectHolder.EyedropperMode;
+                EyedropperButton.Selected = lotControl.ObjectHolder.EyedropperMode;
             }
 
             base.Update(state);
@@ -499,8 +520,11 @@ namespace Simitone.Client.UI.Panels.Desktop
                     }
                     if (activeCamera.UseZoomHold)
                     {
-                        if (ZoomInButton.IsDown || (state.KeyboardState.IsKeyDown(Keys.OemPlus) && !state.CtrlDown)) Game.LotControl.TargetZoom = Math.Max(0.25f, Math.Min(Game.LotControl.TargetZoom + 1f / FSOEnvironment.RefreshRate, 2));
-                        if (ZoomOutButton.IsDown || (state.KeyboardState.IsKeyDown(Keys.OemMinus) && !state.CtrlDown)) Game.LotControl.TargetZoom = Math.Max(0.25f, Math.Min(Game.LotControl.TargetZoom - 1f / FSOEnvironment.RefreshRate, 2));
+                        if (lotControl != null)
+                        {
+                            if (ZoomInButton.IsDown || (state.KeyboardState.IsKeyDown(Keys.OemPlus) && !state.CtrlDown)) lotControl.TargetZoom = Math.Max(0.25f, Math.Min(lotControl.TargetZoom + 1f / FSOEnvironment.RefreshRate, 2));
+                            if (ZoomOutButton.IsDown || (state.KeyboardState.IsKeyDown(Keys.OemMinus) && !state.CtrlDown)) lotControl.TargetZoom = Math.Max(0.25f, Math.Min(lotControl.TargetZoom - 1f / FSOEnvironment.RefreshRate, 2));
+                        }
                     }
                     else
                     {
@@ -517,14 +541,16 @@ namespace Simitone.Client.UI.Panels.Desktop
 
         private void UpdateWallsViewKeyHandler(int type)
         {
-            var mode = Game.LotControl.WallsMode;
+            var lotControl = Game.LotControl;
+            if (lotControl == null) return;
+            var mode = lotControl.WallsMode;
             switch (type)
             {
                 case 0:
-                    if (mode > 0) Game.LotControl.WallsMode -= 1;
+                    if (mode > 0) lotControl.WallsMode -= 1;
                     break;
                 case 1:
-                    if (mode < 3) Game.LotControl.WallsMode += 1;
+                    if (mode < 3) lotControl.WallsMode += 1;
                     break;
             }
         }
@@ -614,96 +640,20 @@ namespace Simitone.Client.UI.Panels.Desktop
 
         public void SetCut(int cut)
         {
-            Game.LotControl.World.State.DrawRoofs = (cut == 3);
-            Game.LotControl.WallsMode = cut;
+            var lotControl = Game.LotControl;
+            if (lotControl == null) return;
+            lotControl.World.State.DrawRoofs = (cut == 3);
+            lotControl.WallsMode = cut;
         }
 
         /// <summary>
-        /// Handles a speed button press.
+        /// Handles a speed button press: the work is handed to <see cref="TS1GameScreen.ChangeSpeedTo"/>
+        /// so there is one place that changes the speed (the number keys are the other caller).
         /// </summary>
-        /// <remarks>
-        /// <para>
-        /// The work is handed to <see cref="TS1GameScreen.ChangeSpeedTo"/> so there is one place
-        /// that changes the speed: this is not the only caller (the number keys are the other),
-        /// and a second copy of the sound table and the multiplier mapping is exactly the sort of
-        /// thing the two copies then disagree about. The speed the button asks for is already in
-        /// the panel's own 1..4 numbering, which is the numbering
-        /// <see cref="TS1GameScreen.ChangeSpeedTo"/> takes.
-        /// </para>
-        /// <para>
-        /// The block below is a fallback for a desktop UCP that somehow has no game screen
-        /// current (which would mean the buttons were pressed off-screen), not a second code path
-        /// that runs in normal play.
-        /// </para>
-        /// </remarks>
         /// <param name="speed">The speed button index, 1..4, where 4 is pause.</param>
         public void SwitchSpeed(int speed)
         {
-            var scr = UIScreen.Current as TS1GameScreen;
-            scr?.ChangeSpeedTo(speed); // change speed using ts1gamescreen host
-
-            //fallback use only -- should generally have one unified way to change core game speed with special considerations
-            if (scr != null) return;
-
-            var vm = Game.vm;
-            if (vm == null) return;
-            if (vm.SpeedMultiplier == GameplaySpeed.Disabled) return;
-            switch (vm.SpeedMultiplier)
-            {
-                case 0:
-                    switch (speed)
-                    {
-                        case GameplaySpeed.Play:
-                            HITVM.Get().PlaySoundEvent(UISounds.SpeedPTo1); break;
-                        case GameplaySpeed.FastForward:
-                            HITVM.Get().PlaySoundEvent(UISounds.SpeedPTo2); break;
-                        case GameplaySpeed.FastFastForward:
-                            HITVM.Get().PlaySoundEvent(UISounds.SpeedPTo3); break;
-                    }
-                    break;
-                case 1:
-                    switch (speed)
-                    {
-                        case GameplaySpeed.Pause:
-                            HITVM.Get().PlaySoundEvent(UISounds.Speed1ToP); break;
-                        case GameplaySpeed.FastForward:
-                            HITVM.Get().PlaySoundEvent(UISounds.Speed1To2); break;
-                        case GameplaySpeed.FastFastForward:
-                            HITVM.Get().PlaySoundEvent(UISounds.Speed1To3); break;
-                    }
-                    break;
-                case 3:
-                    switch (speed)
-                    {
-                        case GameplaySpeed.Pause:
-                            HITVM.Get().PlaySoundEvent(UISounds.Speed2ToP); break;
-                        case GameplaySpeed.Play:
-                            HITVM.Get().PlaySoundEvent(UISounds.Speed2To1); break;
-                        case GameplaySpeed.FastFastForward:
-                            HITVM.Get().PlaySoundEvent(UISounds.Speed2To3); break;
-                    }
-                    break;
-                case 10:
-                    switch (speed)
-                    {
-                        case GameplaySpeed.Pause:
-                            HITVM.Get().PlaySoundEvent(UISounds.Speed3ToP); break;
-                        case GameplaySpeed.Play:
-                            HITVM.Get().PlaySoundEvent(UISounds.Speed3To1); break;
-                        case GameplaySpeed.FastForward:
-                            HITVM.Get().PlaySoundEvent(UISounds.Speed3To2); break;
-                    }
-                    break;
-            }
-
-            switch (speed)
-            {
-                case GameplaySpeed.Pause: vm.SpeedMultiplier = GameplaySpeed.ReverseRemap[GameplaySpeed.Pause]; break;
-                case GameplaySpeed.Play: vm.SpeedMultiplier = GameplaySpeed.ReverseRemap[GameplaySpeed.Play]; break;
-                case GameplaySpeed.FastForward: vm.SpeedMultiplier = GameplaySpeed.ReverseRemap[GameplaySpeed.FastForward]; break;
-                case GameplaySpeed.FastFastForward: vm.SpeedMultiplier = GameplaySpeed.ReverseRemap[GameplaySpeed.FastFastForward]; break;
-            }
-            vm.ResetTickAlign();
+            Game.ChangeSpeedTo(speed);
         }
     }
 }

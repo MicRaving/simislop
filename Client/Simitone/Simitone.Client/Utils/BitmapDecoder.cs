@@ -1,12 +1,15 @@
 using System;
 using System.IO;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
+using SixLabors.ImageSharp.Formats.Bmp;
+using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace Simitone.Client.Utils
 {
     /// <summary>
-    /// Decodes a bitmap/PNG/JPEG/TGA stream into the tightly packed RGBA byte buffer that
+    /// Decodes a BMP/PNG stream into the tightly packed RGBA byte buffer that
     /// FreeSO's <c>ImageLoaderHelpers.BitmapFunction</c> hook expects.
     ///
     /// This replaces a <c>System.Drawing</c> (GDI+) implementation. GDI+ is Windows-only and
@@ -67,11 +70,10 @@ namespace Simitone.Client.Utils
         /// in <c>ImageLoader.WinDataFromStreamP</c> treat <c>null</c> as "not an image" and fall
         /// through to their own error handling, and some of them do so from inside a catch block,
         /// so a decoder that threw would either be swallowed into a wrong answer or escape as a
-        /// startup crash. Indexed/palettized, 24bpp and 32bpp BMPs, PNG and JPEG all decode
+        /// startup crash. Indexed/palettized, 24bpp and 32bpp BMPs and PNG all decode
         /// through the same path - ImageSharp normalises the container and the caller sees RGBA.
-        /// The default decoder set is used deliberately: GDI+'s <c>Bitmap.FromStream</c> also
-        /// accepted GIF/TIFF, and narrowing the accepted set here would turn a working asset into
-        /// a silent <c>null</c>.
+        /// Only BMP and PNG decode (see <c>DecoderOptionsBmpPng</c>); any other format, TIFF
+        /// included, returns <c>null</c>.
         /// </remarks>
         public static Tuple<byte[], int, int> Read(Stream stream)
         {
@@ -86,7 +88,7 @@ namespace Simitone.Client.Utils
                 NormalizeBmpColorTableOffset(bytes);
 
                 using (var ms = new MemoryStream(bytes, false))
-                using (Image<Rgba32> image = Image.Load<Rgba32>(ms))
+                using (Image<Rgba32> image = Image.Load<Rgba32>(DecoderOptionsBmpPng, ms))
                 {
                     // Rgba32 is exactly 4 bytes per pixel, so the buffer is tightly packed and
                     // matches FreeSO's "no row padding" assumption without any stride fixup.
@@ -103,6 +105,18 @@ namespace Simitone.Client.Utils
                 return null;
             }
         }
+
+        /// <summary>
+        /// Only BMP and PNG are registered. ImageSharp 3.1.12 is pinned with advisories in its
+        /// TIFF/ICC/HistogramEqualization paths (see Directory.Build.props); a Configuration that
+        /// does not know TIFF means a TIFF stream is never parsed at all - format detection fails
+        /// and <see cref="Read"/> returns null. TS1 content is BMP (cursors, thumbnails) and PNG;
+        /// TGA is decoded by FreeSO before this hook is reached, and no JPEG/GIF ships.
+        /// </summary>
+        private static readonly DecoderOptions DecoderOptionsBmpPng = new DecoderOptions
+        {
+            Configuration = new Configuration(new PngConfigurationModule(), new BmpConfigurationModule())
+        };
 
         private static byte[] ReadToEnd(Stream stream)
         {

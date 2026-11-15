@@ -235,12 +235,6 @@ namespace Simitone.Client.UI.Panels
 
         public void SetupQuery()
         {
-            /*UIContainer parent = null;
-            if (QueryPanel?.Parent?.Parent != null)
-            {
-                parent = QueryPanel.Parent;
-            }*/
-
             QueryPanel = new UIQueryPanel(World);
             QueryPanel.X = 0;
             QueryPanel.Y = -114;
@@ -516,7 +510,9 @@ namespace Simitone.Client.UI.Panels
                 ResponseCode = (byte)((house > 0) ? 1 : 0),
                 ResponseText = house.ToString()
             });
-            Parent.Remove(TS1NeighSelector);
+            //the picker's own parent, not ours: this control may have been removed from the screen
+            //while the picker was still up, and the picker would then never be taken down
+            TS1NeighSelector.Parent?.Remove(TS1NeighSelector);
             TS1NeighSelector = null;
 
             //A declined trip is the only outcome that leaves the current lot standing, so it is
@@ -1365,18 +1361,6 @@ namespace Simitone.Client.UI.Panels
                     }
                 }
             }
-            /*
-            if (ActiveEntity != null && BlockingDialog != null)
-            {
-                //are we still waiting on a blocking dialog? if not, cancel.
-                if (ActiveEntity.Thread != null && (ActiveEntity.Thread.BlockingState == null || !(ActiveEntity.Thread.BlockingState is VMDialogResult)))
-                {
-                    BlockingDialog.Close();
-                    LastDialogID = 0;
-                    BlockingDialog = null;
-                }
-            }*/
-
             if (Visible)
             {
                 if (ShowTooltip) state.UIState.TooltipProperties.UpdateDead = false;

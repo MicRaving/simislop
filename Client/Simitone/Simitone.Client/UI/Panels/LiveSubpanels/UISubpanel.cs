@@ -49,7 +49,7 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
             GameFacade.Screens.Tween.To(this, 0.3f, new Dictionary<string, float>() { { "Opacity", 0f } });
             GameThread.SetTimeout(() =>
             {
-                Parent.Remove(this);
+                Parent?.Remove(this); //already detached if the owner was torn down in the meantime
             }, 300);
         }
     }

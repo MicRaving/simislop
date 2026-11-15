@@ -62,7 +62,7 @@ namespace Simitone.Tests.Neighbourhood
 
         private static NeighbourhoodLayout SampleLayout(int slot = 4, int seed = 123456789)
         {
-            return NeighbourhoodLayoutBuilder.Pack(new List<NeighbourhoodLotRead>
+            return NeighbourhoodLayoutBuilder.PackOnGrid(new List<NeighbourhoodLotRead>
             {
                 new NeighbourhoodLotRead
                 {

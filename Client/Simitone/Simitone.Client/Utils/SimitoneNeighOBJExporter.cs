@@ -35,9 +35,8 @@ namespace Simitone.Client.Utils
             var mtlBuilder = new StringBuilder();
             Directory.CreateDirectory(destPath);
 
-            //var mtlMem = new MemoryStream();
-            //var mtlIO = new StreamWriter(mtlMem);
-            var mtlIO = new StreamWriter(new FileStream(Path.Combine(destPath, "neighbourhood.mtl"), FileMode.Create, FileAccess.Write, FileShare.None));
+            //disposed on every path: before, an exception mid-export leaked the open .mtl handle.
+            using var mtlIO = new StreamWriter(new FileStream(Path.Combine(destPath, "neighbourhood.mtl"), FileMode.Create, FileAccess.Write, FileShare.None));
 
             var path = Path.Combine(destPath, "neighbourhood.obj");
             var filename = Path.GetFileNameWithoutExtension(path);
@@ -64,10 +63,13 @@ namespace Simitone.Client.Utils
                     world.Opacity = 1;
                     GameFacade.Scenes.Add(world);
 
+                    VM vm = null;
+                    try
+                    {
                     var globalLink = new VMTS1GlobalLinkStub();
                     var driver = new VMServerDriver(globalLink);
 
-                    var vm = new VM(new VMContext(world), driver, new UIHeadlineRendererProvider());
+                    vm = new VM(new VMContext(world), driver, new UIHeadlineRendererProvider());
                     vm.ListenBHAVChanges();
                     vm.Init();
 
@@ -114,72 +116,19 @@ namespace Simitone.Client.Utils
                     facade.AppendMTL(mtlIO, Path.GetDirectoryName(path));
                     indCount = facade.LastIndex;
 
-                    /*
-                    foreach (var group in groundfloor.GroupForTileType)
-                    {
-                        if (!exportedFlr.Contains(group.Key) && group.Key != 0 && group.Key < 65000)
-                        {
-                            //get and export this floor's texture. add it as a material as well.
-                            var floor = Content.Get().WorldFloors.Get(group.Key).Near.Frames[0].GetTexture(gd);
-                            using (var flrStream = new FileStream(Path.Combine(destPath, "flr_" + group.Key + ".png"), FileMode.Create, FileAccess.Write, FileShare.None))
-                                floor.SaveAsPng(flrStream, floor.Width, floor.Height);
-
-                            //add as material
-                            GenerateMTL("flr_" + group.Key, mtlBuilder);
-                        }
-                        //write out verts and indices. 
-
-
-                        var indices = group.Value.BuildIndexData();
-                        var done = new Dictionary<int, int>(); //index remap
-
-                        if (group.Key == 0)
-                        {
-                            //grass... export as grass colour
-                            io.WriteLine("usemtl " + "grass");
-                            io.WriteLine("o " + "lot_" + num + "_grass");
-
-                        }
-                        else
-                        {
-                            //export with floor textured material
-                            io.WriteLine("usemtl " + "flr_" + group.Key);
-                            io.WriteLine("o " + "lot_" + num + "_" + group.Key);
-                        }
-
-                        var indexStr = new StringBuilder();
-                        indexStr.Append("f ");
-
-                        for (int j = 0; j < indices.Length; j++)
-                        {
-                            var index = indices[j];
-                            int remapped = index;
-                            if (!done.TryGetValue(index, out remapped))
-                            {
-                                remapped = indCount;
-                                done.Add(index, indCount++);
-                                //append a vertex
-                                var vert = floorVerts[index];
-                                vert.Position += voff;
-                                io.Write("v " + vert.Position.X.ToString(CultureInfo.InvariantCulture) + " " + vert.Position.Y.ToString(CultureInfo.InvariantCulture) + " " + vert.Position.Z.ToString(CultureInfo.InvariantCulture));
-                                io.WriteLine((group.Key == 0) ? " " + vert.Color.X.ToString(CultureInfo.InvariantCulture) + " " + vert.Color.Y.ToString(CultureInfo.InvariantCulture) + " " + vert.Color.Z.ToString(CultureInfo.InvariantCulture) : "");
-                                io.WriteLine("vt " + vert.GrassInfo.Y.ToString(CultureInfo.InvariantCulture) + " " + (1 - vert.GrassInfo.Z).ToString(CultureInfo.InvariantCulture));
-                            }
-                            indexStr.Append(remapped + "/" + remapped);
-                            if (j % 3 == 2)
-                            {
-                                indexStr.AppendLine();
-                                if (j != indices.Length - 1) indexStr.Append("f ");
-                            }
-                            else indexStr.Append(" ");
-                        }
-
-                        io.WriteLine(indexStr);
                     }
-                    */
-
-                    GameFacade.Scenes.Remove(world);
-                    world.Dispose();
+                    finally
+                    {
+                        //per-lot teardown, also on an exception: unsubscribe the VM from the global
+                        //BHAV-change event, stop its driver, and release the world.
+                        if (vm != null)
+                        {
+                            try { vm.SuppressBHAVChanges(); } catch (Exception) { }
+                            try { vm.CloseNet(FSO.SimAntics.NetPlay.VMCloseNetReason.LeaveLot); } catch (Exception) { }
+                        }
+                        GameFacade.Scenes.Remove(world);
+                        world.Dispose();
+                    }
                 }
             }
 
@@ -191,20 +140,6 @@ namespace Simitone.Client.Utils
             vm.Context.Architecture.SetTimeOfDay(time);
             world.Force2DPredraw(gd);
             vm.Context.Architecture.SetTimeOfDay();
-        }
-
-        private static void GenerateMTL(string oname, StringBuilder str)
-        {
-            str.AppendLine("newmtl " + oname);
-            str.AppendLine("Ka 1.000 1.000 1.000");
-            str.AppendLine("Kd 1.000 1.000 1.000");
-            str.AppendLine("Ks 0.000 0.000 0.000");
-
-            str.AppendLine("Ns 10.0000");
-            str.AppendLine("illum 2");
-
-            str.AppendLine("map_Kd " + oname + ".png");
-            str.AppendLine("map_d " + oname + ".png");
         }
     }
 }

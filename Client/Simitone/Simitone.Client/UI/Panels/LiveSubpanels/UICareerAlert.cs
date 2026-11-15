@@ -411,9 +411,9 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
         /// Whether the rung at <paramref name="index"/> is behind, on, or ahead of the sim.
         /// </summary>
         /// <remarks>
-        /// A level index outside the ladder - which is what an unemployed sim has, and what a
-        /// stale person-data slot can hold - marks every rung as ahead, so a page opened for a
-        /// sim who is not on this track shows the track rather than an empty list.
+        /// A negative level index - which is what an unemployed sim has - marks every rung as
+        /// ahead, so a page opened for a sim who is not on this track shows the track rather
+        /// than an empty list. An index past the top rung reads as every rung reached.
         /// </remarks>
         public static CareerRungState StateFor(int index, int currentLevel)
         {

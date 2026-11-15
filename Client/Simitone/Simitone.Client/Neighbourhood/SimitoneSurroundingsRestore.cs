@@ -14,7 +14,6 @@ using FSO.SimAntics.Engine.TSOTransaction;
 using FSO.SimAntics.Marshals.Hollow;
 using FSO.SimAntics.Model;
 using FSO.SimAntics.Model.TSOPlatform;
-using FSO.SimAntics.Marshals.Hollow;
 using FSO.SimAntics.NetPlay.Drivers;
 using FSO.SimAntics.Utils;
 using Microsoft.Xna.Framework;
@@ -231,14 +230,6 @@ namespace Simitone.Client.Neighbourhood
             + " is untouched";
 
         /// <summary>
-        /// Why a sub-world's architecture must not be written through the marshal it was built from.
-        /// Named so the log and this file agree on the one word for it.
-        /// </summary>
-        public const string SharedArchitectureReason =
-            "a hollow lot's architecture arrays are shared by reference with the marshal it was built"
-            + " from, so this sub-world took private copies of them before writing to its own terrain";
-
-        /// <summary>
         /// Stands up every neighbour in <paramref name="plan"/> as a sub-world of
         /// <paramref name="vm"/>, and asks the lot view to measure them into its sky bounds.
         ///
@@ -266,6 +257,19 @@ namespace Simitone.Client.Neighbourhood
         public static bool TryRestore(VM vm, SimitoneSurroundingsPlan plan, out string reason,
             NeighbourHollowLoader loader = null)
         {
+            SimitoneSurroundingsPlan resolved;
+            return TryRestore(vm, plan, out reason, out resolved, loader);
+        }
+
+        /// <summary>
+        /// <see cref="TryRestore(VM, SimitoneSurroundingsPlan, out string, NeighbourHollowLoader)"/>,
+        /// also handing back the plan as it was built - with each neighbour's contents filled in -
+        /// so the caller can tell the lots that carry a house from the blank ones.
+        /// </summary>
+        public static bool TryRestore(VM vm, SimitoneSurroundingsPlan plan, out string reason,
+            out SimitoneSurroundingsPlan built, NeighbourHollowLoader loader = null)
+        {
+            built = plan;
             if (vm == null)
             {
                 reason = "there is no lot to put the neighbours into";
@@ -350,6 +354,7 @@ namespace Simitone.Client.Neighbourhood
                     source = new NeighbourHollowLoader(device);
                 }
                 var resolved = ResolveHollows(plan, source);
+                built = resolved;
 
                 for (int i = 0; i < resolved.Warnings.Count; i++)
                 {
@@ -385,7 +390,8 @@ namespace Simitone.Client.Neighbourhood
                     SubWorldComponent subworld = null;
                     try
                     {
-                        subworld = BuildOne(world, resolved, neighbour);
+                        subworld = BuildOne(world, resolved, neighbour,
+                            SimitoneSurroundingsPlacement.LotGroundAltitudeFor(blueprint));
                         if (subworld == null) continue;
                         blueprint.SubWorlds.Add(subworld);
                         added.Add(subworld);
@@ -611,7 +617,8 @@ namespace Simitone.Client.Neighbourhood
         /// world is taken down here and the exception is rethrown for the caller to log.
         /// </remarks>
         private static SubWorldComponent BuildOne(
-            World world, SimitoneSurroundingsPlan plan, SimitoneSurroundingsNeighbour neighbour)
+            World world, SimitoneSurroundingsPlan plan, SimitoneSurroundingsNeighbour neighbour,
+            int lotGroundAltitude)
         {
             var size = neighbour.SubWorldSize;
             if (size <= 0) return null;
@@ -644,11 +651,11 @@ namespace Simitone.Client.Neighbourhood
 
                 if (neighbour.IsHollow)
                 {
-                    BuildHollow(tempVM, subworld, plan, neighbour, terrain);
+                    BuildHollow(tempVM, subworld, plan, neighbour, terrain, lotGroundAltitude);
                 }
                 else
                 {
-                    BuildBlank(tempVM, subworld, plan, neighbour, terrain, size);
+                    BuildBlank(tempVM, subworld, plan, neighbour, terrain, size, lotGroundAltitude);
                 }
 
                 subworld.State.Level = SubWorldLevel;
@@ -685,7 +692,8 @@ namespace Simitone.Client.Neighbourhood
         /// </summary>
         private static void BuildHollow(
             VM tempVM, SubWorldComponent subworld, SimitoneSurroundingsPlan plan,
-            SimitoneSurroundingsNeighbour neighbour, VMTSOSurroundingTerrain terrain)
+            SimitoneSurroundingsNeighbour neighbour, VMTSOSurroundingTerrain terrain,
+            int lotGroundAltitude)
         {
             var hollow = neighbour.Hollow;
 
@@ -739,7 +747,8 @@ namespace Simitone.Client.Neighbourhood
                 height = VMLotTerrainRestoreTools.GetBaseLevel(tempVM, terrain, 1, 1);
             }
 
-            tempVM.Context.Blueprint.BaseAlt = BaseAltitudeFor(plan.ActiveBaseLevel, height);
+            tempVM.Context.Blueprint.BaseAlt =
+                BaseAltitudeFor(plan.ActiveBaseLevel, height, lotGroundAltitude);
 
             // The height field the lot is built ON, not the one it was built with. RestoreHeight
             // leaves a second surface over the same rectangle - a smoothstep bicubic of sixteen
@@ -775,7 +784,8 @@ namespace Simitone.Client.Neighbourhood
         /// </summary>
         private static void BuildBlank(
             VM tempVM, SubWorldComponent subworld, SimitoneSurroundingsPlan plan,
-            SimitoneSurroundingsNeighbour neighbour, VMTSOSurroundingTerrain terrain, int size)
+            SimitoneSurroundingsNeighbour neighbour, VMTSOSurroundingTerrain terrain, int size,
+            int lotGroundAltitude)
         {
             var blueprint = new Blueprint(size, size);
             tempVM.Context.Blueprint = blueprint;
@@ -804,7 +814,8 @@ namespace Simitone.Client.Neighbourhood
                 neighbour.Terrain.Roads, RestoreLotType.Blank);
 
             var height = VMLotTerrainRestoreTools.RestoreHeight(tempVM, terrain, 1, 1);
-            tempVM.Context.Blueprint.BaseAlt = BaseAltitudeFor(plan.ActiveBaseLevel, height);
+            tempVM.Context.Blueprint.BaseAlt =
+                BaseAltitudeFor(plan.ActiveBaseLevel, height, lotGroundAltitude);
 
             // Before anything is placed on it, and for the same reason as in the hollow branch: the
             // landmark row has to be put on the ground the lot is actually going to be drawn on.
@@ -1168,59 +1179,20 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// Whether a sub-world's own ground is the surround's ground at every corner of its
-        /// rectangle, to within the half an altitude unit of rounding that
-        /// <see cref="SimitoneSurroundingsPlacement.SubWorldAltitudeFor"/> leaves behind.
+        /// <see cref="BaseAltitudeFor(int,int)"/> for a parent lot whose own ground is not at
+        /// altitude zero. The played TS1 lot keeps <c>BaseAlt</c> at zero, so its ground sits at
+        /// <c>lotGroundAltitude</c> and the sub-world has to be lifted by the same amount; the
+        /// sub-world's ground is drawn at <c>-BaseAlt</c>, so that is a subtraction.
         /// </summary>
-        /// <remarks>
-        /// <b>The alignment invariant, as one question.</b> It asks the field the way the lot view
-        /// asks it - through <c>(altitude - BaseAlt) * LotTerrainFactor * LotViewUnitsPerTile</c>,
-        /// which is the sum of <c>TerrainComponent.GetElevationPoint</c> and the <c>BaseAlt</c> its
-        /// world matrix subtracts - and the surround's through
-        /// <see cref="SimitoneSurroundingsPlacement.ToLotView"/>, which is the mesh's own
-        /// translation. One side is the real conversion, not a copy of it, and the other is the real
-        /// one too, so a change to either shows up here.
-        ///
-        /// <para><b>A graded neighbour deliberately fails this, and that is the point.</b> When the
-        /// plan could read the lot's own <c>ARRY(0)</c> plane, its field is that lot's real
-        /// per-tile ground measured from its own median
-        /// (<see cref="SimitoneSurroundingsNeighbour.IsGradedGround"/>) while the surround's raster
-        /// under it is still the generated map's flat pin over the same rectangle - so the two differ
-        /// by exactly the lot's own grading, inside its property line and not outside it. Asking
-        /// this question is therefore a question about the <em>pinned</em> path: it holds to the
-        /// rounding tolerance for every neighbour the plan could not read a plane for, and a false
-        /// answer for a graded one says the lot view and the plan disagree, which is the thing worth
-        /// catching. The lot view clears the depth buffer after the surround and draws the sub-world
-        /// over it, so the graded ground is the one a player sees inside the property line.</para>
-        /// </remarks>
-        /// <param name="placement">The active lot's placement.</param>
-        /// <param name="neighbour">The neighbour whose field is asked about.</param>
-        /// <param name="baseAltitude">The sub-world's <c>Blueprint.BaseAlt</c>.</param>
-        /// <param name="map">The generated map, for the surround's own heights.</param>
-        public static bool GroundIsTheSurroundsGround(
-            SimitoneSurroundingsPlacement placement, NeighbourhoodMap map,
-            SimitoneSurroundingsNeighbour neighbour, int baseAltitude)
+        /// <param name="activeBaseLevel">The active lot's base level.</param>
+        /// <param name="neighbourBaseLevel">The neighbour lot's base level.</param>
+        /// <param name="lotGroundAltitude">
+        /// <see cref="SimitoneSurroundingsPlacement.LotGroundAltitudeFor"/> of the live blueprint.
+        /// </param>
+        public static int BaseAltitudeFor(int activeBaseLevel, int neighbourBaseLevel,
+            int lotGroundAltitude)
         {
-            if (!neighbour.HasMergedGround) return false;
-            var size = neighbour.SubWorldSize;
-            var lot = neighbour.Lot;
-            if (map == null || lot == null) return false;
-            for (int z = 0; z < size; z++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    var drawn = placement.ToLotView(new Vector3(lot.WorldX + x,
-                        NeighbourhoodCityMeshBuilder.WorldHeightFor(
-                            SimitoneSurroundingsPlacement.ElevationByteAt(map,
-                                lot.WorldX + x, lot.WorldY + z)),
-                        lot.WorldY + z)).Y;
-                    var subWorld = (neighbour.AltitudeAt(x, z) - baseAltitude)
-                        * SimitoneNeighbourTerrain.LotTerrainFactor
-                        * SimitoneSurroundingsPlacement.LotViewUnitsPerTile;
-                    if (Math.Abs(subWorld - drawn) > SubWorldGroundTolerance) return false;
-                }
-            }
-            return true;
+            return activeBaseLevel - neighbourBaseLevel - lotGroundAltitude;
         }
 
         /// <summary>

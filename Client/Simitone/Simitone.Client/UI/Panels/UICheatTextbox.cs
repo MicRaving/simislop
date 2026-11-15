@@ -33,7 +33,22 @@ namespace Simitone.Client.UI.Panels
             CheatCommands.NetCheats;
 
         private UITextBox baseTextbox;
-        private Texture2D baseTexture;
+
+        /// <summary>
+        /// The box's 1x1 background. Shared by every instance (one is built per lot load) rather
+        /// than created and abandoned each time; rebuilt only if the device it belongs to changed.
+        /// </summary>
+        private static Texture2D baseTexture;
+
+        private static Texture2D GetBackgroundTexture(GraphicsDevice gd)
+        {
+            if (baseTexture == null || baseTexture.IsDisposed || baseTexture.GraphicsDevice != gd)
+            {
+                baseTexture = new Texture2D(gd, 1, 1);
+                baseTexture.SetData(new Color[] { new Color((byte)67, (byte)93, (byte)90, (byte)255) });
+            }
+            return baseTexture;
+        }
         private VM ts1VM;
         private CheatRunner runner;
 
@@ -61,9 +76,7 @@ namespace Simitone.Client.UI.Panels
                 ID = "UICheatTextboxBase",
                 
             };
-            baseTexture = new Texture2D(GameFacade.GraphicsDevice, 1, 1);
-            baseTexture.SetData(new Color[] { new Color((byte)67, (byte)93, (byte)90, (byte)255) });
-            baseTextbox.SetBackgroundTexture(baseTexture, 0, 0, 0, 0);
+            baseTextbox.SetBackgroundTexture(GetBackgroundTexture(GameFacade.GraphicsDevice), 0, 0, 0, 0);
             Size = new Vector2(200, 23);
             baseTextbox.SetSize(200, 23);
             Add(baseTextbox);

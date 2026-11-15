@@ -88,14 +88,14 @@ namespace Simitone.Tests.UI
             {
                 foreach (var pair in fields)
                 {
-                    yield return new object[] { pair.Key, pair.Value, value };
+                    yield return new object[] { pair.Value, value };
                 }
             }
         }
 
         [Theory]
         [MemberData(nameof(DamagedCounts))]
-        public void ADamagedTravelSlotIsDeclinedRatherThanLoaded(string field, string messageField, int value)
+        public void ADamagedTravelSlotIsDeclinedRatherThanLoaded(string messageField, int value)
         {
             var bytes = VMMarshalFixture.Build(out var offsets);
             WriteSlot(VMMarshalFixture.WithCount(bytes, offsets[messageField], value));

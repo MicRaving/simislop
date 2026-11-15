@@ -90,17 +90,19 @@
     immediately after the build. The audit measured 203 of 574 unique warnings (35 %)
     and most of the 10m39s build in those 19 projects.
 
-    So the default is now the game:
+    The split exists, but the DEFAULT IS NOW BuildIde=true again (see the REVERTED note
+    on the property below): a plain
 
         dotnet build Client/Simitone/Simitone.sln -c Release
 
-    builds the game and nothing else. The IDE path is still one flag away:
+    builds the full closure, FSO.Content.TSO's content included. The fast game-only
+    build is opt-in:
 
-        dotnet build Client/Simitone/Simitone.sln -c Release -p:BuildIde=true
+        dotnet build Client/Simitone/Simitone.sln -c Release -p:BuildIde=false
 
-    which restores the FSO.IDE / FSO.Client references and pulls their closure back in.
-    That is also what a Debug build wants - see TrimSingleplayerOutput, which is off
-    outside Release precisely so the IDE host can be stepped into.
+    which drops the FSO.IDE / FSO.Client references and their closure. A Debug build
+    wants the full closure too - see TrimSingleplayerOutput, which is off outside
+    Release precisely so the IDE host can be stepped into.
 
     WHY A PROPERTY AND NOT A SOLUTION FILTER
     =======================================

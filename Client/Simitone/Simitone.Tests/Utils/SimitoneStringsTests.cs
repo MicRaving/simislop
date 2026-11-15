@@ -765,7 +765,7 @@ namespace Simitone.Tests.Utils
             // duplicate entry is harmless, so two waves naming the same id cannot conflict.
             var taking = new HashSet<string>(new[]
             {
-                "192", "211", "215", "217", "222", "224",     // version stamp and the update check
+                "211", "215", "217", "222", "224",     // version stamp and the update check
                 "308", "312", "313",                          // neighbourhood prompts
                 "325", "329", "332", "334", "335", "336", "337", "338", "339", "340", // the
                 "358", "362",                                 //   neighbourhood manager

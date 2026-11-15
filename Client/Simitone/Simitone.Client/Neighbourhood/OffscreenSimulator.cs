@@ -1805,7 +1805,12 @@ namespace Simitone.Client.Neighbourhood
             var seconds = ClampDelta(deltaSeconds, result);
             if (seconds <= 0) return result;
 
-            var ticks = (int)Math.Round(seconds * GameMinutesPerRealSecond * TicksPerMinute(clock));
+            //The remainder is banked: a per-frame caller hands in half a tick at 60 fps, and rounding
+            //each call on its own made the clock run at 0x or 2x depending on frame jitter.
+            var exact = seconds * GameMinutesPerRealSecond * TicksPerMinute(clock) + _tickRemainder;
+            var whole = Math.Floor(exact);
+            _tickRemainder = exact - whole;
+            var ticks = (int)whole;
             if (ticks <= 0) return result;
 
             //Where the clock was before this tick's ticks went on it. The window a first sighting
@@ -2380,6 +2385,7 @@ namespace Simitone.Client.Neighbourhood
             return (int)(((_anchorHour + hours) % 24 + 24) % 24);
         }
 
+        private double _tickRemainder;
         private bool _anchored;
         private long _anchorTick;
         private int _anchorHour;

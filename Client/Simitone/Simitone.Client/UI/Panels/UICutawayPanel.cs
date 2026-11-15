@@ -77,7 +77,7 @@ namespace Simitone.Client.UI.Panels
                 GameFacade.Screens.Tween.To(child, 0.3f, new Dictionary<string, float>() { { "Alpha", 0f } }, TweenQuad.EaseOut);
             }
 
-            GameThread.SetTimeout(() => Parent.Remove(this), 300);
+            GameThread.SetTimeout(() => Parent?.Remove(this), 300);
         }
     }
 }

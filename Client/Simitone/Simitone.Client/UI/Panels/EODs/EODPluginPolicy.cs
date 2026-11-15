@@ -224,6 +224,8 @@ namespace Simitone.Client.UI.Panels.EODs
         /// <c>UIGraphics.far</c> is a TS1-era GZ resource catalogue with no <c>.uis</c> in it at
         /// all), FreeSO's content loader only extracts the TSO content tree in TSO mode, and
         /// this port may not ship an EA asset in any case.
+        /// </para>
+        ///
         /// <para>
         /// So what sits behind each name is ours. <see cref="EODLayouts"/> declares which named
         /// control each panel has to find, <see cref="EODLayoutBuilder"/> turns that into the

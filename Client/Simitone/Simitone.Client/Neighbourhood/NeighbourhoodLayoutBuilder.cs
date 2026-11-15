@@ -16,72 +16,35 @@ namespace Simitone.Client.Neighbourhood
 {
     /// <summary>
     /// Builds a <see cref="NeighbourhoodLayout"/> out of a neighbourhood's own files: reads the
-    /// lot-location table, reads each lot's house file, and places every lot at the position the
-    /// table gives it in a 512x512 generated map.
+    /// lot-location table and each lot's house file (<see cref="ReadLots"/>), then arranges the
+    /// lots on the generated map (<see cref="PackOnGrid"/>).
     ///
     /// <para>
-    /// <b>The split.</b> The build is two activities with nothing in common. Reading is IO:
-    /// twenty-odd <c>HouseNN.iff</c> files, an STR chunk, a zoning dictionary, a family
-    /// dictionary, and the provider's own idea of where things are. Placing is arithmetic: one
-    /// transform, one clamp, done. Only the second is worth testing and only the second is
-    /// deterministic, so the reads are captured as data
-    /// (<see cref="NeighbourhoodLotRead"/>, produced by an <see cref="ILotContentSource"/>) and
-    /// <see cref="Pack(IReadOnlyList{NeighbourhoodLotRead}, int, int, int)"/> consumes nothing
-    /// else. A test can hand it four canned lot records - one with no house, one community lot,
-    /// two deliberately overlapping - and get a layout back without a game, a VM or a graphics
-    /// device anywhere in sight.
+    /// <b>The split.</b> Reading is IO: twenty-odd <c>HouseNN.iff</c> files, an STR chunk, a
+    /// zoning dictionary and a family dictionary. Placing is arithmetic. Only the second is
+    /// deterministic, so the reads are captured as data (<see cref="NeighbourhoodLotRead"/>,
+    /// produced by an <see cref="ILotContentSource"/>) and <see cref="PackOnGrid(IReadOnlyList{NeighbourhoodLotRead}, int, int, int)"/>
+    /// consumes nothing else - a test can hand it canned lot records and get a layout back
+    /// without a game, a VM or a graphics device.
     /// </para>
     ///
     /// <para>
-    /// <b>The arrangement, and what it used to be.</b> This used to be a packer: a lot's
-    /// <c>LotLocations</c> x/y was pushed through the OBJ exporter's isometric projection, the
-    /// cloud was fitted into the map, and the overlaps that left were resolved by a bounded
-    /// relaxation with a grid as the guaranteed fallback. That was a reconstruction of the map,
-    /// and it was wrong in the way §8.1 names: a fit has one scale and one origin for the whole
-    /// cloud, so the neighbourhood it drew was the bitmap's arrangement compressed into whatever
-    /// shape fitted - a second view of the neighbourhood rather than the neighbourhood.
+    /// <b>The arrangement is a synthetic shelf packing</b>: lots in rows, each advancing by its
+    /// <see cref="FootprintFor"/> (its own side plus <see cref="StreetCorridorTiles"/>), so every
+    /// pair of lots has a full street corridor between them. A lot's bitmap position
+    /// (<see cref="NeighbourhoodLotRead.MapX"/>/<see cref="NeighbourhoodLotRead.MapY"/>) is
+    /// recorded for the 2D map, the camera and the hit test and only orders the shelf. An
+    /// earlier attempt placed lots at their bitmap positions (the "connected mechanics" work);
+    /// it was removed together with the road-mask driveway probe it needed.
     /// </para>
     ///
     /// <para>
-    /// <b>Now a lot is placed where <c>LotLocations.iff</c> says it is.</b>
-    /// <see cref="NeighbourhoodLotRead.MapX"/>/<see cref="NeighbourhoodLotRead.MapY"/> through
-    /// <see cref="NeighbourhoodPixelTransform"/>, half a lot back to reach the rectangle's origin,
-    /// and clamped into the map. That is the whole of it. The
-    /// <c>Seed -&gt; Relax -&gt; Separate -&gt; GridFallback -&gt; Clamp</c> pipeline is gone, and so is
-    /// the no-overlap invariant it existed to keep - which is correct, because TSO's own
-    /// <c>RestoreSurroundings</c> puts two neighbouring lots <c>Size - 2</c> tiles apart, so two
-    /// <em>real</em> lots overlap by two tiles on purpose and any invariant that forbade it was
-    /// forbidding the truth. What replaced it is the one that shows on screen: a road is never drawn
-    /// inside a lot, which <see cref="RoadGraph"/>'s own <c>Mark</c> refuses and which holds however
-    /// the rectangles are arranged.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>The pitch is still here, because it is the street-width contract and not an
-    /// arrangement.</b> A lot's footprint is <see cref="FootprintFor"/>: its own side plus
-    /// <see cref="StreetCorridorTiles"/>, and that number was two, which is a sidewalk and not a
-    /// street - it is the reason the surround used to draw a street band of its own that no lot
-    /// agreed with, since the lot view draws
-    /// <see cref="SimitoneLotViewRoad.StreetCorridorTiles"/> of corridor and each lot's own
-    /// <c>RestoreRoad</c> band reaches six tiles <em>into</em> the lot. It is still what the road
-    /// graph's <see cref="RoadGraph.MainStreetCorridorWidth"/> is measured against, what
-    /// <see cref="NeighbourhoodMapAdapter.StreetCorridorMapTiles"/> restates, and what the lot
-    /// view's own band needs to fit - but it no longer decides where anything stands.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>What is still here from the packing era, and why.</b> <see cref="ClampSize"/>,
-    /// <see cref="FootprintFor"/> and <see cref="StreetCorridorTiles"/> because they are the
-    /// street-width contract and are read by the road graph, the adapter and the lot view.
-    /// <see cref="DoorSideFor"/> because it is still the answer for a neighbourhood with no
-    /// inferred road mask, and because <c>NeighbourhoodLayoutPatch</c> calls it.
-    /// <see cref="ProjectMapPosition"/> because it is the OBJ exporter's transform and the meshes
-    /// already exported through it must not move. <see cref="PackOnGrid"/> because a shelf packing
-    /// is the only arrangement available for a layout whose bitmap positions are all zero, which is
-    /// what a corrupt or absent location table produces. <see cref="MaxRelaxationPasses"/> because
-    /// <c>NeighbourhoodLayoutPatch</c> bounds its relocation sweep by it. None of them chooses a
-    /// position any more: they are queries, one documented fallback, and two compatibility
-    /// transforms.
+    /// <b>The street-width contract</b> is what the other members here are for: <see cref="ClampSize"/>,
+    /// <see cref="FootprintFor"/> and <see cref="StreetCorridorTiles"/> are read by the road graph,
+    /// the map adapter and the lot view, and <see cref="DoorSideFor"/> picks a lot's driveway
+    /// edge. <see cref="ProjectMapPosition"/> and <see cref="IsometricScaleFor"/> are the OBJ
+    /// exporter's transform, kept so <see cref="NeighbourhoodPixelTransform"/> can be checked
+    /// against it; nothing in the shipped path calls them.
     /// </para>
     /// </summary>
     public static class NeighbourhoodLayoutBuilder
@@ -91,14 +54,8 @@ namespace Simitone.Client.Neighbourhood
         /// layout packed by a different arrangement rule is rebuilt rather than trusted.
         /// </summary>
         /// <remarks>
-        /// <b>Seventy-one, and the jump is the point.</b> Two, because the pitch changed: version
-        /// one packed at <c>Size + 2</c> and every cached sidecar in the world is a two-tile gap,
-        /// which is the layout that cannot draw a street. Seventy-one, because Part 8 replaced the
-        /// packer outright: a lot is now at the tile <see cref="NeighbourhoodPixelTransform"/> puts
-        /// it at, so every sidecar written by any earlier version is a synthetic arrangement and
-        /// every raster built from one has its lots in the wrong places relative to each other. The
-        /// number is not a sequence - §8.4 froze it here because "which world is this" must not be
-        /// answered by a comparison against a number someone might have reused.
+        /// Compared for equality only, never as a sequence: a sidecar stamped with any other value
+        /// is rebuilt, so an old arrangement is never trusted.
         /// </remarks>
         public const int CurrentGeneratorVersion = 73;
 
@@ -162,27 +119,6 @@ namespace Simitone.Client.Neighbourhood
         {
             return ClampSize(lotSize) + StreetCorridorTiles;
         }
-
-        /// <summary>
-        /// How many relaxation sweeps to attempt before declaring an arrangement a failure and
-        /// falling back. Bounded on purpose: the relaxation is a heuristic on a heuristic, and a
-        /// layout must not depend on it converging.
-        /// </summary>
-        /// <remarks>
-        /// No longer this file's own bound - <see cref="Pack"/> does not relax anything - but it is
-        /// still the constant <c>NeighbourhoodLayoutPatch</c> bounds its relocation sweep by, and
-        /// that call site is not this file's to change. Kept as the one spelling of the number
-        /// rather than restated there.
-        /// </remarks>
-        public const int MaxRelaxationPasses = 64;
-
-        /// <summary>
-        /// How far <see cref="TryDoorSideFromRoad"/> probes outward from a lot's edge looking for
-        /// the street its driveway should reach. Six, because that is how far the lot view's own
-        /// <c>RestoreRoad</c> bands reach into a lot: a road six tiles outside the property line is
-        /// one the lot already draws its own half of, so anything further out is a different street.
-        /// </summary>
-        public const int DoorProbeDepth = 6;
 
         /// <summary>
         /// The exporter's threshold: neighbourhoods with more lots than this are scaled down
@@ -380,90 +316,6 @@ namespace Simitone.Client.Neighbourhood
             return NeighbourhoodLotSide.West;
         }
 
-        /// <summary>
-        /// Which edge of a lot faces the road, asked of the inferred connector mask: the edge with
-        /// the most road within <see cref="DoorProbeDepth"/> tiles of it.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// This is Part 8's replacement for <see cref="DoorSideFor"/>, and it is a question rather
-        /// than a guess. "The edge nearest a map border" was always a proxy for "the edge a street
-        /// runs past", chosen because no street skeleton existed when it was written; now one does,
-        /// in the pixels of the 2D map, and the driveway should leave by the edge the player's own
-        /// map shows the road on.
-        /// </para>
-        /// <para>
-        /// <b>Ties resolve north, east, south, west</b>, the same fixed order
-        /// <see cref="DoorSideFor"/> uses, so the same layout always produces the same driveways.
-        /// A corner lot with a street on two sides is genuinely two-sided and the order is the whole
-        /// of the decision; the lot view's own <c>RoadByteFor</c> will then report both edges as
-        /// having road, so a corner house draws road on both of the sides its corner touches.
-        /// </para>
-        /// <para>
-        /// <b>A <c>false</c> here means "ask the old way".</b> An empty mask, a mask of the wrong
-        /// size, or a lot walled in on all four sides all answer <c>false</c>, and the caller falls
-        /// back to <see cref="DoorSideFor"/> - which is the right answer for a neighbourhood with no
-        /// backdrop at all rather than a worse one.
-        /// </para>
-        /// </remarks>
-        /// <param name="worldX">The lot rectangle's origin x, in tiles.</param>
-        /// <param name="worldY">The lot rectangle's origin y, in tiles.</param>
-        /// <param name="size">The lot's own side, in tiles.</param>
-        /// <param name="roadMask">
-        /// The connector mask, row-major in a <paramref name="mapSize"/> square. Not clipped of
-        /// lot interiors: a caller may pass either the raw inferred mask or the clipped one, and the
-        /// probe is outside the rectangle either way.
-        /// </param>
-        /// <param name="mapSize">The map's side length, in tiles.</param>
-        /// <param name="side">The edge the road is on, when the answer is <c>true</c>.</param>
-        public static bool TryDoorSideFromRoad(
-            int worldX, int worldY, int size, bool[] roadMask, int mapSize, out NeighbourhoodLotSide side)
-        {
-            side = NeighbourhoodLotSide.North;
-            if (roadMask == null || mapSize < 1) return false;
-            if ((long)roadMask.LongLength != (long)mapSize * mapSize) return false;
-
-            var lot = Math.Max(1, size);
-            var right = worldX + lot;
-            var bottom = worldY + lot;
-
-            var bestCount = 0;
-            var bestSide = NeighbourhoodLotSide.North;
-
-            //north, east, south, west - the same order DoorSideFor resolves its ties in, and the
-            //reason a tie is not a coin flip
-            for (int candidate = 0; candidate < 4; candidate++)
-            {
-                var count = 0;
-                for (int depth = 1; depth <= DoorProbeDepth; depth++)
-                {
-                    for (int t = 0; t < lot; t++)
-                    {
-                        int x, y;
-                        switch (candidate)
-                        {
-                            case 0: x = worldX + t; y = worldY - depth; break;
-                            case 1: x = right + depth; y = worldY + t; break;
-                            case 2: x = worldX + t; y = bottom + depth; break;
-                            default: x = worldX - depth; y = worldY + t; break;
-                        }
-                        if (x < 0 || y < 0 || x >= mapSize || y >= mapSize) continue;
-                        if (roadMask[y * mapSize + x]) count++;
-                    }
-                }
-
-                if (count > bestCount)
-                {
-                    bestCount = count;
-                    bestSide = (NeighbourhoodLotSide)candidate;
-                }
-            }
-
-            if (bestCount <= 0) return false;
-            side = bestSide;
-            return true;
-        }
-
         // ---- the build ------------------------------------------------------------------------
 
         /// <summary>
@@ -477,13 +329,9 @@ namespace Simitone.Client.Neighbourhood
         /// be placed in two places.
         ///
         /// <para>
-        /// <b>The line's x/y are stamped onto the record, and that is the whole of Part 8 §8.2's
-        /// load-bearing bug.</b> They were parsed and thrown away, so every real lot arrived at the
-        /// packer at (0, 0), the seed was degenerate, and no amount of arithmetic downstream could
-        /// recover the position the neighbourhood's own file states. They are written here rather
-        /// than only in <c>TS1LotContentSource</c> so that the value is the one the <em>line</em>
-        /// says, for any source, and so a source that does not know about the table still gets the
-        /// right answer.
+        /// The line's x/y are stamped onto the record (<see cref="NeighbourhoodLotRead.MapX"/>/
+        /// <see cref="NeighbourhoodLotRead.MapY"/>), for any source, so the value is the one the
+        /// <em>line</em> says. The shelf packer only uses them to order the lots.
         /// </para>
         /// </remarks>
         public static IReadOnlyList<NeighbourhoodLotRead> ReadLots(ILotContentSource source, int mode)
@@ -518,94 +366,13 @@ namespace Simitone.Client.Neighbourhood
             return result;
         }
 
-        /// <summary>
-        /// Place captured lot records into a layout, at their real positions. Pure: no disk, no
-        /// provider, no graphics, no time, and no dependence on the order the records arrived in.
-        /// </summary>
-        public static NeighbourhoodLayout Pack(IReadOnlyList<NeighbourhoodLotRead> reads, int slot, int seed)
-        {
-            return Pack(reads, slot, seed, DefaultMapSize);
-        }
-
-        /// <summary>
-        /// Place captured lot records into a layout of the given map size, at their real positions.
-        /// Pure: no disk, no provider, no graphics, no time, and no dependence on the order the
-        /// records arrived in.
-        /// </summary>
-        /// <remarks>
-        /// <b>Which connector mask this uses is the one bound to <paramref name="slot"/>, if
-        /// any.</b> The mask decides which edge each lot's driveway leaves from and nothing else -
-        /// the generator is handed it separately, through
-        /// <see cref="NeighbourhoodMapAdapter.InputFor"/>, which looks it up by the same slot. A
-        /// slot with nothing bound gets <see cref="DoorSideFor"/>, which is the pre-Part-8 answer and
-        /// the right one for a neighbourhood whose backdrop could not be read.
-        /// </remarks>
-        /// <param name="reads">The lot records, whose <c>MapX</c>/<c>MapY</c> are the real positions.</param>
-        /// <param name="slot">The neighbourhood slot id to stamp on the result.</param>
-        /// <param name="seed">The world seed. Recorded, and not used to place anything.</param>
-        /// <param name="mapSize">The generated map's side length, in tiles.</param>
-        public static NeighbourhoodLayout Pack(IReadOnlyList<NeighbourhoodLotRead> reads, int slot, int seed, int mapSize)
-        {
-            if (mapSize <= 0) throw new ArgumentOutOfRangeException(nameof(mapSize), mapSize, "A generated map has a positive side length.");
-
-            var placements = MapPlacements(reads, mapSize);
-            return Finish(slot, seed, mapSize, placements, null);
-        }
-
-        /// <summary>
-        /// One placement per read record, at the tile <see cref="NeighbourhoodPixelTransform"/> puts
-        /// it at, clamped into the map.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Ordered by lot number first, so the layout cannot depend on the order the location table
-        /// happened to be in - which was true of the packer and is just as true of this.
-        /// </para>
-        /// <para>
-        /// <b>Nothing is pushed apart and nothing is nudged.</b> Two real lots whose rectangles
-        /// overlap are two real lots the map put there; the generator's job is to draw them where
-        /// they are and to keep the streets out of them, which is a job the road graph and the lot
-        /// mask already do. A packer that separated them would be inventing a neighbourhood that
-        /// does not exist, and would do it differently at every map size - which is exactly the
-        /// failure §8.1's "one connected map, not two views" is about.
-        /// </para>
-        /// </remarks>
-        private static Placement[] MapPlacements(IReadOnlyList<NeighbourhoodLotRead> reads, int mapSize)
-        {
-            if (reads == null || reads.Count == 0) return new Placement[0];
-
-            var ordered = new List<NeighbourhoodLotRead>(reads);
-            ordered.Sort(CompareByNumber);
-
-            var placements = new Placement[ordered.Count];
-            for (int i = 0; i < ordered.Count; i++)
-            {
-                var read = ordered[i];
-                var size = ClampSize(read.Size);
-                var origin = NeighbourhoodPixelTransform.ClampOrigin(
-                    NeighbourhoodPixelTransform.OriginForCentre(
-                        new Vector2(read.MapX, read.MapY), size, mapSize),
-                    size, mapSize);
-
-                placements[i] = new Placement
-                {
-                    Read = read,
-                    Footprint = FootprintFor(read.Size),
-                    X = origin.X,
-                    Y = origin.Y,
-                };
-            }
-
-            return placements;
-        }
-
         private static NeighbourhoodLayout Finish(
-            int slot, int seed, int mapSize, Placement[] placements, bool[] roadMask)
+            int slot, int seed, int mapSize, Placement[] placements)
         {
             var lots = new NeighbourhoodLot[placements.Length];
             for (int i = 0; i < placements.Length; i++)
             {
-                lots[i] = placements[i].ToLot(mapSize, roadMask);
+                lots[i] = placements[i].ToLot(mapSize);
             }
 
             return new NeighbourhoodLayout(slot, seed, CurrentGeneratorVersion,
@@ -618,19 +385,12 @@ namespace Simitone.Client.Neighbourhood
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>This is not the arrangement any more, and nothing in the game calls it.</b> It is kept
-        /// for the case <see cref="Pack"/> cannot answer: a neighbourhood whose location table is
-        /// missing, empty or corrupt has every lot at bitmap (0, 0), every lot maps to the map's
-        /// top-left corner, and twenty-odd lots stacked on one tile is not a neighbourhood anybody
-        /// can play. A shelf packing is the honest answer to "these lots have no positions": it
-        /// invents nothing, it only gives each lot a distinct rectangle, and the gap between
-        /// neighbours is exactly <see cref="StreetCorridorTiles"/> because a shelf advances by whole
-        /// footprints.
-        /// </para>
-        /// <para>
-        /// A test can also call it to assert that guarantee - no overlaps, a corridor between every
-        /// pair - without having to construct a neighbourhood with no positions at all, which is
-        /// what the packer's own fallback used to be for.
+        /// <b>This is the arrangement the 3D neighbourhood ships with</b> (the only caller is
+        /// <c>NeighbourhoodLifecycle</c>). A lot's bitmap position (<c>MapX</c>/<c>MapY</c>) is
+        /// recorded for the camera and the 2D hit test but never decides where the rectangle goes:
+        /// it only orders the shelf. Every lot gets a distinct rectangle, and the gap between
+        /// neighbours is exactly <see cref="StreetCorridorTiles"/> because a shelf advances by
+        /// whole footprints - which is what leaves room for the road graph's measured streets.
         /// </para>
         /// </remarks>
         public static NeighbourhoodLayout PackOnGrid(IReadOnlyList<NeighbourhoodLotRead> reads, int slot, int seed)
@@ -644,7 +404,7 @@ namespace Simitone.Client.Neighbourhood
             if (mapSize <= 0) throw new ArgumentOutOfRangeException(nameof(mapSize), mapSize, "A generated map has a positive side length.");
 
             var placements = ShelfPlacements(reads, mapSize);
-            return Finish(slot, seed, mapSize, placements, null);
+            return Finish(slot, seed, mapSize, placements);
         }
 
         /// <summary>
@@ -692,54 +452,10 @@ namespace Simitone.Client.Neighbourhood
             return placements;
         }
 
-        /// <summary>Read a neighbourhood through a content source and place it, in one call.</summary>
-        public static NeighbourhoodLayout Build(ILotContentSource source, int mode, int slot, int seed)
-        {
-            return Build(source, mode, slot, seed, DefaultMapSize);
-        }
-
-        /// <summary>
-        /// Read a neighbourhood through a content source and place it, in one call - and bind the
-        /// mode's connector mask to the slot so the generator and the door sides can both find it.
-        /// </summary>
-        /// <remarks>
-        /// The binding is the one piece of Part 8's seam that cannot be derived: the reader of a
-        /// neighbourhood knows the mode, the generator of a map knows the slot, and
-        /// <see cref="NeighbourhoodLayout"/> carries neither. A caller that reads and places in two
-        /// separate steps - <see cref="ReadLots"/> then <see cref="Pack"/>, which is what
-        /// <c>NeighbourhoodLifecycle</c> does - has to make the same call itself.
-        /// </remarks>
-        public static NeighbourhoodLayout Build(ILotContentSource source, int mode, int slot, int seed, int mapSize)
-        {
-            var reads = ReadLots(source, mode);
-            return Pack(reads, slot, seed, mapSize);
-        }
-
-        /// <summary>
-        /// Build a neighbourhood's layout straight from the game's provider. The impure entry
-        /// point; everything after the reads is the same pure <c>Pack</c> the tests drive.
-        /// </summary>
-        public static NeighbourhoodLayout Build(TS1NeighborhoodProvider provider, int mode, int slot, int seed)
-        {
-            return Build(provider, mode, slot, seed, DefaultMapSize);
-        }
-
-        /// <summary>
-        /// Build a neighbourhood's layout straight from the game's provider. The impure entry
-        /// point; everything after the reads is the same pure <c>Pack</c> the tests drive.
-        /// </summary>
-        public static NeighbourhoodLayout Build(TS1NeighborhoodProvider provider, int mode, int slot, int seed, int mapSize)
-        {
-            if (provider == null) throw new ArgumentNullException(nameof(provider));
-            return Build(new TS1LotContentSource(provider, mode), mode, slot, seed, mapSize);
-        }
-
         // ---- queries --------------------------------------------------------------------------
 
         /// <summary>How many pairs of lots in a layout share a tile. Zero is what a shelf
-        /// arrangement guarantees; a map-derived arrangement does not promise it, because TSO's own
-        /// lot pitch is <c>Size - 2</c> and two real lots therefore overlap. Exposed because
-        /// "no overlaps" is otherwise an assertion about somebody else's arithmetic.</summary>
+        /// arrangement guarantees. Only the tests ask.</summary>
         public static int CountOverlaps(NeighbourhoodLayout layout)
         {
             if (layout == null) return 0;
@@ -750,8 +466,7 @@ namespace Simitone.Client.Neighbourhood
         /// How many pairs of these lots are closer than <paramref name="margin"/> tiles, ignoring
         /// anything else about them. Zero for a shelf layout at
         /// <see cref="StreetCorridorTiles"/>, because a shelf reserves the whole street corridor
-        /// between every pair; non-zero is the normal, correct answer for a map-derived layout,
-        /// whose lots sit at TSO's own <c>Size - 2</c> pitch.
+        /// between every pair.
         /// </summary>
         /// <param name="lots">The lots to measure.</param>
         /// <param name="margin">The gap two lots have to leave between their rectangles.</param>
@@ -780,17 +495,13 @@ namespace Simitone.Client.Neighbourhood
             public int Y;
 
             /// <summary>
-            /// The finished lot: its real bitmap position, the rectangle's origin, and a driveway
-            /// edge chosen from the connector mask when there is one.
+            /// The finished lot: its recorded bitmap position, the rectangle's origin, and the
+            /// driveway edge nearest the map border.
             /// </summary>
-            public NeighbourhoodLot ToLot(int mapSize, bool[] roadMask)
+            public NeighbourhoodLot ToLot(int mapSize)
             {
                 var size = ClampSize(Read.Size);
-                NeighbourhoodLotSide door;
-                if (!TryDoorSideFromRoad(X, Y, size, roadMask, mapSize, out door))
-                {
-                    door = DoorSideFor(X, Y, Footprint, mapSize);
-                }
+                var door = DoorSideFor(X, Y, Footprint, mapSize);
 
                 return new NeighbourhoodLot
                 {
@@ -809,11 +520,6 @@ namespace Simitone.Client.Neighbourhood
                     HasHouse = Read.HasHouse
                 };
             }
-        }
-
-        private static int CompareByNumber(NeighbourhoodLotRead a, NeighbourhoodLotRead b)
-        {
-            return a.Number.CompareTo(b.Number);
         }
 
         /// <summary>

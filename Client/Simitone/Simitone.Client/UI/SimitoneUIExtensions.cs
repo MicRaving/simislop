@@ -9,32 +9,6 @@ using System.Linq;
 namespace Simitone.Client.UI
 {
     /// <summary>
-    /// Simantics helpers that read better as an extension on the lot state than as a
-    /// hand-unrolled loop at the (very few) call sites.
-    /// </summary>
-    internal static class SimitoneSimAnticsVMExtensions
-    {
-        /// <summary>
-        /// Removes every avatar standing on the lot.
-        /// </summary>
-        /// <remarks>
-        /// Used when a lot is being emptied rather than played - moving a family out, or
-        /// resetting a template lot before it is saved - so that whoever stands on the lot
-        /// next starts from a genuinely empty one. The list is re-read on every pass
-        /// because <c>RemoveEntity</c> mutates it.
-        /// </remarks>
-        /// <param name="State">The TS1 lot state. Unused: the entities are taken from the VM.</param>
-        /// <param name="vm">The VM whose lot is to be emptied.</param>
-        public static void CleanUpAllPeople(this VMTS1LotState State, VM vm)
-        {
-            List<VMEntity> avatars = vm.Context.ObjectQueries.Avatars;
-
-            while (avatars.Any())
-                vm.RemoveEntity(avatars[0]);
-        }
-    }
-
-    /// <summary>
     /// Small shared helpers for Simitone's own UI controls.
     /// </summary>
     internal static class SimitoneUIExtensions
@@ -81,8 +55,9 @@ namespace Simitone.Client.UI
             float overage = desiredSize.X - available;
 
             // a font whose width does not respond to a point of size (delta == 0) cannot be
-            // fitted this way; leave it at the smallest size we tried rather than dividing by zero.
-            int fontSize = (delta > 0) ? Math.Max(1, baseSize - (int)(overage / delta)) : 1;
+            // fitted this way; leave it at the smallest size we tried (one point down) rather than
+            // dividing by zero - or collapsing the caption to a 1pt font.
+            int fontSize = (delta > 0) ? Math.Max(1, baseSize - (int)(overage / delta)) : Math.Max(1, baseSize - 1);
             Label.CaptionStyle.Size = fontSize; // new scaled size
         }
     }

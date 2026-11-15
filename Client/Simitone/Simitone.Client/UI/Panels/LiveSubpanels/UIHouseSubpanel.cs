@@ -167,9 +167,7 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
             var services = HouseServices.All;
             for (int i = 0; i < services.Length; i++)
             {
-                var flag = HouseServices.ReadHireFlag(vm, services[i]);
-                var onLot = HouseServices.IsNpcOnLot(vm, services[i]);
-                serviceStates[i].Caption = HouseServices.StateCaption(HouseServices.Classify(flag, onLot));
+                serviceStates[i].Caption = HouseServices.StateCaption(HouseServices.StateOf(vm, services[i]));
             }
         }
 

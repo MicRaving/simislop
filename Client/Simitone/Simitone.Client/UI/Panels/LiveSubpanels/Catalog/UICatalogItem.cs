@@ -278,12 +278,21 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels.Catalog
                 IconCache.Remove(stale);
             }
 
-            //Drop the queue entries for keys that are no longer cached, so a long session does
-            //not accumulate a queue longer than the cache it describes. Bounded to twice the
-            //cache: every surviving key has at least one entry by then, so nothing live is lost.
-            while (_iconOrder.Count > IconCache.Count * 2 + MaxCachedIcons)
+            //Keep the history from growing without bound. Dequeuing the oldest entries blindly
+            //could drop the only entry of a cached key, after which KeysToEvict could never pick
+            //it and the cache would grow past its cap; so compact instead: one entry per cached
+            //key, in order of last use.
+            if (_iconOrder.Count > IconCache.Count * 2 + MaxCachedIcons)
             {
-                _iconOrder.Dequeue();
+                var seen = new HashSet<uint>();
+                var kept = new List<uint>();
+                foreach (var key in _iconOrder.Reverse())
+                {
+                    if (IconCache.ContainsKey(key) && seen.Add(key)) kept.Add(key);
+                }
+                kept.Reverse();
+                _iconOrder.Clear();
+                foreach (var key in kept) _iconOrder.Enqueue(key);
             }
         }
 

@@ -414,20 +414,6 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// The file in <see cref="NeighbourhoodContent.ModelFolder"/> that a tree model index
-        /// names, or <c>null</c> when the index is out of range.
-        /// </summary>
-        /// <remarks>
-        /// A straight delegation to <see cref="NeighbourhoodFoliageTint.FileNameFor"/>, kept
-        /// because this is the name the load site asks for and the tests read.
-        /// </remarks>
-        /// <param name="modelIndex">A model index, 0 to <c>ModelCount - 1</c>.</param>
-        public static string FileNameFor(int modelIndex)
-        {
-            return NeighbourhoodFoliageTint.FileNameFor(modelIndex);
-        }
-
-        /// <summary>
         /// An obj reduced to one vertex list and one index list, with triangles ordered back to
         /// front by height.
         /// </summary>
@@ -689,7 +675,6 @@ namespace Simitone.Client.Neighbourhood
 
             var chunk = new NeighbourhoodFoliageChunk
             {
-                Ind = cx + cy * ChunksPerAxis,
                 TreeCount = trees,
                 Bounds = ChunkBoundsFor(cx, cy)
             };
@@ -1379,9 +1364,6 @@ namespace Simitone.Client.Neighbourhood
     /// <summary>One 16x16 tile chunk of trees.</summary>
     public sealed class NeighbourhoodFoliageChunk : IDisposable
     {
-        /// <summary>Index of the chunk, row-major over the 32x32 chunk grid.</summary>
-        public int Ind;
-
         /// <summary>How many trees are in it.</summary>
         public int TreeCount;
 

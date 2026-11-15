@@ -81,8 +81,6 @@ namespace Simitone.Tests.UI
             ("358", "%0"),
             // "Delete Springfield and everything in it? ..."
             ("362", "%0"),
-            // "Free Will: On" - the state from 190 or 191.
-            ("192", "%0"),
         };
 
         /// <summary>
@@ -366,11 +364,6 @@ namespace Simitone.Tests.UI
         [InlineData("172", "There are no settings here.")]
         [InlineData("173", "On/Off")]
         [InlineData("180", "Language")]
-        [InlineData("190", "On")]
-        [InlineData("191", "Off")]
-        [InlineData("192", "Free Will: %s")]
-        [InlineData("193", "Sims in your family choose their own actions.")]
-        [InlineData("194", "Sims in your family wait for you to direct them. Visitors and pets still act on their own.")]
         public void TheOptionsPagesOwnStringsAreInTheTableToo(string id, string english)
         {
             var table = Table();
@@ -395,20 +388,6 @@ namespace Simitone.Tests.UI
             {
                 Assert.NotEqual(word, pair.Value);
             }
-        }
-
-        [Fact]
-        public void TheFreeWillWordingIsTheSameWithNoTableAtAll()
-        {
-            Assert.Null(FSO.Client.GameFacade.Strings);
-
-            Assert.Equal("On", FreeWillSetting.DescribeState(true));
-            Assert.Equal("Off", FreeWillSetting.DescribeState(false));
-            Assert.Equal("Free Will: On", FreeWillSetting.DescribeToggle(true));
-            Assert.Equal("Free Will: Off", FreeWillSetting.DescribeToggle(false));
-            Assert.Equal("Sims in your family choose their own actions.", FreeWillSetting.DescribeEffect(true));
-            Assert.Equal("Sims in your family wait for you to direct them. Visitors and pets still act on their own.",
-                FreeWillSetting.DescribeEffect(false));
         }
     }
 }

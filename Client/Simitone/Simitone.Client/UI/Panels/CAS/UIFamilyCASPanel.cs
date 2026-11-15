@@ -132,7 +132,7 @@ namespace Simitone.Client.UI.Panels.CAS
                 ModifySim?.Invoke(false, -1);
             } else
             {
-                AvatarOptions.X = AvatarOptions.X = UIScreen.Current.ScreenWidth / 2 - (Avatars.Count()) * 50 + obj * 100 - 44;
+                AvatarOptions.X = UIScreen.Current.ScreenWidth / 2 - (Avatars.Count()) * 50 + obj * 100 - 44;
                 AvatarOptions.Y = UIScreen.Current.ScreenHeight - 145;
                 if (AvatarOptions.CategoryExpand < 1 || ActiveSelection == -1 || ActiveSelection == obj)
                     AvatarOptions.Open();
@@ -163,7 +163,6 @@ namespace Simitone.Client.UI.Panels.CAS
     {
         private List<VMAvatar> Avatars;
         private List<UIAvatarSelectButton> Btns = new List<UIAvatarSelectButton>();
-        private Texture2D Bg;
         public event Action<int> OnSelection;
         public UIAvatarListPanel(List<VMAvatar> avatar)
         {
@@ -213,11 +212,6 @@ namespace Simitone.Client.UI.Panels.CAS
                 btn.Outlined = (i++) == selected;
             }
             OnSelection?.Invoke(selected);
-        }
-
-        public override void Draw(UISpriteBatch batch)
-        {
-            base.Draw(batch);
         }
     }
 }

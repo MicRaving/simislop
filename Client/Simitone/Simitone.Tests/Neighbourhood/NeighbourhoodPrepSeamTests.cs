@@ -32,7 +32,7 @@ namespace Simitone.Tests.Neighbourhood
     {
         private static NeighbourhoodLayout Layout()
         {
-            return NeighbourhoodLayoutBuilder.Pack(new List<NeighbourhoodLotRead>
+            return NeighbourhoodLayoutBuilder.PackOnGrid(new List<NeighbourhoodLotRead>
             {
                 new NeighbourhoodLotRead { Number = 21, MapX = 102, MapY = 88, HasHouse = true, Size = 24 },
                 new NeighbourhoodLotRead { Number = 22, MapX = 150, MapY = 91, HasHouse = true, Size = 24 }
@@ -226,7 +226,7 @@ namespace Simitone.Tests.Neighbourhood
             source.Add(22, 150, 91, size: 24, zone: LotZoning.ZoneCommunity);
             source.Lots[22].Occupied = true;
 
-            var layout = NeighbourhoodLayoutBuilder.Build(source, 1, 4, 555);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(NeighbourhoodLayoutBuilder.ReadLots(source, 1), 4, 555);
             var reads = NeighbourhoodLayoutBuilder.ReadLots(source, 1);
 
             //every fact the layout is built from is on the read record, so the packing could be
@@ -259,8 +259,8 @@ namespace Simitone.Tests.Neighbourhood
             source.Add(22, 150, 91, size: 24);
             source.Add(31, 240, 130, size: 32);
 
-            var first = NeighbourhoodLayoutBuilder.Build(source, 1, 4, 555);
-            var second = NeighbourhoodLayoutBuilder.Pack(NeighbourhoodLayoutBuilder.ReadLots(source, 1), 4, 555);
+            var first = NeighbourhoodLayoutBuilder.PackOnGrid(NeighbourhoodLayoutBuilder.ReadLots(source, 1), 4, 555);
+            var second = NeighbourhoodLayoutBuilder.PackOnGrid(NeighbourhoodLayoutBuilder.ReadLots(source, 1), 4, 555);
 
             Assert.Equal(NeighbourhoodLayoutStore.Serialize(first), NeighbourhoodLayoutStore.Serialize(second));
         }

@@ -165,12 +165,29 @@ namespace Simitone.Client.UI.Services
                 //home lot: the canonical House{NN}.iff, exactly as before.
                 //one GetLotThumb call produces both pictures: the returned texture is the lot with
                 //its roof, and the callback hands back the same picture with the roof cut away.
-                Texture2D roofless = null;
-                var thumb = world.GetLotThumb(GameFacade.GraphicsDevice, (tex) => roofless = FSO.Common.Utils.TextureUtils.Decimate(tex, GameFacade.GraphicsDevice, 2, false));
-                thumb = FSO.Common.Utils.TextureUtils.Decimate(thumb, GameFacade.GraphicsDevice, 2, false);
+                //The platform owns the textures GetLotThumb hands out (see IWorldPlatform.GetLotThumb),
+                //but Decimate returns a new texture each time - which is this method's to dispose, or
+                //every save leaked two of them. Decimate hands the input back unchanged when it is
+                //too small to shrink, and that one must not be disposed.
+                Texture2D roofless = null, rooflessSource = null;
+                var rawThumb = world.GetLotThumb(GameFacade.GraphicsDevice, (tex) =>
+                {
+                    rooflessSource = tex;
+                    roofless = FSO.Common.Utils.TextureUtils.Decimate(tex, GameFacade.GraphicsDevice, 2, false);
+                });
+                var thumb = FSO.Common.Utils.TextureUtils.Decimate(rawThumb, GameFacade.GraphicsDevice, 2, false);
 
-                var tPNG = GeneratePNG(thumb);
-                var rPNG = GeneratePNG(roofless);
+                PNG tPNG, rPNG;
+                try
+                {
+                    tPNG = GeneratePNG(thumb);
+                    rPNG = GeneratePNG(roofless);
+                }
+                finally
+                {
+                    if (thumb != null && !ReferenceEquals(thumb, rawThumb)) thumb.Dispose();
+                    if (roofless != null && !ReferenceEquals(roofless, rooflessSource)) roofless.Dispose();
+                }
 
                 //serialise the whole IFF up front so the file write below is a single
                 //contiguous copy that cannot fail halfway through encoding.

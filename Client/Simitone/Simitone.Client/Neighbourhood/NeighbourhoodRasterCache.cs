@@ -105,9 +105,6 @@ namespace Simitone.Client.Neighbourhood
         /// <summary>Extension of a raster cache file.</summary>
         public const string FileExtension = ".raster";
 
-        /// <summary>Extension of the folder a <see cref="SaveDebugPng"/> dump writes into.</summary>
-        public const string DebugFolderExtension = ".png";
-
         /// <summary>The first four bytes of every file this build writes.</summary>
         public static readonly byte[] Magic = { (byte)'S', (byte)'N', (byte)'R', (byte)'S' };
 
@@ -185,21 +182,6 @@ namespace Simitone.Client.Neighbourhood
             return Path.Combine(folder, slot.ToString(CultureInfo.InvariantCulture) + FileExtension);
         }
 
-        /// <summary>
-        /// The folder a <see cref="SaveDebugPng"/> dump for a slot goes in,
-        /// <c>&lt;userDir&gt;Neighbourhoods/generated/&lt;slot&gt;.png</c>, or <c>null</c>.
-        /// </summary>
-        /// <param name="userDir">The user directory the sidecars live in.</param>
-        /// <param name="slot">The neighbourhood slot id, 0..8.</param>
-        public static string DebugFolderFor(string userDir, int slot)
-        {
-            if (!NeighbourhoodLayoutStore.IsKnownSlot(slot)) return null;
-            var folder = NeighbourhoodLayoutStore.GeneratedFolder(userDir);
-            if (folder == null) return null;
-            return Path.Combine(folder, slot.ToString(CultureInfo.InvariantCulture)
-                + DebugFolderExtension);
-        }
-
         // ---- writing ------------------------------------------------------------------------------
 
         /// <summary>
@@ -268,59 +250,6 @@ namespace Simitone.Client.Neighbourhood
             catch (Exception e)
             {
                 SimitoneLog.Error("NeighbourhoodRasterCache: could not write '" + path + "'.", e);
-                return false;
-            }
-        }
-
-        /// <summary>Delete a slot's raster, so the next refresh generates again.</summary>
-        /// <returns><c>true</c> when the file is gone, including when it never existed.</returns>
-        /// <param name="userDir">The user directory the sidecars live in.</param>
-        /// <param name="slot">The neighbourhood slot id.</param>
-        public static bool Delete(string userDir, int slot)
-        {
-            var path = PathFor(userDir, slot);
-            if (path == null) return false;
-            try
-            {
-                if (File.Exists(path)) File.Delete(path);
-                return true;
-            }
-            catch (Exception e)
-            {
-                SimitoneLog.Warn("NeighbourhoodRasterCache: could not delete '" + path + "'.", e);
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Write the five PNGs <c>CityMapData.Save</c> would, for looking at a generated map
-        /// without a graphics device. Not called by the refresh: encoding five 512x512 images is
-        /// not free, and nobody wants it on every generation. A tool, or a failing test, asks.
-        /// </summary>
-        /// <returns>Whether the images were written. Never throws.</returns>
-        /// <param name="userDir">The user directory the sidecars live in.</param>
-        /// <param name="slot">The neighbourhood slot id.</param>
-        /// <param name="map">The map to dump.</param>
-        public static bool SaveDebugPng(string userDir, int slot, NeighbourhoodMap map)
-        {
-            if (map == null) return false;
-            var folder = DebugFolderFor(userDir, slot);
-            if (folder == null) return false;
-            if (NeighbourhoodLayoutStore.IsInsideUserData(userDir, folder))
-            {
-                SimitoneLog.Error("NeighbourhoodRasterCache: refusing to write the debug images to '"
-                    + folder + "'; it resolves inside a TS1 neighbourhood folder.");
-                return false;
-            }
-            try
-            {
-                map.SavePng(folder);
-                return true;
-            }
-            catch (Exception e)
-            {
-                SimitoneLog.Warn("NeighbourhoodRasterCache: could not write the debug images to '"
-                    + folder + "'.", e);
                 return false;
             }
         }
@@ -659,22 +588,9 @@ namespace Simitone.Client.Neighbourhood
         /// </para>
         ///
         /// <para>
-        /// <b>It is no longer the same list of fields it was.</b> A lot's <c>MapX</c>/<c>MapY</c>
-        /// were explicitly excluded before, on the grounds that the generator only used them to seed
-        /// a packer whose output it then received as <c>WorldX</c>/<c>WorldY</c> - so a bitmap
-        /// position could move without changing a tile. That stopped being true in Part 8: the
-        /// generator now consults the mask it was handed, and the mask is a function of the 2D map
-        /// rather than of the packing, so the same rectangles with a different mask are different
-        /// maps. The mask's own fingerprint is therefore hashed, and so is a byte per lot recording
-        /// whether one was present - because "no mask" and "a mask with nothing set in it" are the
-        /// same array but not the same answer.
-        /// </para>
-        ///
-        /// <para>
-        /// <b>The mask's source string is deliberately not hashed.</b> Two runs that produce the
-        /// same mask produce the same map, and a reason that differs between them - a cache hit
-        /// versus a decode, say - is a difference in how the mask was obtained rather than in what
-        /// it says. Hashing it would regenerate a correct raster once per process for no reason.
+        /// <b>The two folds after the lot count are fixed.</b> They used to record the generator's
+        /// road mask (absent, always, once nothing supplied one); the mask is gone but the folds
+        /// stay so every raster already on disk keeps matching.
         /// </para>
         /// </summary>
         /// <param name="layout">The layout to fingerprint, or <c>null</c> for 0.</param>
@@ -687,8 +603,10 @@ namespace Simitone.Client.Neighbourhood
             hash = Hash(hash, input.Seed);
             hash = Hash(hash, input.MapSize);
             hash = Hash(hash, input.Lots.Count);
-            hash = Hash(hash, input.HasRoadMask);
-            hash = HashMask(hash, input.RoadMask);
+            //the two folds a layout with no road mask always made. The mask itself is gone, but the stamp
+            //keeps these so rasters written before it was removed still match (FormatVersion unchanged).
+            hash = Hash(hash, false);
+            hash = Hash(hash, -1);
             for (int i = 0; i < input.Lots.Count; i++)
             {
                 var lot = input.Lots[i];
@@ -701,26 +619,6 @@ namespace Simitone.Client.Neighbourhood
                 hash = Hash(hash, lot.BaseHeight);
                 hash = Hash(hash, lot.DoorSide);
                 hash = Hash(hash, lot.HasHouse);
-            }
-            return hash;
-        }
-
-        /// <summary>
-        /// Folds a connector mask into a stamp: one byte per tile, in raster order.
-        /// </summary>
-        /// <remarks>
-        /// Run-length rather than per-tile in practice - a 512x512 mask that was mostly road
-        /// alternates a lot - but written as the obvious loop because that is the definition, and
-        /// <see cref="FormatVersion"/> is what would move if it were ever worth making faster.
-        /// A <c>null</c> mask and an all-false one hash differently by design: see
-        /// <see cref="LayoutHash"/>.
-        /// </remarks>
-        private static ulong HashMask(ulong hash, bool[] mask)
-        {
-            if (mask == null) return Hash(hash, -1);
-            for (int i = 0; i < mask.Length; i++)
-            {
-                hash = (hash ^ (mask[i] ? (byte)1 : (byte)0)) * FnvPrime;
             }
             return hash;
         }

@@ -72,7 +72,6 @@ namespace Simitone.Client.UI.Panels.CAS
 
             //display heads of all family members
             InitAvatarList(guids, vm);
-            SelectPct = SelectPct;
         }
 
         public override void Draw(UISpriteBatch batch)
@@ -111,7 +110,7 @@ namespace Simitone.Client.UI.Panels.CAS
                     //thumbnails rather than throwing out of the list rebuild.
                     break;
                 }
-                VMAvatar fam;
+                VMAvatar fam = null;
                 try
                 {
                     fam = (VMAvatar)vm.Context.CreateObjectInstance(sim, LotTilePos.OUT_OF_WORLD, Direction.NORTH).BaseObject;
@@ -121,11 +120,12 @@ namespace Simitone.Client.UI.Panels.CAS
                 catch (Exception ex)
                 {
                     SimitoneLog.Warn("CAS could not build a thumbnail for sim " + sim + " in the family list.", ex);
+                    //the instance may exist already (it was the Tick that failed): do not leave it behind in the CAS VM
+                    try { fam?.Delete(true, vm.Context); } catch (Exception) { }
                     continue;
                 }
                 var btn = new UIAvatarSelectButton(UIIconCache.GetObject(fam));
                 btn.Opacity = 1f;
-                var id = i;
                 btn.Name = fam.Name;
                 btn.X = baseX + (i++) * 100;
                 btn.Y = 88;

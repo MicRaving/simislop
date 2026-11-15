@@ -37,7 +37,6 @@ namespace Simitone.Client.UI.Model
 
         public Color BtnTxt = new Color(0, 31, 63);
         public Color GreenBtnTxt = new Color(0, 63, 16);
-        public Color BtnTxtShadow = Color.White * 0.5f;
         public Color BtnPrimaryHighlight = Color.DarkGreen; // UIBigButton green colorway hilite
         public Color BtnNormalHighlight = Color.DarkBlue;   // UIBigButton normal colorway hilite
 

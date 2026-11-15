@@ -174,10 +174,9 @@ namespace Simitone.Client.UI.Panels.Cheats
         /// The values this freeze is holding for one Sim.
         ///
         /// <remarks>
-        /// Keyed by the Sim's persist id where it has one, so the hold survives the Sim being
-        /// removed and put back on the lot, and falls back to the object id for a visitor or pet
-        /// that has no family file. Held in a <see cref="ConditionalWeakTable"/> so an avatar
-        /// that leaves the lot takes its record with it rather than leaking it.
+        /// Keyed by the avatar instance, in a <see cref="ConditionalWeakTable"/>, so an avatar
+        /// that leaves the lot takes its record with it rather than leaking it. A Sim removed and
+        /// put back is a new instance and starts a fresh hold.
         /// </remarks>
         private static readonly ConditionalWeakTable<VMAvatar, Dictionary<VMMotive, short>> Holds = new();
 

@@ -100,24 +100,6 @@ namespace Simitone.Client.UI.Panels.Cheats
             }
         }
 
-        /// <summary>
-        /// The hooks a cheat reaches, for the log and for the tests. A cheat with no entry here
-        /// is a cheat whose effect cannot be pointed at.
-        /// </summary>
-        public static string HookOf(CheatAction action)
-        {
-            return action switch
-            {
-                CheatAction.SetHour => "VMContext.Clock (Hours/Minutes/MinuteFractions)",
-                CheatAction.MaxMotives => "VMAvatar.SetMotiveData for each of VMTS1MotiveDecay.DecrementMotives",
-                CheatAction.KillSkills => "VMAvatar.SetPersonData for each of TS1's six skill slots",
-                CheatAction.KillTraits => "VMAvatar.SetPersonData for each of the five personality slots",
-                CheatAction.FreezeNeeds => "VMAvatar person data slot 29 (Cheats), enforced by MotiveDecayFreeze",
-                CheatAction.ListCheats => "none: the cheat box shows CheatCommands.HelpText",
-                _ => "none"
-            };
-        }
-
         private bool SetHour(CheatCommand command, out string message)
         {
             if (vm?.Context?.Clock == null || command.Number == null) return Fail(out message);

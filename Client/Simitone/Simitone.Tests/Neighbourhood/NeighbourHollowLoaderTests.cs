@@ -446,7 +446,7 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Same(marshal, resolved.Neighbours[0].Hollow);
             Assert.True(resolved.NeighbourFor(12).IsHollow);
             Assert.False(resolved.NeighbourFor(13).IsHollow);
-            Assert.True(resolved.Describe().Contains("1 hollow, 2 blank"));
+            Assert.Contains("1 hollow, 2 blank", resolved.Describe());
 
             // everything else is the same object or the same number
             Assert.Same(plan.ActiveLot, resolved.ActiveLot);
@@ -471,6 +471,20 @@ namespace Simitone.Tests.Neighbourhood
             // and the warnings are appended, so the plan's own reasons survive the fill-in
             Assert.Single(resolved.Warnings);
             Assert.Contains("neighbour 13", resolved.Warnings[0]);
+        }
+
+        [Fact]
+        public void BlankNeighboursAreLeftOutOfTheSetWhoseFacadesAreWithheld()
+        {
+            // "4 built, 8 blank": a neighbour past the per-load build budget is an empty plot, so
+            // it must keep its facade; only the ones that carry a house are withheld.
+            var plan = Plan(NeighbourMap(), StreetLayout());
+            var resolved = plan.WithHollows(new Dictionary<short, VMHollowMarshal> { { 12, new VMHollowMarshal() } });
+
+            var withheld = resolved.WithoutBlankNeighbours();
+            Assert.Equal(new short[] { 12 }, withheld.NeighbourNumbers);
+            Assert.Equal(plan.Neighbours.Count, resolved.Neighbours.Count);
+            Assert.Same(withheld, withheld.WithoutBlankNeighbours());
         }
 
         [Fact]

@@ -164,13 +164,10 @@ namespace Simitone.Tests.Neighbourhood
         public void AnUnknownSlotHasNoPath(int slot)
         {
             Assert.Null(NeighbourhoodRasterCache.PathFor(_root, slot));
-            Assert.Null(NeighbourhoodRasterCache.DebugFolderFor(_root, slot));
             Assert.Null(NeighbourhoodRasterCache.Load(_root, slot, Layout()));
-            Assert.False(NeighbourhoodRasterCache.Delete(_root, slot));
             //and the gate holds on the way out too: a layout for a slot that does not exist has
             //nowhere to go, whatever it holds
             Assert.False(NeighbourhoodRasterCache.Save(_root, Layout(slot: slot), BusyMap()));
-            Assert.False(NeighbourhoodRasterCache.SaveDebugPng(_root, slot, BusyMap()));
             Assert.Empty(Directory.GetFiles(_root, "*", SearchOption.AllDirectories));
         }
 
@@ -550,41 +547,12 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
-        public void DeletingTheRasterMakesTheNextReadAMiss()
-        {
-            var layout = Layout();
-            Assert.True(NeighbourhoodRasterCache.Save(_root, layout, BusyMap()));
-
-            Assert.True(NeighbourhoodRasterCache.Delete(_root, Slot));
-
-            Assert.False(File.Exists(NeighbourhoodRasterCache.PathFor(_root, Slot)));
-            Assert.Null(NeighbourhoodRasterCache.Load(_root, Slot, layout));
-            //deleting one that is already gone is still a delete
-            Assert.True(NeighbourhoodRasterCache.Delete(_root, Slot));
-        }
-
-        [Fact]
         public void NothingIsWrittenWithoutALayoutOrAMap()
         {
             Assert.False(NeighbourhoodRasterCache.Save(_root, null, BusyMap()));
             Assert.False(NeighbourhoodRasterCache.Save(_root, Layout(), null));
             Assert.False(NeighbourhoodRasterCache.Save(null, Layout(), BusyMap()));
             Assert.Empty(Directory.GetFiles(_root, "*", SearchOption.AllDirectories));
-        }
-
-        [Fact]
-        public void TheDebugDumpGoesBesideTheRasterAndNotIntoTheNeighbourhood()
-        {
-            var layout = Layout();
-            var folder = NeighbourhoodRasterCache.DebugFolderFor(_root, Slot);
-            Assert.NotNull(folder);
-
-            Assert.True(NeighbourhoodRasterCache.SaveDebugPng(_root, Slot, BusyMap()));
-
-            Assert.Equal(new[] { "elevation.png", "forestdensity.png", "foresttype.png",
-                "roadmap.png", "terraintype.png" },
-                Directory.GetFiles(folder).Select(Path.GetFileName).OrderBy(n => n).ToArray());
-            Assert.False(NeighbourhoodLayoutStore.IsInsideUserData(_root, folder));
         }
     }
 
@@ -687,7 +655,7 @@ namespace Simitone.Tests.Neighbourhood
             //would produce the very same tiles. Only a change that reaches the generator's input
             //may throw the file away.
             var reads = FourLots();
-            var before = NeighbourhoodLayoutBuilder.Pack(reads, Slot, _seed);
+            var before = NeighbourhoodLayoutBuilder.PackOnGrid(reads, Slot, _seed);
             Assert.True(NeighbourhoodRasterCache.Save(_root, before, Planted(before)));
 
             reads.Add(Read(25, 220, 20, 16, 0x5000u));
@@ -705,7 +673,7 @@ namespace Simitone.Tests.Neighbourhood
         {
             //The failure mode the whole refusal rule is for: three megabytes of garbage where a
             //map should be must cost a regeneration, never an exception and never a 2D fallback.
-            var layout = NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed);
             var path = NeighbourhoodRasterCache.PathFor(_root, Slot);
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             var bytes = NeighbourhoodRasterCache.Serialize(layout, Planted(layout));

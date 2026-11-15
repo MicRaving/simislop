@@ -118,7 +118,7 @@ namespace Simitone.Client.Neighbourhood
         /// <b>In tiles, like everything else here.</b> A lot's own altitude arrives as either
         /// <c>InterpAltitude</c>'s answer or a raw <c>ARRY(0)</c> median; the second is three
         /// sixteenths of a tile per unit and must go through
-        /// <see cref="GroundHeightForArryUnit"/>, or the cap below is being applied to the wrong
+        /// <see cref="NeighbourhoodCityMeshBuilder.WorldHeightForArryUnit"/>, or the cap below is being applied to the wrong
         /// quantity and does not bound anything.
         /// </para>
         /// </remarks>
@@ -150,32 +150,6 @@ namespace Simitone.Client.Neighbourhood
             var x = Math.Max(0, Math.Min(map.Width - 1, lot.WorldX));
             var y = Math.Max(0, Math.Min(map.Height - 1, lot.WorldY));
             return NeighbourhoodCityMeshBuilder.WorldHeightFor(map.ElevationData[map.Index(x, y)]);
-        }
-
-        /// <summary>
-        /// A lot's own <c>ARRY(0)</c> altitude - its <see cref="NeighbourhoodLot.BaseHeight"/>, read
-        /// straight out of the decoded <c>ARRY(0)</c> - as world height in tiles.
-        /// </summary>
-        /// <remarks>
-        /// The other half of the seam, and the one with the factor of ten in it. A TS1 lot's altitudes
-        /// are in <c>ARRY(0)</c> units, which are three sixteenths of a tile of height and not a tile
-        /// and not a twelfth of one; see
-        /// <see cref="NeighbourhoodCityMeshBuilder.WorldHeightForArryUnit"/>. Anything that has to
-        /// compare a lot's own ground against the generated ground goes through here, so the
-        /// comparison cannot be made in the wrong units by accident.
-        ///
-        /// <para>
-        /// Only for a raw <c>ARRY(0)</c> altitude. A live blueprint's
-        /// <c>Blueprint.InterpAltitude</c> has already been through
-        /// <c>Blueprint.TerrainFactor</c> and is in tiles, which is why it is what
-        /// <see cref="GroundOffsetFor"/> takes directly; running it through this one as well would
-        /// squash the plot's relief by a factor of thirty-two.
-        /// </para>
-        /// </remarks>
-        /// <param name="arryUnits">A raw <c>ARRY(0)</c> altitude.</param>
-        public static float GroundHeightForArryUnit(float arryUnits)
-        {
-            return NeighbourhoodCityMeshBuilder.WorldHeightForArryUnit(arryUnits);
         }
 
         /// <summary>
@@ -227,7 +201,7 @@ namespace Simitone.Client.Neighbourhood
         /// <c>Blueprint.InterpAltitude</c>, which FSO returns in tiles already (altitude units times
         /// <see cref="NeighbourhoodCityMeshBuilder.LotTerrainFactor"/>); a caller holding a raw
         /// <c>ARRY(0)</c> altitude instead must convert it first, with
-        /// <see cref="GroundHeightForArryUnit"/>. The cap is four tiles, which is
+        /// <see cref="NeighbourhoodCityMeshBuilder.WorldHeightForArryUnit"/>. The cap is four tiles, which is
         /// <c>4 / (3/16) = 64/3</c> <c>ARRY(0)</c> units - far past any real lot's relief.
         /// </para>
         /// </remarks>
@@ -430,10 +404,6 @@ namespace Simitone.Client.Neighbourhood
 
             /// <summary>Whether the build cost more than the per-frame stall ceiling.</summary>
             public bool OverCeiling { get; }
-
-            /// <summary>No measurement, no delay and nothing over the line.</summary>
-            public static readonly NeighbourhoodFacadePace Immediate =
-                new NeighbourhoodFacadePace(0, false);
 
             public NeighbourhoodFacadePace(int frames, bool overCeiling)
             {
@@ -755,9 +725,32 @@ namespace Simitone.Client.Neighbourhood
             int? activeLot, Vector2 focus, out int outstanding, out int eligible,
                 IReadOnlyCollection<short> subWorldLots = null)
         {
-            outstanding = ToBuild(layout, cachedHashes, activeLot, focus, int.MaxValue, 0f,
-                subWorldLots).Count;
+            outstanding = CountToBuild(layout, cachedHashes, activeLot, subWorldLots);
             eligible = Eligible(layout, activeLot, subWorldLots);
+        }
+
+        /// <summary>
+        /// How many lots <see cref="ToBuild"/> would return with no budget and no radius: the lots
+        /// that should draw and have no current facade. The same two predicates, without the
+        /// distance table, the list and the sort, because the owners ask this every frame and only
+        /// want the number.
+        /// </summary>
+        /// <param name="layout">The packed layout, or <c>null</c>.</param>
+        /// <param name="cachedHashes">The hash each cached facade was built from.</param>
+        /// <param name="activeLot">The lot the player is standing in, or <c>null</c>.</param>
+        /// <param name="subWorldLots">The lots stood up as real sub-worlds, or <c>null</c>.</param>
+        public static int CountToBuild(
+            NeighbourhoodLayout layout, IReadOnlyDictionary<short, uint> cachedHashes,
+            int? activeLot, IReadOnlyCollection<short> subWorldLots = null)
+        {
+            if (layout == null) return 0;
+            var count = 0;
+            for (int i = 0; i < layout.Lots.Count; i++)
+            {
+                var lot = layout.Lots[i];
+                if (ShouldDraw(lot, activeLot, subWorldLots) && NeedsBuild(lot, cachedHashes)) count++;
+            }
+            return count;
         }
 
         /// <summary>
@@ -1063,27 +1056,6 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// Whether the plan's radius and the region's radius are the same number, which is
-        /// what makes the whole region eligible to be real rather than a real centre with a
-        /// ring of facades round it.
-        /// </summary>
-        /// <remarks>
-        /// The stronger half of <see cref="SimitoneSurroundingsPlan.RadiusFitsCut"/>, asked of a plan
-        /// and a region together for the same reason that one is: the two radii are the two numbers
-        /// the surround and the lot screen each had a copy of, and the copy in the screen was the
-        /// narrower one. A test that only asserted <c>RadiusFitsCut</c> would still pass on a
-        /// screen asking for eight tiles against a forty-tile region, which is the arrangement this
-        /// exists to end.
-        /// </remarks>
-        /// <param name="plan">The plan, or <c>null</c>.</param>
-        /// <param name="cull">The region, or <c>null</c> for "no cut".</param>
-        public static bool RadiiAreShared(SimitoneSurroundingsPlan plan, SimitoneSurroundingsCull? cull)
-        {
-            if (plan == null || !plan.IsValid || !cull.HasValue) return false;
-            return plan.RadiusSharedWith(cull);
-        }
-
-        /// <summary>
         /// How many lots inside the region are facades rather than real sub-worlds, over the
         /// whole of a layout. Zero means the region is fully real.
         /// </summary>
@@ -1127,43 +1099,6 @@ namespace Simitone.Client.Neighbourhood
             return count;
         }
 
-        /// <summary>
-        /// Whether every lot inside the region is a real sub-world, asked over a whole layout:
-        /// no lot in view is a facade for any reason.
-        /// </summary>
-        /// <remarks>
-        /// The same question <see cref="FacadeFallbackCount"/> answers, as a flag, because the two
-        /// are wanted in different places: the surround logs the count and a caller deciding whether
-        /// the street is fully real wants the boolean. It is deliberately wider than
-        /// <see cref="SimitoneSurroundingsPlan.IsFullyCovered"/>, which is about the budget alone -
-        /// this is about the whole decision, so a lot the radius never reached counts against it here
-        /// and not there.
-        /// </remarks>
-        /// <param name="layout">The packed layout, or <c>null</c> for none.</param>
-        /// <param name="activeLot">The lot the player is standing in, or <c>null</c>.</param>
-        /// <param name="plan">The neighbour plan, or <c>null</c> for none.</param>
-        /// <param name="cull">The region, or <c>null</c> for "no cut".</param>
-        public static bool RegionIsFullyReal(
-            NeighbourhoodLayout layout, int? activeLot,
-            SimitoneSurroundingsPlan plan, SimitoneSurroundingsCull? cull)
-        {
-            return FacadeFallbackCount(layout, activeLot, plan, cull) == 0;
-        }
-
-        /// <summary>
-        /// One line naming a decision, for a log: what a lot is drawn as and, where it is not the
-        /// obvious answer, why.
-        /// </summary>
-        /// <param name="render">The decision.</param>
-        public static string Describe(NeighbourhoodLotRender render)
-        {
-            switch (render)
-            {
-                case NeighbourhoodLotRender.Facade: return "facade";
-                case NeighbourhoodLotRender.SubWorld: return "sub-world";
-                default: return "not drawn";
-            }
-        }
     }
 
     /// <summary>

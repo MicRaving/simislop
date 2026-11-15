@@ -176,8 +176,30 @@ namespace Simitone.Client.UI.Panels.LotControls
             Add(CancelButton);
         }
 
+        /// <summary>
+        /// Gives back what the carousel took: the render target and the 18 hidden avatars it
+        /// put on the lot. Nothing else ever did, so each opening of this dialog left a
+        /// multisampled target on the GPU and 18 stray objects in the VM.
+        /// </summary>
+        public override void Removed()
+        {
+            base.Removed();
+            if (Scene == null) return; // already torn down (Removed can arrive more than once)
+            try
+            {
+                CleanupLastWorld();
+            }
+            catch (Exception e)
+            {
+                SimitoneLog.Warn("outfit carousel: could not remove its avatars", e);
+            }
+            Scene.Dispose();
+            Scene = null;
+        }
+
         public override void PreDraw(UISpriteBatch batch)
         {
+            if (Scene == null) return;
             base.PreDraw(batch);
             Camera.Position = new Vector3(10f, 4f, 0);
             Camera.Target = new Vector3(4f, Pet?0f:0.8f, 0);
@@ -188,6 +210,7 @@ namespace Simitone.Client.UI.Panels.LotControls
 
         public override void Draw(UISpriteBatch batch)
         {
+            if (Scene == null) return;
             base.Draw(batch);
             DrawLocalTexture(batch, Scene.Target, new Vector2(0, 0));
         }
@@ -195,6 +218,7 @@ namespace Simitone.Client.UI.Panels.LotControls
         public override void Update(UpdateState state)
         {
             base.Update(state);
+            if (Scene == null) return;
             UpdateCarousel(state);
 
 
@@ -226,7 +250,10 @@ namespace Simitone.Client.UI.Panels.LotControls
 
             var tex = (TS1AvatarTextureProvider)Content.Get().AvatarTextures;
             var texnames = tex.GetAllNames();
-            ActiveBodies = bodies;
+            // A copy: the loop below removes the bodies this skin has no texture for, and the list
+            // the collection hands out is the shared one - removing from it would shrink the
+            // choice for every later dialog.
+            ActiveBodies = bodies.ToList();
             
             ActiveBodyTex = bodies.Select(x => RemoveExt(texnames.FirstOrDefault(y => y.StartsWith(ExtractID(x, CurrentSkin))))).ToList();
             ActiveHandgroupTex = bodies.Select(x => (RemoveExt(texnames.FirstOrDefault(y => y == "huao" + FindHG(x))) ?? "huao" + CurrentSkin).Substring(4)).ToList();
@@ -322,7 +349,6 @@ namespace Simitone.Client.UI.Panels.LotControls
             HeadPosition += HeadSpeed;
             BodyPosition += BodySpeed;
 
-            var room = 0;// vm.Context.GetRoomAt(LotTilePos.FromBigTile(28, 21, 1));
             foreach (var body in BodyAvatars) body.SetRoom(65534);
 
             var curbody = (int)BodyPosition;

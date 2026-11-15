@@ -484,8 +484,69 @@ namespace Simitone.Tests.Content
             Assert.ThrowsAny<Exception>(() =>
                 TS1NeighborhoodProvider.CopyFolder(source, destination));
 
-            Assert.False(Directory.Exists(destination),
-                "a failed seed must not leave a folder that the next launch would take for a neighbourhood");
+            //the destination held something before the copy: it must never be deleted
+            Assert.True(Directory.Exists(destination));
+            Assert.Equal("in the way", File.ReadAllText(Path.Combine(destination, "Houses")));
+            Assert.False(File.Exists(Path.Combine(destination, "Neighborhood.iff")));
+        }
+
+        /// <summary>
+        /// A failure part way through removes only what this call created: the player's existing
+        /// file survives, the file the copy had already written is gone, and a destination that
+        /// did not exist before the call is removed again.
+        /// </summary>
+        [Fact]
+        public void AFailedCopyRemovesOnlyWhatItCreated()
+        {
+            var source = Path.Combine(_root, "template-lock");
+            Directory.CreateDirectory(source);
+            File.WriteAllText(Path.Combine(source, "a.iff"), "a");
+            var locked = Path.Combine(source, "z.iff");
+            File.WriteAllText(locked, "z");
+
+            var destination = Path.Combine(_root, "seeded-lock");
+            Directory.CreateDirectory(destination);
+            File.WriteAllText(Path.Combine(destination, "keep.iff"), "mine");
+
+            var fresh = Path.Combine(_root, "seeded-fresh");
+
+            using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                Assert.ThrowsAny<Exception>(() => TS1NeighborhoodProvider.CopyFolder(source, destination));
+                Assert.ThrowsAny<Exception>(() => TS1NeighborhoodProvider.CopyFolder(source, fresh));
+            }
+
+            Assert.Equal("mine", File.ReadAllText(Path.Combine(destination, "keep.iff")));
+            Assert.False(File.Exists(Path.Combine(destination, "a.iff")),
+                "a file this copy created must be rolled back");
+            Assert.False(Directory.Exists(fresh), "a destination this copy created must be removed again");
+        }
+
+        /// <summary>
+        /// The data-loss case: a player's folder with saved houses but no Neighborhood.iff. Seeding
+        /// adds what is missing and leaves every existing file byte-for-byte as it was.
+        /// </summary>
+        [Fact]
+        public void SeedingNeverOverwritesAnExistingHouse()
+        {
+            var source = Path.Combine(_root, "template-keep");
+            Directory.CreateDirectory(Path.Combine(source, "Houses"));
+            File.WriteAllText(Path.Combine(source, "Neighborhood.iff"), "template neighbourhood");
+            File.WriteAllText(Path.Combine(source, "Houses", "House01.iff"), "template house");
+            File.WriteAllText(Path.Combine(source, "Houses", "House02.iff"), "template house 2");
+
+            var destination = Path.Combine(_root, "seeded-keep");
+            Directory.CreateDirectory(Path.Combine(destination, "Houses"));
+            var mine = new byte[] { 1, 2, 3, 0, 255, 42 };
+            var housePath = Path.Combine(destination, "Houses", "House01.iff");
+            File.WriteAllBytes(housePath, mine);
+
+            Assert.True(TS1NeighborhoodProvider.NeedsBootstrap(destination));
+            TS1NeighborhoodProvider.CopyFolder(source, destination);
+
+            Assert.Equal(mine, File.ReadAllBytes(housePath));
+            Assert.Equal("template neighbourhood", File.ReadAllText(Path.Combine(destination, "Neighborhood.iff")));
+            Assert.Equal("template house 2", File.ReadAllText(Path.Combine(destination, "Houses", "House02.iff")));
         }
 
         /// <summary>
@@ -539,9 +600,9 @@ namespace Simitone.Tests.Content
         }
 
         /// <summary>
-        /// A destination that already holds a previous attempt is completed rather than skipped,
-        /// which is what makes the seeding idempotent: the guard is "is this openable", not "is
-        /// this empty".
+        /// A destination that already holds a previous attempt is completed rather than skipped
+        /// (missing files are added, existing ones kept): the guard is "is this openable", not
+        /// "is this empty".
         /// </summary>
         [Fact]
         public void SeedingOverAnIncompleteDestinationCompletesIt()

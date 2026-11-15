@@ -507,7 +507,8 @@ namespace Simitone.Client.UI.Panels.EODs
         /// A caption with no letters or digits in it at all - the scoreboard's "+" and "-", the
         /// door's ">" - has nothing to slug from, and two such captions must not collapse onto
         /// the same id or one button would show the other's word. Those get a short hash of the
-        /// caption instead, which is stable because <see cref="string.GetHashCode()"/> is not.
+        /// caption instead, computed with a fixed algorithm because <see cref="string.GetHashCode()"/>
+        /// is randomised per process and would make the committed files differ between machines.
         /// </remarks>
         public static string Slug(string caption)
         {

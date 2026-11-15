@@ -564,9 +564,8 @@ namespace Simitone.Client.Neighbourhood
         public int LotTiles { get; }
 
         /// <summary>
-        /// The width the streets were asked for - <see cref="RoadGraph.MainStreetWidth"/>, or one
-        /// tile when they came from a supplied connector mask - rather than the width of any one of
-        /// them, which is <see cref="RoadEdge.Width"/> and can be narrower where the gap was.
+        /// The width the streets were asked for - <see cref="RoadGraph.MainStreetWidth"/> - rather
+        /// than the width of any one of them, which is <see cref="RoadEdge.Width"/> and can be narrower where the gap was.
         /// See <see cref="RoadGraph.StreetWidth"/>.
         /// </summary>
         public int StreetWidth { get; }
@@ -745,14 +744,6 @@ namespace Simitone.Client.Neighbourhood
     /// street grid" is satisfied by the layout's own lattice rather than by a grid unrelated to it.
     /// </para>
     ///
-    /// <para>
-    /// <b>And since Part 8 that is the fallback rather than the rule.</b> A neighbourhood's streets
-    /// are pixels on its 2D map, so when a connector mask is supplied this whole stage is skipped
-    /// and the mask is rasterised instead - see
-    /// <see cref="BuildNetwork(NeighbourhoodMapInput, bool[])"/>. Everything below still applies to
-    /// it: driveways, the lot-interior refusal, the nibble encoding, and the connectivity invariant.
-    /// </para>
-    ///
     /// <para><b>The order the stages run in.</b></para>
     /// <list type="number">
     ///   <item><description>
@@ -910,19 +901,6 @@ namespace Simitone.Client.Neighbourhood
         /// </summary>
         public const int MaxDrivewayCandidates = 6;
 
-        /// <summary>
-        /// How far, in tiles, a driveway will look for the supplied road when the streets came from
-        /// the 2D map's pixels rather than from a gap measurement.
-        /// </summary>
-        /// <remarks>
-        /// A bound rather than an unbounded scan, for the same reason
-        /// <see cref="MaxAnchorSearch"/> is one: a lot whose neighbours are all walls has no road
-        /// within any reasonable distance, and finding that out must cost a fixed number of tile
-        /// tests rather than a whole map. Sixty-four is well past TSO's own <c>Size - 2</c> lot
-        /// pitch, so any lot the map drew a road beside reaches that road.
-        /// </remarks>
-        public const int MaxDrivewayReach = 64;
-
         private readonly int _size;
         private readonly List<RoadNode> _nodes = new List<RoadNode>();
         private readonly List<RoadEdge> _edges = new List<RoadEdge>();
@@ -934,15 +912,6 @@ namespace Simitone.Client.Neighbourhood
         private readonly bool[] _sidewalk;
         private readonly bool[] _streetTiles;
         private readonly bool[] _drivewayTiles;
-
-        /// <summary>
-        /// The supplied connector mask, already clipped of lot interiors. Empty - every tile false -
-        /// when the streets were measured rather than supplied.
-        /// </summary>
-        private readonly bool[] _suppliedRoad;
-
-        /// <summary>Whether any supplied mask was accepted, and the streets came from it.</summary>
-        private bool _suppliedAny;
 
         private int _streetWidth = MainStreetWidth;
 
@@ -1016,8 +985,7 @@ namespace Simitone.Client.Neighbourhood
 
         /// <summary>
         /// The width the streets were asked for: <see cref="MainStreetWidth"/>, one tile when the
-        /// packing left no free ground at all, and one tile when the streets came from a supplied
-        /// connector mask.
+        /// packing left no free ground at all.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -1029,14 +997,6 @@ namespace Simitone.Client.Neighbourhood
         /// <see cref="StreetRuns"/>' widths are the ground truth, and
         /// <see cref="RoadNetworkStats"/>'s <see cref="RoadNetworkStats.StreetWidth"/> is this same
         /// nominal.
-        /// </para>
-        /// <para>
-        /// <b>One, for a supplied mask, and that is a fact rather than a degradation.</b> An
-        /// inferred street is a tile the 2D map painted as road: the mask says yes or no per tile and
-        /// there is no nominal width to ask for, so a mask tile is a one-tile road. A multi-tile
-        /// street on the 2D map arrives as several adjacent mask tiles, which is why the nominal
-        /// says one and <see cref="RoadNetworkStats.RoadTiles"/> says hundreds.
-        /// <see cref="UsesSuppliedRoadMask"/> is how a reader tells the two cases apart.
         /// </para>
         /// </remarks>
         public int StreetWidth
@@ -1073,138 +1033,6 @@ namespace Simitone.Client.Neighbourhood
             _sidewalk = new bool[size * size];
             _streetTiles = new bool[size * size];
             _drivewayTiles = new bool[size * size];
-            _suppliedRoad = new bool[size * size];
-        }
-
-        /// <summary>
-        /// Take the streets from a supplied connector mask instead of measuring them, and record
-        /// one <see cref="RoadEdgeKind.Street"/> run per maximal straight stretch of it.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// The mask is clipped through <see cref="Mark"/> on the way in, which is the invariant that
-        /// outranks connectivity: a road never crosses a lot's interior, and an inferred road that
-        /// ran under a block is cut there rather than tunnelled through it.
-        /// </para>
-        /// <para>
-        /// <b>Runs, not just tiles.</b> The graph is kept as a list of axis-aligned runs as well as
-        /// a raster, because §15 wants the graph persisted and a future pathfinder will route on it.
-        /// A mask has no runs of its own, so they are recovered: maximal horizontal runs, then
-        /// maximal vertical runs over whatever the horizontal pass did not already cover, in raster
-        /// order. A tile at a turn belongs to the horizontal run and takes its vertical connection
-        /// from <see cref="WriteMasks"/>'s adjacency pass, which is what decides the nibble anyway.
-        /// </para>
-        /// <para>
-        /// <b>Why not <see cref="BuildJunctions"/>.</b> The pairwise crossing test is quadratic in
-        /// the run count, and a 512x512 map's mask yields thousands of runs where the measured
-        /// skeleton yielded dozens - the test would dominate the generation for an answer the
-        /// adjacency pass already gives. The junctions a persisted graph needs are added from the
-        /// same scan instead: one node per tile whose mask is a turn or a T.
-        /// </para>
-        /// </remarks>
-        private void UseSuppliedRoads(bool[] mask)
-        {
-            Array.Clear(_suppliedRoad, 0, _suppliedRoad.Length);
-
-            // The clip goes through Mark rather than through a test of its own, so "a road never
-            // crosses a lot interior" is enforced in exactly one place whether the road came from a
-            // gap measurement or from a bitmap. A tile the mark refuses is not recorded as supplied
-            // road either, so the run recovery below never claims a run that rasterising it would
-            // silently drop half of.
-            for (int y = 0; y < _size; y++)
-            {
-                var row = y * _size;
-                for (int x = 0; x < _size; x++)
-                {
-                    if (!mask[row + x]) continue;
-                    var index = row + x;
-                    if (LotMask.Interior[index]) continue;
-                    _road[index] = true;
-                    _streetTiles[index] = true;
-                    _suppliedRoad[index] = true;
-                }
-            }
-
-            _streets.Clear();
-            RecoverHorizontalRuns();
-            RecoverVerticalRuns();
-            BuildSuppliedJunctions();
-            _suppliedAny = true;
-
-            // The nominal width is a question this graph can no longer answer: the streets are as
-            // wide as the 2D map painted them. One, which is what a mask tile is - a boolean per
-            // tile - and reported as such rather than as the six the measured skeleton asked for.
-            _streetWidth = 1;
-        }
-
-        /// <summary>
-        /// One <see cref="RoadEdgeKind.Street"/> run per maximal horizontal stretch of the supplied
-        /// road, in raster order.
-        /// </summary>
-        private void RecoverHorizontalRuns()
-        {
-            for (int y = 0; y < _size; y++)
-            {
-                var row = y * _size;
-                var x = 0;
-                while (x < _size)
-                {
-                    if (!_suppliedRoad[row + x]) { x++; continue; }
-                    var start = x;
-                    while (x < _size && _suppliedRoad[row + x]) x++;
-                    AddStreet(new RoadEdge(start, y, x - 1, y, 1, RoadEdgeKind.Street));
-                }
-            }
-        }
-
-        /// <summary>
-        /// The same for the vertical direction, skipping tiles a horizontal run already owns so a
-        /// straight road is one edge rather than two.
-        /// </summary>
-        private void RecoverVerticalRuns()
-        {
-            var claimed = new bool[_size * _size];
-            for (int i = 0; i < _streets.Count; i++)
-            {
-                var e = _streets[i];
-                if (e.IsVertical) continue;
-                for (var x = e.AX; x <= e.BX; x++)
-                {
-                    if (x < 0 || x >= _size || e.AY < 0 || e.AY >= _size) continue;
-                    claimed[e.AY * _size + x] = true;
-                }
-            }
-
-            for (int x = 0; x < _size; x++)
-            {
-                var y = 0;
-                while (y < _size)
-                {
-                    if (!_suppliedRoad[y * _size + x] || claimed[y * _size + x]) { y++; continue; }
-                    var start = y;
-                    while (y < _size && _suppliedRoad[y * _size + x] && !claimed[y * _size + x]) y++;
-                    AddStreet(new RoadEdge(x, start, x, y - 1, 1, RoadEdgeKind.Street));
-                }
-            }
-        }
-
-        /// <summary>
-        /// One node per tile whose supplied road turns or tees, so a persisted graph has a vertex
-        /// wherever the geometry has a junction.
-        /// </summary>
-        private void BuildSuppliedJunctions()
-        {
-            var seen = new Dictionary<long, int>();
-            for (int y = 0; y < _size; y++)
-            {
-                for (int x = 0; x < _size; x++)
-                {
-                    if (!_suppliedRoad[y * _size + x]) continue;
-                    var mask = AdjacencyAt(x, y);
-                    if (!RoadMask.IsTurnOrJunction(mask)) continue;
-                    AddNode(seen, x, y);
-                }
-            }
         }
 
         /// <summary>The 4-bit adjacency of a road tile, by the nibble rule's own definition.</summary>
@@ -1223,19 +1051,11 @@ namespace Simitone.Client.Neighbourhood
         /// reachability check. This is what <c>NeighbourhoodMapGenerator</c> calls; the stages are
         /// also public separately so a test can look at the network <em>before</em> repair.
         /// </summary>
-        /// <param name="input">
-        /// The generation input. <see cref="NeighbourhoodMapInput.RoadMask"/> is consulted when
-        /// <paramref name="roadMask"/> is not given.
-        /// </param>
+        /// <param name="input">The generation input.</param>
         /// <param name="map">The map to fill. Must be <see cref="NeighbourhoodMapInput.MapSize"/> square.</param>
-        /// <param name="roadMask">
-        /// The connector mask read off the 2D map, <c>MapSize * MapSize</c> and row-major, or
-        /// <c>null</c> to measure the streets from the gaps between lots as this file always has.
-        /// See <see cref="BuildNetwork(NeighbourhoodMapInput, bool[])"/> for what changes.
-        /// </param>
-        public static RoadGraph Build(NeighbourhoodMapInput input, NeighbourhoodMap map, bool[] roadMask = null)
+        public static RoadGraph Build(NeighbourhoodMapInput input, NeighbourhoodMap map)
         {
-            var graph = BuildNetwork(input, roadMask);
+            var graph = BuildNetwork(input);
             graph.Rasterise(map);
             graph.RepairConnectivity(map);
             graph.RefreshReachability(map);
@@ -1243,63 +1063,12 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// Builds the network but does not touch a map. Everything downstream of this is a function
-        /// of the network plus the lot mask.
+        /// Builds the network - streets measured from the gaps between lots, then driveways - but
+        /// does not touch a map. Everything downstream of this is a function of the network plus
+        /// the lot mask.
         /// </summary>
-        /// <param name="input">The generation input; its own <see cref="NeighbourhoodMapInput.RoadMask"/> is used.</param>
-        public static RoadGraph BuildNetwork(NeighbourhoodMapInput input)
-        {
-            return BuildNetwork(input, null);
-        }
-
-        /// <summary>
-        /// Builds the network, from an inferred connector mask or from the gaps between lots.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// <b>With a mask, the streets are the map's streets.</b>
-        /// <see cref="BuildStreets"/>, <see cref="MeasureBands"/>, <see cref="Band"/> and
-        /// <see cref="BuildJunctions"/> are all skipped - there is nothing left for them to measure,
-        /// because the answer is already in hand as pixels - and the mask is rasterised instead,
-        /// through the same <see cref="Mark"/> that clips an edge out of a lot interior, so "a road
-        /// never crosses a lot" holds for an inferred road exactly as it holds for a measured one.
-        /// Driveways are still built and still route onto it, which is what makes the space between
-        /// two non-adjacent lots a driveway instead of nothing.
-        /// </para>
-        /// <para>
-        /// <b>Encoding is unchanged, and that is the point.</b> The mask is a boolean per tile and
-        /// this file turns it into a boolean per tile and then into <see cref="WriteMasks"/>'s
-        /// nibbles by exactly the rule it always used: the low nibble is the 4-bit adjacency mask,
-        /// the high nibble is the same mask again on a turn or a T-junction. So
-        /// <c>NeighbourhoodCityMeshBuilder.AddRoadQuadsForTile</c> and
-        /// <c>SimitoneNeighbourTerrain.RoadByteFor</c> need no change and no knowledge that the
-        /// streets came from a bitmap.
-        /// </para>
-        /// <para>
-        /// <b>Repair and verification still run, for a supplied mask.</b> Both were unconditional
-        /// before and both stay unconditional, because §8.1's requirement is <em>one connected
-        /// map</em> whichever way the streets were found, and an inferred mask is more likely to be
-        /// in pieces than a measured one - a road that runs behind a block is clipped by the lot
-        /// interiors and comes back as two stubs. So the mask is a starting network rather than a
-        /// finished one: the repair adds the cheapest axis-aligned paths over free ground to
-        /// rejoin the pieces, exactly as it does for the synthetic case, and
-        /// <see cref="VerifyConnected"/> still throws when it cannot, and <see cref="Check"/> still
-        /// reports it to whatever asked. The alternative - trusting an
-        /// inferred mask to arrive connected - would make the connectivity invariant conditional on
-        /// a heuristic, which is the one thing §6.1's invariant must not be. That the check runs at
-        /// all for an inferred network is the whole claim; whether a failed check is allowed to stop
-        /// the map being drawn is a separate question, answered by
-        /// <see cref="RoadNetworkCheck.Drawable"/> rather than by whether the check happened.
-        /// </para>
-        /// <para>
-        /// A mask of the wrong length, or one that is entirely false, is refused and the synthetic
-        /// path runs instead: an all-false mask is a bitmap whose classification found nothing, and
-        /// measuring the gaps is a worse neighbourhood but a connected one.
-        /// </para>
-        /// </remarks>
         /// <param name="input">The generation input.</param>
-        /// <param name="roadMask">The connector mask, or <c>null</c> to measure one.</param>
-        public static RoadGraph BuildNetwork(NeighbourhoodMapInput input, bool[] roadMask)
+        public static RoadGraph BuildNetwork(NeighbourhoodMapInput input)
         {
             if (input == null) throw new ArgumentNullException(nameof(input));
 
@@ -1308,42 +1077,12 @@ namespace Simitone.Client.Neighbourhood
             var offMap = new List<short>();
             var graph = new RoadGraph(size, mask, offMap);
 
-            var supplied = AcceptMask(roadMask ?? input.RoadMask, size);
-            if (supplied != null)
-            {
-                graph.UseSuppliedRoads(supplied);
-            }
-            else
-            {
-                // Streets first: a driveway has to know what it is aiming at, and every lot
-                // contributes its gaps whether or not it still has a house.
-                graph.BuildStreets(input.UsableLots);
-                graph.BuildJunctions();
-            }
-
+            // Streets first: a driveway has to know what it is aiming at, and every lot
+            // contributes its gaps whether or not it still has a house.
+            graph.BuildStreets(input.UsableLots);
+            graph.BuildJunctions();
             graph.BuildDriveways(input.UsableLots);
             return graph;
-        }
-
-        /// <summary>
-        /// A mask this graph can rasterise, or <c>null</c>.
-        /// </summary>
-        /// <remarks>
-        /// Wrong length, or nothing set in it, is <c>null</c>. An all-false mask is the shape a
-        /// failed classification takes, and honouring it would produce a neighbourhood with no
-        /// streets at all - a worse answer than measuring the gaps, and one that would look like a
-        /// successful inference rather than a failure.
-        /// </remarks>
-        private static bool[] AcceptMask(bool[] mask, int size)
-        {
-            if (mask == null) return null;
-            if ((long)mask.LongLength != (long)size * size) return null;
-            var any = false;
-            for (int i = 0; i < mask.Length; i++)
-            {
-                if (mask[i]) { any = true; break; }
-            }
-            return any ? mask : null;
         }
 
         // ---------------------------------------------------------------- streets
@@ -2009,16 +1748,6 @@ namespace Simitone.Client.Neighbourhood
             tx = ax;
             ty = ay;
 
-            if (_suppliedAny)
-            {
-                // A supplied mask has thousands of runs rather than dozens, so "scan the first few
-                // and take the nearest" would aim a driveway at whichever corner of the map the
-                // raster order happened to reach first. Searched outwards from the door instead,
-                // ring by ring, so the answer is genuinely the nearest road and does not depend on
-                // how the runs were recovered.
-                return TryRouteToSuppliedRoad(ax, ay, out tx, out ty);
-            }
-
             if (_streets.Count == 0) return false;
 
             var candidates = new List<int[]>();
@@ -2046,47 +1775,6 @@ namespace Simitone.Client.Neighbourhood
             tx = chosen[0];
             ty = chosen[1];
             return true;
-        }
-
-        /// <summary>
-        /// The nearest supplied road tile a driveway can reach from its door: ring by ring outwards
-        /// in Manhattan distance, skipping any tile whose L-shaped route back crosses a lot, and
-        /// bounded by <see cref="MaxDrivewayReach"/>.
-        /// </summary>
-        /// <remarks>
-        /// The ring order is a fixed enumeration - north, east, south, west at each distance - so
-        /// two tiles equally near the door always resolve to the same one and the map does not
-        /// depend on the order the scan happened to try them in. The bound exists because a lot
-        /// walled in on all four sides would otherwise scan the whole map; it is generous enough
-        /// that a lot whose map position has road on it reaches its road, and a lot that does not
-        /// is reported rather than given a driveway across the neighbourhood.
-        /// </remarks>
-        private bool TryRouteToSuppliedRoad(int ax, int ay, out int tx, out int ty)
-        {
-            tx = ax;
-            ty = ay;
-
-            for (int ring = 0; ring <= MaxDrivewayReach; ring++)
-            {
-                for (int step = 0; step < 4; step++)
-                {
-                    int dx, dy;
-                    RoadMask.GetStep((byte)(step + 1), out dx, out dy);
-                    for (int t = 0; t < ring; t++)
-                    {
-                        var x = ax + dx * ring + (step == 0 ? t : 0) - (step == 2 ? t : 0);
-                        var y = ay + dy * ring + (step == 1 ? t : 0) - (step == 3 ? t : 0);
-                        if (x < 0 || y < 0 || x >= _size || y >= _size) continue;
-                        if (!_road[y * _size + x]) continue;
-                        if (!RouteIsClear(ax, ay, x, y)) continue;
-                        tx = x;
-                        ty = y;
-                        return true;
-                    }
-                }
-            }
-
-            return false;
         }
 
         private static int CompareCandidates(int[] a, int[] b)
@@ -2190,20 +1878,6 @@ namespace Simitone.Client.Neighbourhood
             Array.Clear(_streetTiles, 0, _streetTiles.Length);
             Array.Clear(_drivewayTiles, 0, _drivewayTiles.Length);
 
-            // A supplied mask is re-applied from its own clipped copy rather than from its runs, so
-            // the raster is byte-identical whether the street came from a bitmap or from a gap
-            // measurement. Idempotence holds because Rasterise clears first and this is a straight
-            // copy of a fixed array.
-            if (_suppliedAny)
-            {
-                for (int i = 0; i < _suppliedRoad.Length; i++)
-                {
-                    if (!_suppliedRoad[i]) continue;
-                    _road[i] = true;
-                    _streetTiles[i] = true;
-                }
-            }
-
             for (int i = 0; i < _edges.Count; i++)
             {
                 var e = _edges[i];
@@ -2250,7 +1924,7 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// The nibble contract, applied unchanged to whatever is road - measured or supplied.
+        /// The nibble contract, applied to whatever is road.
         /// </summary>
         /// <remarks>
         /// <b>This is the one place <see cref="NeighbourhoodMap.RoadData"/> is written, and the
@@ -2260,10 +1934,7 @@ namespace Simitone.Client.Neighbourhood
         /// the same mask again on a turn or a T-junction, which that builder reads as
         /// <c>roadByte &gt;&gt; 4</c> and indexes <c>RoadCLayout</c> with; a straight, a dead end
         /// and a four-way cross get 0 there. <c>SimitoneNeighbourTerrain.RoadByteFor</c> reads the
-        /// same bytes from outside a lot rectangle and does not know or care which of the two
-        /// sources produced them. Stated here because the supplied-mask path makes it load-bearing
-        /// for a second producer, and a second producer is exactly when a contract stops being
-        /// obvious and starts being a comment.
+        /// same bytes from outside a lot rectangle.
         /// </remarks>
         private void WriteMasks(NeighbourhoodMap map)
         {
@@ -2320,21 +1991,6 @@ namespace Simitone.Client.Neighbourhood
         {
             if (x < 0 || y < 0 || x >= _size || y >= _size) return false;
             return _streetTiles[y * _size + x];
-        }
-
-        /// <summary>
-        /// Whether the streets were taken from a supplied connector mask rather than measured from
-        /// the gaps between lots.
-        /// </summary>
-        /// <remarks>
-        /// Asked of a generator's report, a debug dump or a test rather than inferred: the number it
-        /// changes is <see cref="StreetWidth"/>, which is one tile for an inferred street and
-        /// <see cref="MainStreetWidth"/> for a measured one, and a reader comparing the two
-        /// neighbourhoods has to know which they are looking at.
-        /// </remarks>
-        public bool UsesSuppliedRoadMask
-        {
-            get { return _suppliedAny; }
         }
 
         /// <summary>Whether a tile is on the sidewalk ring.</summary>

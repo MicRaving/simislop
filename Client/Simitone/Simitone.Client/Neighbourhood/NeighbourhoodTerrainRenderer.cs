@@ -19,10 +19,8 @@ namespace Simitone.Client.Neighbourhood
     /// <b>The mesh and the draw are Simitone's own.</b> The renderer builds a
     /// <see cref="NeighbourhoodCityMesh"/> from the generated map through
     /// <see cref="NeighbourhoodCityMeshBuilder"/> (via <see cref="NeighbourhoodMeshGeometry"/>) and
-    /// draws it with <see cref="NeighbourhoodContent"/>. The connected-mechanics rework had briefly
-    /// replaced this with the lifted <c>FSO.LotView.City.CityGeometry</c>; the revert restores the
-    /// bespoke path, so the two modes never share a mesh and the neighbourhood owns everything it
-    /// draws.
+    /// draws it with <see cref="NeighbourhoodContent"/>, so the two modes never share a mesh and the
+    /// neighbourhood owns everything it draws.
     /// </para>
     ///
     /// <para>
@@ -55,7 +53,7 @@ namespace Simitone.Client.Neighbourhood
         private NeighbourhoodMeshGeometry _subdiv = new NeighbourhoodMeshGeometry();
 
         /// <summary>
-        /// The base geometry's per-chunk index starts, converted from the lifted
+        /// The base geometry's per-chunk index starts, converted from its
         /// <c>LayerSubPrims</c> into the sentinel-included shape
         /// <see cref="NeighbourhoodCityMeshBuilder.VisibleDrawRanges"/> reads. Built once per mesh.
         /// </summary>
@@ -126,13 +124,13 @@ namespace Simitone.Client.Neighbourhood
         /// <summary>Whether a mesh build is in flight.</summary>
         public bool IsBuilding
         {
-            get { return _buildRequested && !MeshReady; }
+            get { return _buildRequested && !MeshReady && BuildFailure == null; }
         }
 
         /// <summary>Why the mesh could not be built, or <c>null</c>.</summary>
         public string BuildFailure
         {
-            get { return _buildFailure; }
+            get { return _buildFailure ?? _geometry?.Failure; }
         }
 
         /// <summary>Every triangle across the five layers and the roads.</summary>
@@ -322,7 +320,7 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// Marks the mesh ready once the worker's upload has landed and converts the lifted
+        /// Marks the mesh ready once the worker's upload has landed and converts the
         /// per-chunk counts into the sentinel arrays the range coalescer reads. Idempotent and
         /// cheap, so it can be called at the top of every draw.
         /// </summary>
@@ -406,7 +404,10 @@ namespace Simitone.Client.Neighbourhood
 
             if (_subdivBusy)
             {
-                if (_subdiv.Ready == _subdivRequested) _subdivBusy = false;
+                if (_subdiv.Ready == _subdivRequested || _subdiv.FailedSlice == _subdivRequested)
+                {
+                    _subdivBusy = false;
+                }
                 else return;
             }
 
@@ -457,13 +458,6 @@ namespace Simitone.Client.Neighbourhood
                 AddressV = TextureAddressMode.Clamp,
                 Filter = TextureFilter.MinLinearMagPointMipLinear
             };
-        }
-
-        /// <summary>Frees the cached <see cref="RoadSampler"/>, for a device reset.</summary>
-        public static void DisposeSamplerStates()
-        {
-            _roadSampler?.Dispose();
-            _roadSampler = null;
         }
 
         /// <summary>
@@ -778,11 +772,6 @@ namespace Simitone.Client.Neighbourhood
         /// </summary>
         public const float MaxGroundHeightDelta = 255f / NeighbourhoodCityMeshBuilder.ElevationScale / 2f;
 
-        private void DrawRanges(int[] chunkStarts, VertexBuffer vertices, IndexBuffer indices)
-        {
-            DrawRanges(chunkStarts, vertices, indices, _drawChunks);
-        }
-
         /// <summary>
         /// Submits the ranges of one buffer that cover exactly <paramref name="chunks"/>.
         /// </summary>
@@ -834,7 +823,7 @@ namespace Simitone.Client.Neighbourhood
                 + " The draw is on Effects/VerShader's '"
                 + NeighbourhoodShaderState.CityTechnique + "' pass "
                 + NeighbourhoodShaderState.FogPass
-                + " and the buffers are the lifted CityGeometry's TLayerVertex layout. A pass that"
+                + " and the buffers are NeighbourhoodTerrainVertex. A pass that"
                 + " was not applied, or one applied under another technique, leaves a different"
                 + " shader bound and gives exactly this error. The painted map stays the backdrop"
                 + " until it is fixed.");

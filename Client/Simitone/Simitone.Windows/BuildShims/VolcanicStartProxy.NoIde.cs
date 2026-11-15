@@ -65,11 +65,9 @@ namespace FSO.IDE
         public void InitVolcanic(string[] args)
         {
             throw new PlatformNotSupportedException(
-                "Simitone was built without the FreeSO IDE host (-p:BuildIde=false, the default), so " +
-                "'-ide' is not available in this binary. That is the intended configuration for the game: " +
-                "the IDE host and the The Sims Online server closure behind it are compiled only so that " +
-                "TrimSingleplayerOutput can delete them, and neither is reachable from the game. To get an " +
-                "-ide-capable Simitone.exe, rebuild with: dotnet build Client/Simitone/Simitone.sln " +
+                "Simitone was built without the FreeSO IDE host (-p:BuildIde=false), so " +
+                "'-ide' is not available in this binary. To get an -ide-capable Simitone.exe, " +
+                "rebuild with the default, or explicitly: dotnet build Client/Simitone/Simitone.sln " +
                 "-p:BuildIde=true");
         }
     }

@@ -22,7 +22,7 @@ namespace Simitone.Client.UI.Panels.Options
     /// Base for the pages of the Options menu. A page does not draw its own controls: it
     /// describes each setting it wants as a <see cref="UIOptionDescriprion"/> and this class
     /// reflects over the settings object to read the current value, build the matching
-    /// checkbox / radio control, and write the new value back on click.
+    /// switch / radio control, and write the new value back on click.
     ///
     /// <para>
     /// That is the whole point of the design: adding a setting to the Options menu is one
@@ -64,10 +64,10 @@ namespace Simitone.Client.UI.Panels.Options
             /// <summary>An int/enum drawn as a group of radio buttons.</summary>
             Variable,
 
-            /// <summary>An int/enum drawn as radio buttons behind an on/off checkbox.</summary>
+            /// <summary>An int/enum drawn as radio buttons behind an on/off switch.</summary>
             ToggleVariable,
 
-            /// <summary>A bool drawn as a single on/off checkbox.</summary>
+            /// <summary>A bool drawn as a single on/off switch.</summary>
             BoolProp,
 
             /// <summary>
@@ -85,7 +85,14 @@ namespace Simitone.Client.UI.Panels.Options
         /// is taller than a radio, and laying them all out as if they were the same height
         /// overlaps the rows.
         /// </summary>
-        private static int RowHeight(SettingType type) => type == SettingType.Slider ? 34 : 25;
+        private static int RowHeight(SettingType type) => type == SettingType.Slider ? 34
+            : type == SettingType.ToggleVariable ? BoolRowHeight : 25;
+
+        /// <summary>
+        /// Vertical step of a row that carries an on/off switch: the switch is
+        /// <see cref="UISwitch.TrackHeight"/> tall, so a 25 step would overlap the next row.
+        /// </summary>
+        private const int BoolRowHeight = 30;
 
         /// <summary>
         /// The three UI-text ids a setting needs: its row caption, the title of the "about
@@ -256,7 +263,7 @@ namespace Simitone.Client.UI.Panels.Options
             }
         }
 
-        /// <summary>A bool setting, drawn as one on/off checkbox.</summary>
+        /// <summary>A bool setting, drawn as one on/off switch.</summary>
         public class UIBoolPropOptionDescription : UIOptionDescriprion
         {
             public override SettingType Type => SettingType.BoolProp;
@@ -268,11 +275,11 @@ namespace Simitone.Client.UI.Panels.Options
             }
 
             /// <summary>
-            /// A checkbox whose underlying setting is not itself a bool, where
+            /// A switch whose underlying setting is not itself a bool, where
             /// <paramref name="ConvertFrom"/> produces the bool the control shows and
             /// <paramref name="ConvertTo"/> produces the value to store. TexCompression is the
             /// case in point: it is a bitfield (bit 0 = on/off, bit 1 = auto/user chosen), and
-            /// only bit 0 is the checkbox.
+            /// only bit 0 is the switch.
             ///
             /// <para>
             /// The property is deliberately not type-checked here. It is
@@ -365,8 +372,8 @@ namespace Simitone.Client.UI.Panels.Options
         /// </para>
         /// <para>
         /// A marker rather than a base class, deliberately. The two row types are otherwise
-        /// unrelated - one is a checkbox and one is a radio group - and
-        /// <see cref="UIBoolPropOptionDescription"/> has to stay the base of the checkbox row
+        /// unrelated - one is a switch and one is a radio group - and
+        /// <see cref="UIBoolPropOptionDescription"/> has to stay the base of the switch row
         /// because the page casts to it to decide which control to build. A common base would
         /// mean one of the two inheriting from something it is not.
         /// </para>
@@ -464,7 +471,7 @@ namespace Simitone.Client.UI.Panels.Options
 
         /// <summary>
         /// An int setting that is only meaningful while a separate bool setting is on - a
-        /// value group with its own enable checkbox, which greys the radios out when off.
+        /// value group with its own enable switch, which greys the radios out when off.
         /// </summary>
         public class UITogglableIntPropOptionDescription : UIIntPropOptionDescription
         {
@@ -483,15 +490,15 @@ namespace Simitone.Client.UI.Panels.Options
         }
 
         /// <summary>
-        /// An int setting drawn as one slider, optionally with a mute checkbox beside it.
+        /// An int setting drawn as one slider, optionally with a mute switch beside it.
         /// </summary>
         /// <remarks>
         /// <para>
         /// The mute half is here because that is what a sound setting's row is: a level and a
-        /// way to silence it, on one line. The checkbox reads and writes through delegates for
+        /// way to silence it, on one line. The switch reads and writes through delegates for
         /// the same reason <see cref="UIExternalBoolPropOptionDescription"/> does - a mute is
         /// not a property of the settings object - and a row with no delegates simply has no
-        /// checkbox, so a slider that wants no mute does not have to say so.
+        /// switch, so a slider that wants no mute does not have to say so.
         /// </para>
         /// <para>
         /// The value conversion is the other reason this is not the reflected
@@ -507,16 +514,16 @@ namespace Simitone.Client.UI.Panels.Options
             public int MinValue { get; }
             public int MaxValue { get; }
 
-            /// <summary>Reads the mute state, or null for a row that has no mute checkbox.</summary>
+            /// <summary>Reads the mute state, or null for a row that has no mute switch.</summary>
             public Func<bool> ReadMuted { get; set; }
 
-            /// <summary>Writes the mute state, or null for a row that has no mute checkbox.</summary>
+            /// <summary>Writes the mute state, or null for a row that has no mute switch.</summary>
             public Action<bool> WriteMuted { get; set; }
 
-            /// <summary>Tooltip for the mute checkbox, or null for none.</summary>
+            /// <summary>Tooltip for the mute switch, or null for none.</summary>
             public string MuteTooltip { get; set; }
 
-            /// <summary>Whether this row draws a mute checkbox at all.</summary>
+            /// <summary>Whether this row draws a mute switch at all.</summary>
             public bool HasMute => ReadMuted != null && WriteMuted != null;
 
             public UISliderPropOptionDescription(PropertyInfo AttachedProperty, int MinValue, int MaxValue) : base(AttachedProperty)
@@ -670,7 +677,7 @@ namespace Simitone.Client.UI.Panels.Options
                     case SettingType.BoolProp:
                         {
                             CreateCheckBox(setting as UIBoolPropOptionDescription, ColumnX, column2Y);
-                            column2Y += 30;
+                            column2Y += BoolRowHeight;
                         }
                         continue;
                     case SettingType.ToggleVariable:
@@ -729,7 +736,7 @@ namespace Simitone.Client.UI.Panels.Options
         /// <summary>Height of a slider's track. The art is 16 tall; this is the hit area.</summary>
         private const int SliderTrackHeight = 20;
 
-        /// <summary>Gap between the end of a slider's track and its mute checkbox.</summary>
+        /// <summary>Gap between the end of a slider's track and its mute switch.</summary>
         private const int SliderMuteGap = 24;
 
         /// <summary>
@@ -739,7 +746,7 @@ namespace Simitone.Client.UI.Panels.Options
         private const string SliderTextureName = "volume_slider.png";
 
         /// <summary>
-        /// Builds one slider row: the caption, the track, and the mute checkbox if the row has
+        /// Builds one slider row: the caption, the track, and the mute switch if the row has
         /// one.
         /// </summary>
         /// <remarks>
@@ -772,7 +779,7 @@ namespace Simitone.Client.UI.Panels.Options
                 Descriptor.SetValue(SettingsObjectInstance, wanted);
                 // A mute is not a level, so a row that keeps both has to say which of the two the
                 // player just touched. Anything the player can hear is a level, so a level off
-                // the stop is an unmute; a mute is the checkbox, which stays where they left it.
+                // the stop is an unmute; a mute is the switch, which stays where they left it.
                 if (Descriptor.HasMute && wanted > Descriptor.MinValue && Descriptor.ReadMuted())
                 {
                     Descriptor.WriteMuted(false);
@@ -791,10 +798,10 @@ namespace Simitone.Client.UI.Panels.Options
                 };
                 mute.OnButtonClick += (elem) =>
                 {
-                    // The click already flipped the checkbox, so "off" is the state it is now in
-                    // - read rather than derived, for the reason CreateCheckBox gives.
-                    bool next = (elem as UIButton)?.Selected ?? !Descriptor.ReadMuted();
-                    Descriptor.WriteMuted(next);
+                    // A UIButton does not flip Selected when it is clicked, so the switch still
+                    // shows the old state here: the new one is its opposite. (Taking Selected
+                    // as the answer wrote the old value back and left the mute dead.)
+                    Descriptor.WriteMuted(!mute.Selected);
                     OnSettingsChanged(Descriptor);
                 };
                 Add(mute);
@@ -860,7 +867,7 @@ namespace Simitone.Client.UI.Panels.Options
             var check = new UISwitch
             {
                 Position = new(left, ColumnY),
-                // Not one of TS1's own strings: the game never drew this checkbox, so there is no
+                // Not one of TS1's own strings: the game never drew this switch, so there is no
                 // id for it and this is Simitone's table or the English.
                 Tooltip = SimitoneStrings.Get("173", "On/Off"),
                 Selected = enabled
@@ -1000,7 +1007,7 @@ namespace Simitone.Client.UI.Panels.Options
     /// This is the lookup for the strings TS1 <em>had</em>: a setting's row caption, its
     /// tooltip, the tab titles, the Low/Medium/High radio words. It reads TS1's own table
     /// 145, which came with the player's copy of the game and is translated by whoever shipped
-    /// it. A string Simitone invented - the column headers, the toggle checkbox's tooltip, the
+    /// it. A string Simitone invented - the column headers, the toggle switch's tooltip, the
     /// language page's own title - has no id in there at all, and goes through
     /// <see cref="Simitone.Client.Utils.SimitoneStrings"/> instead, against Simitone's own
     /// table. Every one of them carries the English as its second argument either way, so a

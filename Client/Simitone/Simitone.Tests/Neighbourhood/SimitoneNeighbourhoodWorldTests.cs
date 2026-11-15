@@ -73,7 +73,7 @@ namespace Simitone.Tests.Neighbourhood
         /// <summary>Two lots, small enough that the world they belong to is cheap to build.</summary>
         private static NeighbourhoodLayout Layout(int seed = Seed)
         {
-            return NeighbourhoodLayoutBuilder.Pack(new List<NeighbourhoodLotRead>
+            return NeighbourhoodLayoutBuilder.PackOnGrid(new List<NeighbourhoodLotRead>
             {
                 new NeighbourhoodLotRead { Number = 21, MapX = 40, MapY = 36, HasHouse = true, Size = 24 },
                 new NeighbourhoodLotRead { Number = 22, MapX = 60, MapY = 38, HasHouse = true, Size = 24 }
@@ -411,13 +411,43 @@ namespace Simitone.Tests.Neighbourhood
             var world = World();
             var start = world.Clock.Ticks;
 
-            //thirty ticks to the second, so a frame under a thirtieth of a second is no ticks at
-            //all - the same truncation a lot's own VMClock does
+            //thirty ticks to the second, so a frame under a thirtieth of a second does not move the
+            //clock on its own - but its fraction is banked, so the next one completes the tick
             Assert.False(world.Tick(0.02));
             Assert.Equal(start, world.Clock.Ticks);
 
-            Assert.True(world.Tick(0.05));
+            Assert.True(world.Tick(0.02));
             Assert.Equal(start + 1, world.Clock.Ticks);
+        }
+
+        [Fact]
+        public void SixtyFramesOfASixtiethAreOneGameMinute()
+        {
+            //The defect that kept neighbourhood time from ever moving in a real session: the screen
+            //ticks the world once per frame, a 60 fps frame is half a sub-minute tick, and flooring
+            //each frame on its own advanced the clock by nothing, for ever.
+            var world = World();
+            var start = world.Clock.Ticks;
+
+            for (int frame = 0; frame < 60; frame++) world.Tick(1.0 / 60.0);
+
+            Assert.Equal(start + WorldClock.TicksPerMinuteTs1, world.Clock.Ticks);
+        }
+
+        [Fact]
+        public void FrameSizeDoesNotChangeWhereTheClockEndsUp()
+        {
+            var fine = World();
+            var coarse = World();
+
+            for (int frame = 0; frame < 600; frame++) fine.Tick(0.01);
+            for (int frame = 0; frame < 60; frame++) coarse.Tick(0.1);
+
+            //six real seconds either way; the one tick of slack is floating-point noise in the
+            //banked fraction (it is carried, not lost, so it shows up on the next call)
+            var expected = 6L * WorldClock.TicksPerMinuteTs1;
+            Assert.InRange(fine.Clock.Ticks, expected - 1, expected);
+            Assert.InRange(coarse.Clock.Ticks, expected - 1, expected);
         }
 
         [Fact]

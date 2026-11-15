@@ -145,6 +145,8 @@ namespace Simitone.Client.Neighbourhood
         public const float FogDistance = 900f;
 
         private GraphicsDevice _device;
+        private GraphicsDevice _deviceEvents;
+        private readonly NeighbourhoodDrawHealth _drawHealth = new NeighbourhoodDrawHealth();
         private readonly INeighbourhoodSceneSource _source;
         private readonly BasicCamera _camera;
         private readonly NeighbourhoodWorldMapping _mapping;
@@ -202,6 +204,9 @@ namespace Simitone.Client.Neighbourhood
         private readonly NeighbourhoodMeshLodSelector _lodSelector = new NeighbourhoodMeshLodSelector();
 
         private NeighbourhoodFrameReport _report = new NeighbourhoodFrameReport();
+
+        //reused every frame (BoundingFrustum is a class); the frame report holds this same instance
+        private readonly BoundingFrustum _frustum = new BoundingFrustum(Matrix.Identity);
 
         /// <summary>
         /// How many facades the last draw found inside the frustum, whatever it then managed to
@@ -417,6 +422,12 @@ namespace Simitone.Client.Neighbourhood
             : base(device)
         {
             _device = device;
+            if (device != null)
+            {
+                _deviceEvents = device;
+                device.DeviceLost += OnDeviceLostOrResetting;
+                device.DeviceResetting += OnDeviceLostOrResetting;
+            }
             _source = source;
             _mapping = source.Mapping;
             _mapSize = source.Layout?.MapSize ?? NeighbourhoodLayout.DefaultMapSize;
@@ -702,6 +713,38 @@ namespace Simitone.Client.Neighbourhood
             base.Draw(device);
             BeginFrameReport();
 
+            //A draw that throws is counted rather than propagated: NeighbourhoodBackdropRule puts the
+            //painted map back after DrawFailureLimit of them in a row, and the frame that threw is
+            //just a frame the player does not see. The first is logged with its stack.
+            try
+            {
+                DrawFrame(device);
+                _drawHealth.Succeeded();
+            }
+            catch (Exception ex)
+            {
+                if (_drawHealth.Failed(ex))
+                {
+                    SimitoneLog.Error("Drawing the generated neighbourhood threw (failure #"
+                        + _drawHealth.TotalFailures + ", " + _drawHealth.ConsecutiveFailures
+                        + " in a row): " + ex.Message, ex);
+                }
+                try
+                {
+                    //whatever the failed pass left bound must not leak into the next layer
+                    device.DepthStencilState = DepthStencilState.Default;
+                    device.BlendState = BlendState.AlphaBlend;
+                    device.RasterizerState = RasterizerState.CullCounterClockwise;
+                }
+                catch (Exception)
+                {
+                    //a lost device refuses even this; the next frame reports it
+                }
+            }
+        }
+
+        private void DrawFrame(GraphicsDevice device)
+        {
             if (_terrain == null)
             {
                 Note("no generated world");
@@ -745,7 +788,8 @@ namespace Simitone.Client.Neighbourhood
             var view = _camera.View;
             var projection = _camera.Projection;
             var viewProjection = view * projection;
-            var frustum = new BoundingFrustum(viewProjection);
+            _frustum.Matrix = viewProjection;
+            var frustum = _frustum;
             var lighting = _lighting;
             var fogColor = lighting.FogColour;
             var lightColor = lighting.LightColour;
@@ -906,13 +950,18 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <inheritdoc />
-        public int DrawFailures => 0;
+        public int DrawFailures => _drawHealth.ConsecutiveFailures;
 
         /// <inheritdoc />
-        public bool DeviceLost => false;
+        public bool DeviceLost => _drawHealth.DeviceLost;
 
         /// <inheritdoc />
-        public string LastDrawFailure => _failure;
+        public string LastDrawFailure => _drawHealth.LastFailure ?? _failure;
+
+        private void OnDeviceLostOrResetting(object sender, EventArgs e)
+        {
+            _drawHealth.MarkDeviceLost();
+        }
 
         public override void DeviceReset(GraphicsDevice device)
         {
@@ -945,6 +994,12 @@ namespace Simitone.Client.Neighbourhood
 
         public override void Dispose()
         {
+            if (_deviceEvents != null)
+            {
+                _deviceEvents.DeviceLost -= OnDeviceLostOrResetting;
+                _deviceEvents.DeviceResetting -= OnDeviceLostOrResetting;
+                _deviceEvents = null;
+            }
             _terrain?.Dispose();
             _terrain = null;
             _foliage?.Dispose();

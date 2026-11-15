@@ -825,6 +825,60 @@ namespace Simitone.Tests.Neighbourhood
                 SimitoneSurroundings.GroundPlaneAltitudeFor(null, default(SimitoneSurroundingsPlacement)));
         }
 
+        [Fact]
+        public void ThePlayedLotKeepsBaseAltZeroAndTheSurroundIsLiftedToItsGround()
+        {
+            // The production arrangement: the played lot's BaseAlt stays 0 (its walls, roofs and
+            // avatars bake the altitude in), so its ground is at the ABSOLUTE
+            // median * TerrainFactor * 3 and the surround is raised by exactly that.
+            const int arryMedian = 24;
+            var map = FlatMap(MapSize, NeighbourhoodMapAdapter.QuantiseAltitude(arryMedian));
+            var lot = Lot(68, 200, 300);
+            lot.BaseHeight = arryMedian;
+            var placement = SimitoneSurroundingsPlacement.For(map, lot);
+
+            var blueprint = new FSO.LotView.Model.Blueprint(lot.Size, lot.Size);
+            blueprint.Altitude = new short[lot.Size * lot.Size];
+            for (var i = 0; i < blueprint.Altitude.Length; i++)
+            {
+                blueprint.Altitude[i] = (short)(arryMedian
+                    * NeighbourhoodCityMeshBuilder.LotAltitudeUnitsPerArryUnit);
+            }
+            Assert.Equal(0, blueprint.BaseAlt);
+
+            var lotGround = SimitoneSurroundingsPlacement.LotGroundAltitudeFor(blueprint);
+            Assert.True(Math.Abs(SimitoneSurroundingsPlacement.BaseAltitudeFor(map, lot) - lotGround) <= 1);
+
+            var middleX = lot.WorldX + lot.Size / 2;
+            var middleZ = lot.WorldY + lot.Size / 2;
+            var ownGround = (blueprint.Altitude[(lot.Size / 2) * lot.Size + lot.Size / 2]
+                - blueprint.BaseAlt)
+                * blueprint.TerrainFactor * SimitoneSurroundingsPlacement.LotViewUnitsPerTile;
+            var surroundGround = Vector3.Transform(new Vector3(middleX,
+                NeighbourhoodCityMeshBuilder.WorldHeightFor(map.ElevationData[map.Index(middleX, middleZ)]),
+                middleZ), placement.WorldMatrixAt(lotGround)).Y;
+            Assert.True(Math.Abs(ownGround - surroundGround) < 0.1f,
+                "lot ground " + ownGround + " vs lifted surround " + surroundGround);
+
+            //an unlifted surround is the old step, and zero lift is the old matrix exactly
+            var unlifted = Vector3.Transform(new Vector3(middleX,
+                NeighbourhoodCityMeshBuilder.WorldHeightFor(map.ElevationData[map.Index(middleX, middleZ)]),
+                middleZ), placement.WorldMatrix).Y;
+            Assert.True(Math.Abs(ownGround - unlifted) > 10f);
+            Assert.Equal(placement.WorldMatrix, placement.WorldMatrixAt(0));
+
+            //sub-worlds are lifted by the same amount: BaseAlt drops by the lot's ground
+            Assert.Equal(7, SimitoneSurroundingsRestore.BaseAltitudeFor(10, 3, 0));
+            Assert.Equal(7 - lotGround, SimitoneSurroundingsRestore.BaseAltitudeFor(10, 3, lotGround));
+
+            //BaseAlt already set on the live blueprint is part of where its ground is drawn
+            blueprint.BaseAlt = 50;
+            Assert.Equal(lotGround - 50, SimitoneSurroundingsPlacement.LotGroundAltitudeFor(blueprint));
+            Assert.Equal(0, SimitoneSurroundingsPlacement.LotGroundAltitudeFor(null));
+            Assert.Equal(0, SimitoneSurroundingsPlacement.LotGroundAltitudeFor(
+                new FSO.LotView.Model.Blueprint(4, 4)));
+        }
+
         // ---- the crop ---------------------------------------------------------------------------
 
         [Fact]

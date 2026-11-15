@@ -348,8 +348,7 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
-        /// The generation input for a packed layout, with whichever connector mask has been bound to
-        /// the layout's slot.
+        /// The generation input for a packed layout.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -359,16 +358,6 @@ namespace Simitone.Client.Neighbourhood
         /// cannot re-derive a mask from it, and cannot put a camera on it. <c>Rotation</c> and
         /// <c>HouseHash</c> stay behind: the layout keeps them for the facade and its cache, and the
         /// generator has no use for either.
-        /// </para>
-        /// <para>
-        /// The mask is looked up rather than passed, and that is a deliberate seam rather than an
-        /// oversight: the caller of this method has a <em>layout</em> and a layout does not know
-        /// which neighbourhood mode it came from. <see cref="NeighbourhoodRoadInference"/> holds the
-        /// mode-keyed cache and the explicit slot binding, and this is the one place that reads it -
-        /// so a mask reaches the generator from the 2D map without a mode parameter appearing on any
-        /// signature the renderer or the lifecycle already calls. A slot with nothing bound gets
-        /// <c>null</c> and <see cref="RoadGraph"/> measures its own streets, which is the pre-Part-8
-        /// behaviour and still the answer for a mode with no backdrop.
         /// </para>
         /// </remarks>
         /// <param name="layout">The packed layout, or <c>null</c> for an empty neighbourhood.</param>
@@ -399,26 +388,6 @@ namespace Simitone.Client.Neighbourhood
             }
 
             return new NeighbourhoodMapInput(layout.Seed, layout.MapSize, lots);
-        }
-
-        /// <summary>
-        /// <see cref="InputFor(NeighbourhoodLayout)"/> with the connector mask named rather than
-        /// looked up. For a caller that has a mask in hand and no binding to point at - a test, and
-        /// the path a workstream takes while wiring the lifecycle.
-        /// </summary>
-        /// <param name="layout">The packed layout, or <c>null</c> for an empty neighbourhood.</param>
-        /// <param name="roadMask">The connector mask, or <c>null</c>.</param>
-        public static NeighbourhoodMapInput InputFor(NeighbourhoodLayout layout, bool[] roadMask)
-        {
-            if (layout == null)
-            {
-                return new NeighbourhoodMapInput(0, NeighbourhoodLayout.DefaultMapSize,
-                    new NeighbourhoodLotInput[0], roadMask);
-            }
-
-            var plain = InputFor(layout);
-            if (roadMask == null) return plain;
-            return new NeighbourhoodMapInput(plain.Seed, plain.MapSize, plain.Lots, roadMask);
         }
 
         /// <summary>

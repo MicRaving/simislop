@@ -107,8 +107,8 @@ namespace Simitone.Client.UI.Panels.Options
                     null, null, null, "Neighbourhood View", "Neighbourhood View", DescribeEffect())
                     .WithSimitoneIds(SimitoneTitleId, SimitoneAboutTitleId, SimitoneAboutDescriptionId),
                 //Off / 2D / 3D. The order is the enum's and it is not moving - an existing
-                //simitone.ini stores a token and a hand-edited one may hold a number - so 3D being
-                //the default does not make it the first radio. It is the third, and the radio that
+                //simitone.ini stores a token and a hand-edited one may hold a number - so 2D being
+                //the default does not make it the first radio. It is the second, and the radio that
                 //starts selected.
                 ValueTooltips = new[]
                 {

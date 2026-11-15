@@ -70,9 +70,6 @@ namespace Simitone.Client.UI.Panels.EODs
         /// </summary>
         public static ReadOnlyCollection<EODLayoutSpec> All { get; private set; }
 
-        /// <summary>Every layout file name this build authors, lower case.</summary>
-        public static ReadOnlyCollection<string> AuthoredFileNames { get; private set; }
-
         static EODLayouts()
         {
             var specs = new List<EODLayoutSpec>
@@ -548,8 +545,6 @@ namespace Simitone.Client.UI.Panels.EODs
             EODLayoutStrings.Reserve(specs);
 
             All = new ReadOnlyCollection<EODLayoutSpec>(specs);
-            AuthoredFileNames = new ReadOnlyCollection<string>(
-                specs.Select(x => x.FileName.ToLowerInvariant()).OrderBy(x => x, StringComparer.Ordinal).ToList());
         }
 
         private static EODLayoutElement E(string id, EODControlKind kind, string caption = null)

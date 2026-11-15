@@ -192,6 +192,28 @@ namespace Simitone.Tests.Utils
         }
 
         [Fact]
+        public void TiffAndOtherUnregisteredFormatsAreRejected()
+        {
+            // ImageSharp is pinned at 3.1.12 with TIFF advisories; the decoder must not even
+            // parse a TIFF. Prove the encode side produces a valid TIFF (so the null below is the
+            // restriction, not a broken fixture) and that the other unregistered formats fail too.
+            foreach (IImageEncoder encoder in new IImageEncoder[]
+            {
+                new SixLabors.ImageSharp.Formats.Tiff.TiffEncoder(),
+                new SixLabors.ImageSharp.Formats.Gif.GifEncoder(),
+                new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder(),
+            })
+            {
+                using (Stream s = SolidImage(4, 4, 0xFF, encoder))
+                {
+                    Assert.NotNull(Image.DetectFormat(s)); // default Configuration knows it
+                    s.Position = 0;
+                    Assert.Null(BitmapDecoder.Read(s));
+                }
+            }
+        }
+
+        [Fact]
         public void AnEmptyStreamReturnsNullInsteadOfThrowing()
         {
             using (var empty = new MemoryStream())

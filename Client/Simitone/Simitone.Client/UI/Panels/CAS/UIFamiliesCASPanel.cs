@@ -103,7 +103,6 @@ namespace Simitone.Client.UI.Panels.CAS
             Add(NewButton);
             NewButton.OnButtonClick += (btn) => OnNewFamily?.Invoke();
 
-            TitleI = TitleI;
             SetSelection(-1);
         }
 

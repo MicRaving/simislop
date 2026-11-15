@@ -7,7 +7,6 @@ namespace Simitone.Windows.GameLocator
 {
     interface ILocator
     {
-        string FindTheSimsOnline();
         string FindTheSims1();
     }
 }

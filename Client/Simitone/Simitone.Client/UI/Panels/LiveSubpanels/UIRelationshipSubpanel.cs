@@ -93,6 +93,7 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
             var neighbour = sel.GetPersonData(VMPersonDataVariable.NeighborId);
 
             var n = neighbourhood.GetNeighborByID(neighbour);
+            if (n == null) return; // a sim with no neighbourhood record has no relationships to list
             var rel = n.Relationships;
 
             // RelSort doubles as the button's selected state AND the filter to apply. Every tab
@@ -527,7 +528,7 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
 
             var neighbourhood = Content.Get().Neighborhood;
             var n = neighbourhood.GetNeighborByID((short)nid);
-            var obj = Content.Get().WorldObjects.Get(n.GUID);
+            var obj = n == null ? null : Content.Get().WorldObjects.Get(n.GUID);
             if (obj != null)
             {
                 var aobj = curVM.Context.CreateObjectInstance(n.GUID, LotTilePos.OUT_OF_WORLD, Direction.NORTH, true);

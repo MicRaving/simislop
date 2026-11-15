@@ -406,7 +406,7 @@ namespace Simitone.Tests.Content
             provider.AvatarChanged(AvatarGuid);
             Assert.True(provider.SaveNeighbourhood(true));
 
-            var entry = Assert.Single(Logged().Where(l => l.message.Contains("could not write")));
+            var entry = Assert.Single(Logged(), l => l.message.Contains("could not write"));
             Assert.Equal(ContentLogLevel.Warn, entry.level);
             Assert.Contains(AvatarPath, entry.message);
             Assert.True(File.Exists(NeighborhoodPath),
@@ -431,7 +431,7 @@ namespace Simitone.Tests.Content
 
             //nothing loose in the working directory, and the reason is on the record
             Assert.False(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "maid.iff")));
-            var entry = Assert.Single(Logged().Where(l => l.message.Contains("maid.iff")));
+            var entry = Assert.Single(Logged(), l => l.message.Contains("maid.iff"));
             Assert.Equal(ContentLogLevel.Info, entry.level);
             Assert.Contains("SkipFarResident", entry.message);
         }
@@ -455,7 +455,7 @@ namespace Simitone.Tests.Content
             provider.AvatarChanged(AvatarGuid);
             provider.SaveNeighbourhood(true);
 
-            var entry = Assert.Single(Logged().Where(l => l.message.Contains("could not serialise")));
+            var entry = Assert.Single(Logged(), l => l.message.Contains("could not serialise"));
             Assert.Equal(ContentLogLevel.Error, entry.level);
             Assert.Contains(AvatarPath, entry.message);
             Assert.IsType<InvalidOperationException>(entry.error);

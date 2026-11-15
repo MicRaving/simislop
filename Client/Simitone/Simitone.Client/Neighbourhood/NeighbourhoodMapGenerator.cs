@@ -265,13 +265,6 @@ namespace Simitone.Client.Neighbourhood
     /// <para><b>When it does throw, the message carries the whole network description</b>, so the
     /// log line that reports the fallback also says what the network looked like.</para>
     ///
-    /// <para><b>Where the connectors came from.</b> <see cref="RoadGraph"/> takes
-    /// <see cref="NeighbourhoodMapInput.RoadMask"/> when there is one and measures its own streets
-    /// when there is not, so this file does not change and the caller decides which world it is
-    /// building. The choice is reported rather than assumed: the diagnostic line says whether the
-    /// roads were the 2D map's own, and <see cref="NeighbourhoodRoadInference"/> holds the reason
-    /// for whichever answer it gave.</para>
-    ///
     /// <para><b>Diagnostics.</b> <see cref="DiagnosticSink"/>, if set, is handed one line per
     /// generation: how many road tiles, how many street runs and how long the longest one is, how
     /// the network breaks into components, and how many driveway spurs there are. It is a sink
@@ -288,13 +281,7 @@ namespace Simitone.Client.Neighbourhood
         /// rather than half-believed.
         /// </summary>
         /// <remarks>
-        /// <b>276, and there are two reasons stacked on one number.</b> Part 8 changed what the
-        /// first stage consumes - <see cref="NeighbourhoodMapInput.RoadMask"/> - and where the
-        /// lots are, so the same seed and the same layout produce a different map; and it did so by
-        /// adding a producer rather than changing a consumer, which means the nibble encoding has a
-        /// second source and a raster written before this number is a set of measured streets where
-        /// the next read would be the map's own. A bump invalidates both at once, which is what a
-        /// single version stamp is for.
+        /// <b>276:</b> the road source and the lot positions changed, so older rasters are invalid.
         ///
         /// <b>277.</b> Not a generation change - the bytes for a given seed are identical - but a
         /// version bump anyway, because the set of maps that exist at all changed: generation used
@@ -470,7 +457,7 @@ namespace Simitone.Client.Neighbourhood
             }
 
             return changed
-                ? new NeighbourhoodMapInput(input.Seed, input.MapSize, enriched, input.RoadMask)
+                ? new NeighbourhoodMapInput(input.Seed, input.MapSize, enriched)
                 : input;
         }
 

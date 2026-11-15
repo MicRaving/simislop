@@ -258,14 +258,11 @@ namespace Simitone.Tests.Neighbourhood
 
         // ---- the map to world mapping --------------------------------------------------------
 
-        /// <summary>Four lots with a 2x2 block of bitmap positions, placed by the real builder.</summary>
+        /// <summary>Four lots in a 2x2 block centred on the map, for the camera and mapping tests.</summary>
         /// <remarks>
-        /// The bitmap coordinates are chosen so the block's centre is the map's centre, which is
-        /// what lets the full-screen camera test below frame the whole map. Since Part 8 a lot's
-        /// tile position is its bitmap position scaled by the map size, so the arrangement is
-        /// absolute: (300, 200) and (500, 400) are the four corners of a block centred on the
-        /// bitmap's own centre, and the builder puts their rectangles either side of the map's
-        /// centre in both axes.
+        /// The lots are placed by hand around the map's centre rather than by the layout builder
+        /// (the shipped shelf packer stacks them in the top-left corner), because the full-screen
+        /// camera test below needs a block whose centre is the map's centre.
         /// </remarks>
         private static NeighbourhoodLayout PackedLayout()
         {
@@ -276,7 +273,16 @@ namespace Simitone.Tests.Neighbourhood
                 Read(13, 300, 400, 16),
                 Read(14, 500, 400, 16)
             };
-            return NeighbourhoodLayoutBuilder.Pack(reads, 4, 12345);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(reads, 4, 12345);
+            var half = layout.MapSize / 2;
+            foreach (var lot in layout.Lots)
+            {
+                lot.WorldX = half + (lot.MapX > 400 ? 8 : -24);
+                lot.WorldY = half + (lot.MapY > 300 ? 8 : -24);
+            }
+            //rebuilt so the layout's cached extent follows the moved lots
+            return new NeighbourhoodLayout(layout.Slot, layout.Seed, layout.GeneratorVersion,
+                layout.SchemaVersion, layout.MapSize, layout.Lots);
         }
 
         private static NeighbourhoodLotRead Read(short number, int mapX, int mapY, int size)
@@ -293,75 +299,6 @@ namespace Simitone.Tests.Neighbourhood
                 HouseHash = 0x1000u + (uint)number,
                 HasHouse = true
             };
-        }
-
-        [Fact]
-        public void TheMappingAgreesWithTheLayoutOnWhereALotLands()
-        {
-            // This is §11's "map↔world mapping agrees with the layout", and it is the test that
-            // makes the 3D view a picture of the same neighbourhood the 2D view is. Since Part 8 the
-            // mapping IS the transform the layout builder places lots with, so this is no longer
-            // "equal within the slack the packer was allowed" - it is exact, to the half tile that
-            // separates a rectangle's centre from its origin.
-            var layout = PackedLayout();
-            var mapping = NeighbourhoodWorldMapping.For(layout);
-
-            foreach (var lot in layout.Lots)
-            {
-                var mapped = mapping.BitmapToWorldTile(lot.MapX, lot.MapY);
-
-                //the lot's own rectangle centre, which is what the camera aims at and what the
-                //bitmap position means; the layout's origin is half a lot back from it
-                Assert.InRange(mapped.X, lot.WorldX, lot.WorldX + lot.Size);
-                Assert.InRange(mapped.Y, lot.WorldY, lot.WorldY + lot.Size);
-                Assert.Equal(lot.WorldX + lot.Size / 2, mapped.X);
-                Assert.Equal(lot.WorldY + lot.Size / 2, mapped.Y);
-            }
-        }
-
-        [Fact]
-        public void TheMappingIsExactForASingleLot()
-        {
-            // One lot, centred on the bitmap, placed away from the edges: the case with nothing to
-            // clamp and nothing to adjust. This is the one that would catch a change to the
-            // transform itself.
-            var layout = NeighbourhoodLayoutBuilder.Pack(new[] { Read(21, 400, 300, 16) }, 4, 7);
-            var mapping = NeighbourhoodWorldMapping.For(layout);
-            var lot = layout.FindLot(21);
-
-            var mapped = mapping.BitmapToWorldTile(400, 300);
-            Assert.Equal(lot.WorldX + lot.Size / 2, mapped.X);
-            Assert.Equal(lot.WorldY + lot.Size / 2, mapped.Y);
-            //The bitmap's centre is the middle of the drawn region, which is half a tile above the middle
-            //of the square. CHANGED by the Part 9 TSO-alignment rework, which put the bitmap's own
-            //isometric projection back; this used to assert the square's centre on both axes.
-            Assert.Equal(layout.MapSize / 2, mapped.X);
-            Assert.Equal((int)Math.Floor(
-                NeighbourhoodPixelTransform.CentreFor(layout.MapSize).Y), mapped.Y);
-        }
-
-        [Fact]
-        public void TheMappingAgreesWithTheLayoutForOverlappingLots()
-        {
-            // The case the packer's relaxation used to answer for: several lots whose bitmap
-            // positions are close enough that their rectangles overlap. Since Part 8 that is not a
-            // problem to be resolved - it is TSO's own Size-2 pitch - and the mapping has to agree
-            // with the layout for every one of them anyway, which is why this is a test at all.
-            var reads = new[]
-            {
-                Read(11, 380, 290, 48),
-                Read(12, 390, 295, 48),
-                Read(13, 420, 320, 48)
-            };
-            var layout = NeighbourhoodLayoutBuilder.Pack(reads, 4, 999);
-            var mapping = NeighbourhoodWorldMapping.For(layout);
-
-            foreach (var lot in layout.Lots)
-            {
-                var mapped = mapping.BitmapToWorldTile(lot.MapX, lot.MapY);
-                Assert.Equal(lot.WorldX + lot.Size / 2, mapped.X);
-                Assert.Equal(lot.WorldY + lot.Size / 2, mapped.Y);
-            }
         }
 
         [Fact]
@@ -421,26 +358,11 @@ namespace Simitone.Tests.Neighbourhood
             //above it in y, because the isometric diamond's two diagonals are 411 and 613 rather
             //than equal. CHANGED by the Part 9 TSO-alignment rework; this used to assert the
             //square's centre on both axes.
-            var drawn = NeighbourhoodPixelTransform.CentreFor(NeighbourhoodLayout.DefaultMapSize);
+            var drawn = NeighbourhoodPixelTransform.TileForPixel(
+                new Vector2(400, 300), NeighbourhoodLayout.DefaultMapSize);
             Assert.Equal(drawn.X, world.X, 3);
             Assert.Equal(drawn.Y, world.Y, 3);
             Assert.Equal(NeighbourhoodLayout.DefaultMapSize / 2f, world.X, 3);
-        }
-
-        [Fact]
-        public void ASingleLotLandsWhereItsBitmapPositionSays()
-        {
-            // The degenerate cloud: one lot, and nothing to compare it against but the transform.
-            // There is no fit and no degenerate span any more, so the lot simply goes where
-            // LotLocations.iff put it - which on a centred bitmap position is the map's centre.
-            var layout = NeighbourhoodLayoutBuilder.Pack(new[] { Read(21, 400, 300, 16) }, 4, 7);
-            var mapping = NeighbourhoodWorldMapping.For(layout);
-            var lot = layout.FindLot(21);
-
-            var mapped = mapping.BitmapToWorldTile(400, 300);
-            Assert.Equal(lot.WorldX + lot.Size / 2, mapped.X);
-            Assert.Equal(lot.WorldY + lot.Size / 2, mapped.Y);
-            Assert.Equal(layout.MapSize / 2, mapped.X);
         }
 
         // ---- the camera -----------------------------------------------------------------------

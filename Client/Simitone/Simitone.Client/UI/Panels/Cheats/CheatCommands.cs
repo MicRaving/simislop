@@ -155,13 +155,10 @@ namespace Simitone.Client.UI.Panels.Cheats
             };
 
         /// <summary>
-        /// The keywords this game runs itself, and what each one does. Every entry is an alias
-        /// of a <see cref="CheatAction"/>; the help list and the parser both read it, so a cheat
-        /// cannot be playable but undocumented or documented but unplayable.
-        /// </summary>
-        /// <summary>
-        /// Declared in the order the help list reads them: keyword, what it does, and the action
-        /// it runs. A null summary marks an alias, which is playable but not listed - a list with
+        /// The keywords this game runs itself; the help list and the parser both read it, so a
+        /// cheat cannot be playable but undocumented or documented but unplayable. Declared in
+        /// the order the help list reads them: keyword, the action it runs, and what it does.
+        /// A null summary marks an alias, which is playable but not listed - a list with
         /// three spellings of one cheat is a list that makes the surface look bigger than it is.
         /// </summary>
         private static readonly (string Keyword, CheatAction Action, string Summary)[] Definitions =
@@ -184,12 +181,6 @@ namespace Simitone.Client.UI.Panels.Cheats
         /// </summary>
         public static IEnumerable<(string Keyword, CheatAction Action, string Summary)> Documented =>
             Definitions.Where(x => x.Summary != null);
-
-        /// <summary>
-        /// The keywords this game answers to, whether the game runs them or the VM does.
-        /// </summary>
-        public static IEnumerable<string> AllKeywords =>
-            Definitions.Select(x => x.Keyword).Concat(NetCheats.Keys);
 
         /// <summary>
         /// Works out what a typed line asks for.

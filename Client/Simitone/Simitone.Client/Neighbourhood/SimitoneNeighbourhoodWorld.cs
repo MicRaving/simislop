@@ -181,6 +181,9 @@ namespace Simitone.Client.Neighbourhood
         private static readonly ReadOnlyCollection<NeighbourhoodCommunityVisitor> NoVisitors =
             new ReadOnlyCollection<NeighbourhoodCommunityVisitor>(new NeighbourhoodCommunityVisitor[0]);
 
+        /// <summary>Fraction of a sub-minute tick left over from the last clock-only <see cref="Tick"/>.</summary>
+        private double _tickRemainder;
+
         private int _activeLotNumber;
         private VMMarshal _activeMarshal;
 
@@ -738,12 +741,12 @@ namespace Simitone.Client.Neighbourhood
         /// the same arithmetic rather than by a second opinion about how long a minute is.
         /// </para>
         /// <para>
-        /// <b>Whole ticks only, and a tick is the caller's to spend.</b> The remainder of a frame
-        /// that does not fill a whole sub-minute tick is dropped rather than banked, which means a
-        /// world ticked in 10ms steps runs slightly behind a world ticked in 16ms ones - the same
-        /// truncation a lot's own <c>VMClock</c> does, and the reason this takes a delta rather than
-        /// assuming a frame length. B6 fast-forwards by calling this with a large delta, so it is
-        /// deliberately not a frame.
+        /// <b>Whole ticks only, with the remainder banked.</b> The clock moves in whole sub-minute
+        /// ticks, and the part of a delta that does not fill one is carried into the next call
+        /// rather than dropped, so a world ticked in 10ms steps and a world ticked in 16ms ones end
+        /// up in the same place. (It used to be dropped, which at 60 fps meant every frame was half
+        /// a tick and rounded to none.) B6 fast-forwards by calling this with a large delta, so it
+        /// is deliberately not a frame.
         /// </para>
         /// <para>
         /// A delta that is negative, not a number, infinite, or too short to fill a tick advances
@@ -801,9 +804,22 @@ namespace Simitone.Client.Neighbourhood
                 return moved;
             }
 
-            var ticks = (long)Math.Floor(deltaSeconds * TicksPerMinute(_clock));
+            //The sub-tick remainder is banked, not dropped. The screen calls this once a frame with a
+            //frame-sized delta, and at 60 fps a frame is half a sub-minute tick: flooring each call
+            //on its own made the clock advance zero ticks on every frame at 60 fps and above, so
+            //neighbourhood time never moved in a real session.
+            var exact = deltaSeconds * TicksPerMinute(_clock) + _tickRemainder;
+            var ticks = (long)Math.Floor(exact);
+            if (ticks > MaxTicksPerCall)
+            {
+                ticks = MaxTicksPerCall;
+                _tickRemainder = 0;
+            }
+            else
+            {
+                _tickRemainder = exact - ticks;
+            }
             if (ticks <= 0) return false;
-            if (ticks > MaxTicksPerCall) ticks = MaxTicksPerCall;
 
             for (long i = 0; i < ticks; i++) _clock.Tick();
             RefreshFeatures();

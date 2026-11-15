@@ -220,7 +220,7 @@ namespace Simitone.Tests.Content
             provider.Init();
             provider.Init();
 
-            Assert.Equal(1, provider.List().Count);
+            Assert.Single(provider.List());
             Assert.Equal(Blob(3, 8), provider.Get("a.dat"));
         }
 

@@ -63,10 +63,9 @@
 
     <!--
       The version this build reports. Both this value and the release tags the update checker
-      compares against come from here, so leaving it at the SDK default of 1.0.0 made every
-      build look newer than every published 0.x release: UpdateChecker answered "up to date"
-      unconditionally, which is safe but means the check never does anything. 0.9.0 is where
-      Simitone is: pre-1.0, feature-complete for a play session, not yet a released 1.0.
+      compare against come from here. It is stamped explicitly (it was once left at the SDK
+      default, which made every build look newer than every published 0.x release) and is now
+      1.0.0, the release-readiness stamp recorded in docs/ADDON_PROGRESSION_PLAN.md.
 
       SimitoneVersion reads this stamp off the entry assembly (Simitone.exe) rather than off
       Simitone.Client, so bumping it here is enough - see SimitoneVersion.Current. A release
@@ -150,7 +149,8 @@
     <ProjectReference Include="..\..\..\FreeSO\Other\libs\MSDFData\MSDFData.csproj" />
     <!--
       The B-12 build split. See the BuildIde comment block in
-      ..\Directory.Build.props for why the default is "game only" and what
+      ..\Directory.Build.props for the split (the default is BuildIde=true, the full
+      closure; "game only" is the opt-in -p:BuildIde=false) and what
       -p:BuildIde=true costs.
 
       The FSO.IDE and FSO.Client references are the whole of that cost. FSO.Client is

@@ -2,7 +2,7 @@ name: Build Simitone
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -22,34 +22,23 @@ on:
 # from a job that builds one configuration and tests another.
 env:
   CONFIGURATION: ${{ inputs.configuration || 'Release' }}
-  # Ceiling on unique warning lines the game build may produce.
+  # Ceiling on unique warning lines the build may produce (deduplicated as in the
+  # "Check the warning budget" step: terminal-logger prefix stripped, trimmed, unique).
   #
-  # MEASURED, AND MEASURED CORRECTLY. The previous version of this comment and of
-  # the "Check the warning budget" step below were built on a measurement bug: the
-  # step counted distinct warning *codes* (it used $_.Matches[0].Value, the whole
-  # match, instead of the capture group), so the "28 MSB3026 copy-lock warnings"
-  # recorded here was 28 - the total number of distinct codes in the whole build,
-  # not the number of lock warnings. The budget of 250 was therefore being
-  # compared against a number that is currently 28 and cannot plausibly exceed
-  # about 60, i.e. the gate could never fire. See the step for the corrected
-  # metric.
-  #
-  # The real figure, from a `dotnet build Client/Simitone/Simitone.sln -c Release
-  # -t:Compile --no-incremental` of the post-B-12 game closure on a busy machine:
-  # 247 unique warning lines, of which 124 are NU1701 (5 distinct packages, each
-  # reported once per consuming project and once more by the solution-level
-  # restore) and 2 are MSB3061 copy-lock warnings caused by another process
-  # holding the test output open. So a quiet machine is about 245. 300 leaves room
-  # for a stray lock warning or two without being so loose that a real regression -
-  # which arrives in families of tens - slips under it. Tighten it whenever the
-  # count comes down, in the same commit as the fix.
-  WARNING_BUDGET: 300
-  # Distinct packages the game build may restore for the wrong target framework
-  # (NU1701 / B-02). Every one of them is deliberate and unmaintained upstream, so
-  # the number cannot go to zero from this repository; what it can do is stop going
-  # up. Five is the post-B-12 set: Mina, xxHashSharp, FreeSO.HandEvaluator and the
-  # Common.Logging pair it drags in. Bump it down as packages are replaced, never up.
-  NU1701_BUDGET: 5
+  # Re-measured 2026-11-15 on the full BuildIde=true closure this job now builds
+  # (`dotnet build Client/Simitone/Simitone.sln -c Release --no-incremental`): 675 unique
+  # lines, of which 336 are NU1701 (19 packages, each reported once per consuming
+  # project). Every remaining warning is in the FreeSO tree; the Simitone projects
+  # (client, Windows, tests, tools) compile with zero warnings. 700 leaves room for a
+  # stray copy-lock warning or two without letting a family of tens slip under it.
+  # Tighten it whenever the count comes down, in the same commit as the fix.
+  WARNING_BUDGET: 700
+  # Distinct packages the build may restore for the wrong target framework (NU1701 /
+  # B-02). All 19 come from the FreeSO closure (Mina, xxHashSharp, FreeSO.HandEvaluator,
+  # the Common.Logging pair, CommandLineParser, Open.NAT, Portable.BouncyCastle,
+  # Portable.JWT and ten System.* 4.0.x facades pulled in by the server projects).
+  # Bump it down as packages are replaced, never up.
+  NU1701_BUDGET: 19
 
 jobs:
   build:
@@ -136,11 +125,16 @@ jobs:
     # visible. The output is teed to a file rather than rebuilt, so this costs nothing.
     #
     # This is also the step that runs Simitone.Windows's AfterTargets="Build" assertions, so a
-    # full build rather than -t:Compile is what makes them count: _SimitoneAssertNoIdeReferences
-    # (the B-12 split still holds), _SimitoneContentContract (the split's content drop is
-    # classified and the startup path's files are all present) and TrimSingleplayerOutput. The
-    # ide-build job below is deliberately -t:Compile, which is why these do not run there -
-    # see the comment on that job.
+    # full build rather than -t:Compile is what makes them count: TrimSingleplayerOutput, and -
+    # only if BuildIde is ever defaulted back to false - _SimitoneAssertNoIdeReferences and
+    # _SimitoneContentContract (both are gated on BuildIde=false).
+    #
+    # BuildIde defaults to TRUE (Client/Simitone/Directory.Build.props), so this one build
+    # compiles the full closure, FSO.IDE / FSO.Client / the TSO server projects included. There
+    # used to be a separate "ide-build" job for -p:BuildIde=true; it compiled exactly the same
+    # graph a second time and was removed. If the default ever goes back to false, bring a
+    # -p:BuildIde=true -t:Compile job back or the -ide path will rot unobserved.
+    #
     - name: Build
       shell: pwsh
       run: |
@@ -285,45 +279,3 @@ jobs:
         # rather than hardcoded, and a TFM bump cannot quietly upload nothing.
         path: Client/Simitone/Simitone.Windows/bin/${{ env.CONFIGURATION }}/${{ steps.tfm.outputs.value }}/
         if-no-files-found: warn
-
-  # ============================================================================
-  # The -ide path, which the game build no longer covers
-  # ============================================================================
-  # B-12 removed FSO.IDE, FSO.Client, FSO.Windows, FSO.SimAntics.JIT.Roslyn and the
-  # TSO server closure from Simitone.sln and from Simitone.Windows's references. They
-  # are still buildable -p:BuildIde=true - and still upstream FreeSO - but "still
-  # buildable" is a claim that decays: the game build would keep passing while the
-  # IDE path rotted behind a flag nobody sets.
-  #
-  # So it gets its own job, deliberately not `continue-on-error: true`. It is
-  # -t:Compile and not a full build, for the same reason the audit used that target:
-  # it produces no bin\ output to race another build over, and it is the only part of
-  # the -ide path that anyone can break from this repository - the copy, trim and
-  # MonoGame-placement steps all need bin\, and a job that only compiles the closure
-  # is a job that cannot interfere with a checkout.
-  #
-  # 19 projects, so this is still the slow job. It is not worth making it faster: the
-  # point is to be the thing that catches an upstream change nobody is looking at.
-  ide-build:
-    runs-on: windows-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Setup .NET 10
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '10.0.x'
-
-    - name: Cache NuGet packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.nuget/packages
-        key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', '**/Directory.Build.targets', 'NuGet.config') }}
-        restore-keys: |
-          nuget-${{ runner.os }}-
-
-    - name: Compile the -ide closure
-      run: dotnet build Client/Simitone/Simitone.sln -c Release -p:BuildIde=true -t:Compile -nologo

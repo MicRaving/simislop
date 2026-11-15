@@ -307,7 +307,10 @@ namespace Simitone.Client.UI.Panels.LotControls
             pageLabel.Caption = MakingMagic.FormatPageCaption(tables.Dialog(MakingMagicCaption.PageOf), page, pages);
             backButton.Disabled = page <= 1;
             nextButton.Disabled = page >= pages;
-            commitButton.Disabled = entries.Count == 0;
+            // nothing is picked on a fresh page (selected was just cleared), so the commit button
+            // has to start greyed - as the comment above says - rather than only when the book is
+            // empty
+            commitButton.Disabled = true;
         }
 
         private void OnEntryPicked(int row)

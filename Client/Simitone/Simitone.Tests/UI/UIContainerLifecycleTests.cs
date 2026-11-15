@@ -267,7 +267,7 @@ namespace Simitone.Tests.UI
             container.Remove(child);
 
             var after = container.Snapshot();
-            Assert.Equal(1, after.Length);
+            Assert.Single(after);
             Assert.Same(after, container.Snapshot());
         }
 
@@ -352,7 +352,7 @@ namespace Simitone.Tests.UI
             var walking = container.Snapshot();
             container.Add(new TestElement());
 
-            Assert.Equal(1, walking.Length);
+            Assert.Single(walking);
             Assert.Same(first, walking[0]);
             Assert.Equal(2, container.Snapshot().Length);
         }

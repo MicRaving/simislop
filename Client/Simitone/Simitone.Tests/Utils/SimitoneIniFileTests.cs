@@ -293,4 +293,49 @@ namespace Simitone.Tests.Utils
             Assert.False(SoundVolumeSetting.ResolveMute("FALSE"));
         }
     }
+
+    /// <summary>
+    /// A save whose read of the existing file fails must abort, not merge into an empty file.
+    /// Separate class: the failure is logged, and the log path is a process-wide global.
+    /// </summary>
+    [Xunit.Collection(NonParallelCollection.Name)]
+    public sealed class SimitoneIniFileReadFailureTests : IDisposable
+    {
+        private readonly string _root;
+        private readonly string _originalUserDir;
+
+        public SimitoneIniFileReadFailureTests()
+        {
+            _originalUserDir = FSO.Common.FSOEnvironment.UserDir;
+            _root = Path.Combine(Path.GetTempPath(), "simitone-ini-rf-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_root);
+            FSO.Common.FSOEnvironment.UserDir = _root;
+        }
+
+        public void Dispose()
+        {
+            FSO.Common.FSOEnvironment.UserDir = _originalUserDir;
+            try { Directory.Delete(_root, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+
+        [Fact]
+        public void AnUnreadableFileIsNotOverwrittenBySetAll()
+        {
+            var path = Path.Combine(_root, "locked.ini");
+            const string original = "# keep\nOtherKey=precious\nSunCycle=True\n";
+            File.WriteAllText(path, original);
+            var ini = new SimitoneIniFile(path, "heading");
+
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                Assert.ThrowsAny<IOException>(() => ini.Set("SunCycle", "False"));
+                Assert.Empty(ini.ReadAll()); // display reads still fall back to defaults
+            }
+
+            Assert.Equal(original, File.ReadAllText(path));
+            ini.Set("SunCycle", "False"); // once readable again, the save merges normally
+            Assert.Equal("precious", ini.Get("OtherKey"));
+            Assert.Equal("False", ini.Get("SunCycle"));
+        }
+    }
 }

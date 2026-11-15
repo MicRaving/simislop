@@ -1697,19 +1697,9 @@ namespace Simitone.Client.Neighbourhood
     /// <summary>
     /// Turns a generated <see cref="NeighbourhoodMap"/> into a terrain mesh.
     ///
-    /// <para><b>Why this exists instead of <c>CityGeometry.RegenMeshVerts</c>.</b> The plan wanted
-    /// the reuse, and the reuse is genuinely attractive: that method needs no
-    /// <c>CityContent</c> <em>instance</em> and no TSO game data, so it does work on a generated
-    /// map. What blocks it is the build graph, not the code -
-    /// <c>Simitone.Client</c> cannot reference <c>tso.client</c> because <c>FSO.UI</c> and
-    /// <c>FSO.Client</c> both declare
-    /// <c>FSO.Client.UI.Panels.LotControls.UICustomLotControl</c> and <c>FSO.Client</c> also adds
-    /// <c>FSO.Client.UI.Controls.Catalog.UICatalogElement</c>, so the reference makes every bare
-    /// use of those names ambiguous across the whole client, and hiding the assembly behind an
-    /// extern alias hides the many <c>FSO.Client</c> types the client legitimately uses. That is
-    /// a property of this tree, not of the mesh generator, and it is why §12's stated fallback -
-    /// "a Simitone-native mesh writer (a few hundred lines) fed by the same arrays" - is what
-    /// Scope A does. The rest of the plan is unchanged, which is what §12 says it would be.
+    /// <para><b>Why this exists instead of <c>CityGeometry.RegenMeshVerts</c>.</b> Simitone.Client
+    /// cannot reference <c>tso.client</c> (its type names clash across the client), so the mesh
+    /// algebra is reproduced here rather than reused.
     /// </para>
     ///
     /// <para><b>What is reproduced, and what is deliberately not.</b> Reproduced, because it is
@@ -1773,14 +1763,9 @@ namespace Simitone.Client.Neighbourhood
     /// </para>
     ///
     /// <para>
-    /// <b>Retirement status after the connected-mechanics revert.</b> The production neighbourhood
-    /// draw calls this builder's mesh algebra again: <c>NeighbourhoodTerrainRenderer</c> meshes and
-    /// draws through <see cref="Build"/> and <see cref="BuildSubdivSlice"/> (via
-    /// <c>NeighbourhoodMeshGeometry</c>), and the in-lot surround builds and crops it through
-    /// <see cref="TryBuild"/> and <c>SimitoneSurroundingsCrop</c>. The connected-mechanics rework
-    /// had briefly replaced both with the lifted <c>FSO.LotView.City.CityGeometry</c>; the revert
-    /// restores this as the one mesh path, so the whole geometry library is live again rather than
-    /// a seam kept only for the tests.
+    /// The neighbourhood draw meshes through <see cref="Build"/> and <see cref="BuildSubdivSlice"/>
+    /// (via <c>NeighbourhoodMeshGeometry</c>), and the in-lot surround through <see cref="TryBuild"/>
+    /// and <c>SimitoneSurroundingsCrop</c>; this is the one mesh path.
     /// </para>
     /// </summary>
     public static class NeighbourhoodCityMeshBuilder
@@ -2365,7 +2350,7 @@ namespace Simitone.Client.Neighbourhood
         /// <param name="chunkIndexStarts">
         /// One of the <c>ChunkIndexStarts</c> arrays, sentinel entry included.
         /// </param>
-        /// <param name="chunks">The visible chunk indices; sorted in place.</param>
+        /// <param name="chunks">The visible chunk indices; not modified (an unsorted collection is copied and sorted).</param>
         /// <param name="into">The ranges to fill, cleared first.</param>
         public static void VisibleDrawRanges(
             int[] chunkIndexStarts, ICollection<int> chunks, List<NeighbourhoodMeshDrawRange> into)
@@ -2577,10 +2562,14 @@ namespace Simitone.Client.Neighbourhood
             mesh.Subdivisions = 1;
             var layerVerts = new List<NeighbourhoodTerrainVertex>[LayerCount];
             var layerIndices = new List<int>[LayerCount];
+            //Initial capacity is a full-detail guess; a coarse level emits 1/factor^2 of it, and an
+            //oversized list is a transient per-layer allocation (tens of MB across the five layers)
+            //on every level change, followed by a ToArray copy.
+            var coarseDivisor = factor * factor;
             for (int i = 0; i < LayerCount; i++)
             {
-                layerVerts[i] = new List<NeighbourhoodTerrainVertex>(300000);
-                layerIndices[i] = new List<int>(400000);
+                layerVerts[i] = new List<NeighbourhoodTerrainVertex>(300000 / coarseDivisor);
+                layerIndices[i] = new List<int>(400000 / coarseDivisor);
             }
             var roadVerts = new List<NeighbourhoodTerrainVertex>(100000);
             var roadIndices = new List<int>(150000);

@@ -215,13 +215,6 @@ namespace Simitone.Tests.Neighbourhood
             var plan = Plan(map, layout, SharedRadius);
 
             Assert.True(plan.RadiusSharedWith(cull));
-            Assert.True(NeighbourhoodRenderDecision.RadiiAreShared(plan, cull));
-            Assert.False(NeighbourhoodRenderDecision.RadiiAreShared(Plan(map, layout, 8), cull));
-
-            //No cut is not "shared" - it is "nothing to share it with", and the caller that has no
-            //region is the map view, which has no sub-worlds to be inconsistent about.
-            Assert.False(NeighbourhoodRenderDecision.RadiiAreShared(plan, null));
-            Assert.False(NeighbourhoodRenderDecision.RadiiAreShared(null, cull));
 
             //The one-sided rule still holds too, and is still worth keeping: a caller may plan a
             //deliberately narrow ring of real lots, and no real lot may ever stand outside the drawn
@@ -276,7 +269,6 @@ namespace Simitone.Tests.Neighbourhood
             //by "some of these houses aren't real"
             Assert.Equal(0, NeighbourhoodRenderDecision.FacadeFallbackCount(
                 layout, Active, plan, cull));
-            Assert.True(NeighbourhoodRenderDecision.RegionIsFullyReal(layout, Active, plan, cull));
 
             //The player's own lot is in the region and is the one lot drawn by neither - it is
             //inside the cut and excluded from the region's lot list by the same rule the facade
@@ -356,8 +348,6 @@ namespace Simitone.Tests.Neighbourhood
                 //it was deferred, so the facades are the deferred lots with a house on them.
                 Assert.Equal(facades, NeighbourhoodRenderDecision.FacadeFallbackCount(
                     layout, Active, trimmed, cull));
-                Assert.Equal(facades == 0,
-                    NeighbourhoodRenderDecision.RegionIsFullyReal(layout, Active, trimmed, cull));
                 //The facades are exactly the deferred lots that have a house on them - a bulldozed
                 //plot draws nothing whichever way the budget went, so deferring it costs nothing to
                 //look at. Which lots those are depends on the budget, because the nearest-first
@@ -369,8 +359,6 @@ namespace Simitone.Tests.Neighbourhood
                     if (layout.FindLot(trimmed.DeferredNumbers[i]).HasHouse) deferredWithHouse++;
                 }
                 Assert.Equal(deferredWithHouse, facades);
-                Assert.Equal(deferredWithHouse == 0,
-                    NeighbourhoodRenderDecision.RegionIsFullyReal(layout, Active, trimmed, cull));
                 //and a budget that reaches every lot in the region has deferred nothing at all
                 Assert.Equal(budget >= region.Count, trimmed.DeferredCount == 0);
             }
@@ -545,7 +533,6 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal(facades, NeighbourhoodFacadePlan.Eligible(layout, Active, null));
             Assert.Equal(facades, NeighbourhoodRenderDecision.FacadeFallbackCount(
                 layout, Active, null, cull));
-            Assert.False(NeighbourhoodRenderDecision.RegionIsFullyReal(layout, Active, null, cull));
         }
 
         [Fact]

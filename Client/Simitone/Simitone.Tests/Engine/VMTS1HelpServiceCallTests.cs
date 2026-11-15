@@ -394,8 +394,8 @@ namespace Simitone.Tests.Engine
             {
                 Assert.True(site.Instruction > 0, $"{site} has no false branch to be an idle");
                 Assert.NotEqual(site.TruePointer, site.FalsePointer);
-                Assert.NotEqual(site.FalsePointer, (byte)255);
-                Assert.NotEqual(site.FalsePointer, (byte)254);
+                Assert.NotEqual((byte)255, site.FalsePointer);
+                Assert.NotEqual((byte)254, site.FalsePointer);
             }
         }
 

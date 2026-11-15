@@ -217,7 +217,8 @@ namespace Simitone.Client.Neighbourhood
             {
                 int total = 0;
                 if (Surfaces == null) return 0;
-                for (int i = 0; i < Surfaces.Length; i++) total += Surfaces[i].PrimitiveCount;
+                //a lot with no roof, or no floor, has a null slot: Assemble leaves it null
+                for (int i = 0; i < Surfaces.Length; i++) total += Surfaces[i]?.PrimitiveCount ?? 0;
                 return total;
             }
         }
@@ -867,15 +868,11 @@ namespace Simitone.Client.Neighbourhood
                 if (facade == null) continue;
                 if (!NeighbourhoodFacadeMeshCache.Reposition(facade, lot, map, _device))
                 {
-                    //out of the store as well as out of this cache: a mesh that could not be
-                    //re-placed is one the next visit must not be handed either
-                    NeighbourhoodFacadeMeshCache.Forget(lot.Number);
+                    //Take already moved it out of the store, so this cache is its only owner
                     facade.Dispose();
                     continue;
                 }
-                //the store's record of which plot this mesh was placed on has just moved, and it
-                //is what the next visit's comparison is against
-                NeighbourhoodFacadeMeshCache.Store(facade, lot.HouseHash);
+                //this cache owns it now; Dispose hands it back to the store on the lot's new plot
                 _cache[lot.Number] = facade;
                 _hashes[lot.Number] = lot.HouseHash;
             }
@@ -930,6 +927,11 @@ namespace Simitone.Client.Neighbourhood
         /// <returns>How many meshes this call built.</returns>
         public int BuildStep(int? activeLot, Vector2 focus)
         {
+            //This is the once-a-frame entry point, so the frame's count and clock restart here.
+            //Without it the per-frame count (_frameBuilt) was never reset for a caller that does
+            //not own the frame loop (SimitoneSurroundings), and the cache built exactly one lot
+            //for the life of the instance.
+            BeginFrame();
             return Step(activeLot, focus).Built;
         }
 
@@ -1037,8 +1039,8 @@ namespace Simitone.Client.Neighbourhood
                     NeighbourhoodFacade previous;
                     if (_cache.TryGetValue(lot.Number, out previous)) previous.Dispose();
                     _cache[lot.Number] = facade;
-                    //across visits, not just across frames: this is what a second visit reads
-                    NeighbourhoodFacadeMeshCache.Store(facade, lot.HouseHash);
+                    //not stored across visits yet: this cache is the single owner until Dispose
+                    //hands the mesh to NeighbourhoodFacadeMeshCache
                     built++;
                 }
                 //either way the hash is recorded, so a lot that cannot be built is not retried
@@ -1153,8 +1155,7 @@ namespace Simitone.Client.Neighbourhood
         /// <param name="focus">The world tile the camera is looking at.</param>
         public int Outstanding(int? activeLot, Vector2 focus)
         {
-            return NeighbourhoodFacadePlan.ToBuild(_layout, _hashes, activeLot, focus, int.MaxValue,
-                0f, _subWorldLots).Count;
+            return NeighbourhoodFacadePlan.CountToBuild(_layout, _hashes, activeLot, _subWorldLots);
         }
 
         /// <summary>
@@ -1291,6 +1292,8 @@ namespace Simitone.Client.Neighbourhood
             var previousBlend = device.BlendState;
             var previousRast = device.RasterizerState;
             var previousDepth = device.DepthStencilState;
+            //the sampler too, as the tree pass does: LinearClamp is set below and was left behind
+            var previousSampler = device.SamplerStates[0];
             var drawn = 0;
             try
             {
@@ -1352,6 +1355,7 @@ namespace Simitone.Client.Neighbourhood
                 device.BlendState = previousBlend;
                 device.RasterizerState = previousRast;
                 device.DepthStencilState = previousDepth;
+                device.SamplerStates[0] = previousSampler;
             }
             return drawn;
         }
@@ -1403,7 +1407,12 @@ namespace Simitone.Client.Neighbourhood
             //neighbourhood adopts them instead of paying seconds per lot to render them all
             //again. Store is a no-op for a mesh it already holds, so a lot built and rebuilt
             //within the visit is stored once, under the hash it was finally built from.
-            foreach (var pair in _cache) NeighbourhoodFacadeMeshCache.Store(pair.Value);
+            foreach (var pair in _cache)
+            {
+                //under the hash this cache built or adopted it for, which is what a later Take compares
+                NeighbourhoodFacadeMeshCache.Store(pair.Value,
+                    _hashes.TryGetValue(pair.Key, out var hash) ? hash : pair.Value.HouseHash);
+            }
             _cache.Clear();
             _hashes.Clear();
             _failures.Clear();
@@ -1453,7 +1462,7 @@ namespace Simitone.Client.Neighbourhood
         /// neighbourhoods' worth, and the point is to survive closing and reopening the map, not
         /// to hold every lot the player has ever looked at.
         /// </summary>
-        public const int DefaultCapacity = 96;
+        public const int DefaultCapacity = 128;
 
         /// <summary>How many meshes the store is currently holding.</summary>
         public static int Count
@@ -1653,6 +1662,21 @@ namespace Simitone.Client.Neighbourhood
         /// <param name="lot">The lot as the layout describes it now.</param>
         public static NeighbourhoodFacade Take(NeighbourhoodLot lot)
         {
+            return Take(lot, AnyDrawable);
+        }
+
+        /// <summary>
+        /// <see cref="Take(NeighbourhoodLot)"/> with the "is the mesh still usable" rule supplied,
+        /// so the ownership hand-off can be asserted without a graphics device.
+        /// </summary>
+        /// <remarks>
+        /// The mesh leaves the store when it is handed over: a single owner at a time, so two
+        /// live <c>NeighbourhoodFacades</c> can never both hold (and one dispose under the other)
+        /// the same buffers. The owner hands it back with <see cref="Store(NeighbourhoodFacade, uint)"/>
+        /// when it is done. A mesh that fails the checks stays in the store.
+        /// </remarks>
+        internal static NeighbourhoodFacade Take(NeighbourhoodLot lot, Func<NeighbourhoodFacade, bool> usable)
+        {
             if (lot == null) return null;
             lock (Gate)
             {
@@ -1662,8 +1686,11 @@ namespace Simitone.Client.Neighbourhood
                 //a mesh whose buffers did not survive is not a mesh. IsDrawable is the same rule
                 //the draw loop uses, so a store that adopted one would not draw it either - the
                 //check here is what turns that into "rebuild it" rather than "an invisible house".
-                if (facade.Surfaces == null || !AnyDrawable(facade)) return null;
-                Touch(lot.Number);
+                if (facade.Surfaces == null || !usable(facade)) return null;
+                Meshes.Remove(lot.Number);
+                Hashes.Remove(lot.Number);
+                Plots.Remove(lot.Number);
+                Recency.Remove(lot.Number);
                 return facade;
             }
         }

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using FSO.Common.Utils;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Simitone.Client.Utils;
 
 namespace Simitone.Client.Neighbourhood
 {
@@ -81,6 +82,13 @@ namespace Simitone.Client.Neighbourhood
         private bool _regenInProgress;
         private bool _dirty;
         private bool _disposed;
+        private int _sliceSerial;
+
+        /// <summary>Why the last whole-map build failed, or <c>null</c>.</summary>
+        public string Failure { get; private set; }
+
+        /// <summary>The slice whose last build failed, or <c>-1</c>; lets the renderer stop waiting for it.</summary>
+        public int FailedSlice { get; private set; } = -1;
 
         /// <summary>The map this geometry meshes.</summary>
         public NeighbourhoodMap Map
@@ -130,6 +138,11 @@ namespace Simitone.Client.Neighbourhood
             {
                 if (_disposed) return;
                 if (built != null) UploadWholeMap(built, gd);
+                else if (failure != null)
+                {
+                    Failure = failure;
+                    SimitoneLog.Error("The generated neighbourhood's terrain mesh could not be built: " + failure);
+                }
             };
 
             if (async)
@@ -143,8 +156,10 @@ namespace Simitone.Client.Neighbourhood
                 _regenInProgress = true;
                 Task.Run(generate).ContinueWith(x => GameThread.NextUpdate(state =>
                 {
-                    upload();
-                    _regenInProgress = false;
+                    //a throwing upload (a lost device) must not leave the in-flight flag set, or no
+                    //later build would ever start
+                    try { upload(); }
+                    finally { _regenInProgress = false; }
                     if (_dirty && !_disposed)
                     {
                         _dirty = false;
@@ -172,7 +187,9 @@ namespace Simitone.Client.Neighbourhood
             if (_disposed || _map == null) return;
             var map = _map;
             CurrentSlice = cpos;
+            var serial = ++_sliceSerial;
             NeighbourhoodCityMesh built = null;
+            string failure = null;
 
             Task.Run(() =>
             {
@@ -181,13 +198,23 @@ namespace Simitone.Client.Neighbourhood
                     NeighbourhoodCityMeshReport report;
                     built = NeighbourhoodCityMeshBuilder.BuildSubdivSlice(map, cpos, subdiv, out report);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     built = null;
+                    failure = ex.Message;
                 }
             }).ContinueWith(x => GameThread.NextUpdate(state =>
             {
-                if (_disposed || built == null) return;
+                //a newer request supersedes this one: landing it would overwrite the newer slice
+                //with an older one when the worker finishes out of order
+                if (_disposed || serial != _sliceSerial) return;
+                if (built == null)
+                {
+                    FailedSlice = cpos;
+                    SimitoneLog.Error("The generated neighbourhood's refined slice " + cpos
+                        + " could not be built: " + failure);
+                    return;
+                }
                 UploadSlice(built, gd);
                 Ready = cpos;
             }));

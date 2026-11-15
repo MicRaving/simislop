@@ -146,14 +146,13 @@ namespace Simitone.Tests.Utils
         /// <summary>
         /// The block a compressed entry's data offset points at: nine bytes of header the
         /// reader steps over, then the RefPack word - a 4-byte compressed size, the 0xFB10
-        /// magic, and the 3-byte <i>little-endian</i> decompressed size.
+        /// magic, and the 3-byte <i>big-endian</i> decompressed size.
         /// </summary>
         /// <remarks>
-        /// Every multi-byte field in a FAR3 file is little-endian: the reader is a
-        /// <c>BinaryReader</c>, which is little-endian, and the 3-byte fields in it - the
-        /// manifest's <c>CompressedFileSize</c> and this block's decompressed size - are the
-        /// same word as the little-endian fields beside them. Writing them in that order here
-        /// and reading them back through the archive is the whole of the byte-order contract.
+        /// Every multi-byte field in a FAR3 file is little-endian EXCEPT the RefPack/QFS
+        /// decompressed size after the 0xFB10 magic, which is big-endian (the RefPack format,
+        /// and upstream FreeSO's reader). No real FAR3 file is available locally to confirm it;
+        /// this pins the specified layout.
         /// </remarks>
         private static byte[] CompressedBlock(byte[] data)
         {
@@ -168,9 +167,9 @@ namespace Simitone.Tests.Utils
             block[13] = 0x10;                        // 0xFB10, little-endian
             block[14] = 0xFB;
             var length = (uint)data.Length;
-            block[15] = (byte)(length & 0xFF);
+            block[15] = (byte)((length >> 16) & 0xFF);   // big-endian
             block[16] = (byte)((length >> 8) & 0xFF);
-            block[17] = (byte)((length >> 16) & 0xFF);
+            block[17] = (byte)(length & 0xFF);
             Array.Copy(stream, 0, block, 18, stream.Length);
             return block;
         }
@@ -181,7 +180,7 @@ namespace Simitone.Tests.Utils
         /// </summary>
         /// <remarks>
         /// The writer returns the RefPack word itself - a 4-byte compressed size, the 0xFB10
-        /// magic, a 3-byte little-endian decompressed size, and the commands - and
+        /// magic, a 3-byte big-endian decompressed size, and the commands - and
         /// <c>FAR3Archive.GetEntry</c> reads that word from nine bytes into the entry, after
         /// stepping over whatever is in front of it. So the block is placed at offset nine,
         /// which is what the hand-built <see cref="CompressedBlock"/> above does too.
@@ -331,23 +330,16 @@ namespace Simitone.Tests.Utils
 
         #endregion
 
-        #region F-07 - the decompressed size is little-endian
+        #region The RefPack decompressed size is big-endian
 
         /// <summary>
-        /// The regression. The three bytes of the decompressed size were read most-significant
-        /// first while every other multi-byte field in this class - the compressed size in the
-        /// very same manifest record, and the writer's own output - is little-endian. A size of
-        /// 0x012345 came back as 0x234501: about 28 times too large, and up to 8192 times too
-        /// large in the worst case.
+        /// Round trip with all three size bytes non-zero. The RefPack decompressed size after the
+        /// 0xFB10 magic is big-endian (the format, and upstream); a wrong order turns 0x012345 into
+        /// 0x452301 - an absurd buffer - so this fails loudly if the order is flipped.
         /// </summary>
         /// <remarks>
-        /// That number is the destination buffer length in
-        /// <c>Decompresser.Decompress</c>, so the failure was never a slightly wrong image: it
-        /// was a multi-megabyte buffer whose tail is silently zero, or an
-        /// <c>OverflowException</c> for a mesh or texture large enough to push the product past
-        /// 2^31. The length here (0x012345, 74,565 bytes) is chosen so that all three size
-        /// bytes are non-zero - a length under 65,536 leaves the high byte at zero and the two
-        /// orders agree by accident, which is why the bug survived a casual look.
+        /// Length 0x012345 (74,565) is chosen so that all three bytes differ: under 65,536 the high
+        /// byte is zero and only the low two bytes are checked.
         /// </remarks>
         [Fact]
         public void ACompressedEntryComesBackByteForByte()
@@ -401,7 +393,7 @@ namespace Simitone.Tests.Utils
         /// then written outside it.
         ///
         /// <para>
-        /// The size is over 64 KB so all three bytes of the archive's little-endian size field
+        /// The size is over 64 KB so all three bytes of the archive's size field
         /// are set, and the payload is a repeating pattern so the writer emits real
         /// back-references rather than only literal runs.
         /// </para>

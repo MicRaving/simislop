@@ -565,14 +565,18 @@ namespace Simitone.Tests.Neighbourhood
             var start = plan.LocalTileFor(plan.Region.MinX + 8 >= 0
                 ? new TransitWaypoint(12, 6, NorthWestLot)
                 : new TransitWaypoint(12, 6, NorthWestLot));
-            Assert.Equal(8, start.x);
-            Assert.Equal(6, start.y);
+            Assert.Equal(8, start.TileX);
+            Assert.Equal(6, start.TileY);
             Assert.Equal(SimitoneSurroundingsRestore.SubWorldLevel, start.Level);
+            //LotTilePos is in sixteenths of a tile and a sim stands in the middle of its tile: a
+            //raw tile count here put every walker one sixteenth of the way along the street.
+            Assert.Equal((short)((8 << 4) + 8), start.x);
+            Assert.Equal((short)((6 << 4) + 8), start.y);
 
             //And the destination door, twelve tiles down the run, is twelve tiles down the lot.
             var end = plan.LocalTileFor(new TransitWaypoint(12, 18, SouthWestLot));
-            Assert.Equal(8, end.x);
-            Assert.Equal(18, end.y);
+            Assert.Equal(8, end.TileX);
+            Assert.Equal(18, end.TileY);
         }
 
         [Fact]
@@ -589,12 +593,12 @@ namespace Simitone.Tests.Neighbourhood
                 NeighbourhoodTransitLotVm.DefaultMarginTiles, out plan, out reason), reason);
 
             var before = plan.LocalTileAt(-5, -5);
-            Assert.Equal(0, before.x);
-            Assert.Equal(0, before.y);
+            Assert.Equal(0, before.TileX);
+            Assert.Equal(0, before.TileY);
 
             var after = plan.LocalTileAt(500, 500);
-            Assert.Equal(plan.Side - 1, after.x);
-            Assert.Equal(plan.Side - 1, after.y);
+            Assert.Equal(plan.Side - 1, after.TileX);
+            Assert.Equal(plan.Side - 1, after.TileY);
         }
 
         [Fact]

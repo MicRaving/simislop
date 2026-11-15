@@ -29,7 +29,7 @@ namespace Simitone.Client.UI.Panels
     ///
     /// <para>
     /// FreeSO's own credits screen (<c>FSO.Client.UI.Screens.Credits</c>) cannot be reused here
-    /// for the same reason <c>UISettingsPanel</c> cannot reuse FreeSO's options dialog: it is
+    /// for the same reason Simitone's options dialog is its own: it is
     /// built by rendering <c>credits.uis</c> out of the TSO content tree, which Simitone does not
     /// ship, so <c>UIContainer.RenderScript</c> throws a <c>FileNotFoundException</c> looking for
     /// it. It is also a <c>GameScreen</c> push, not a panel you can hang off the live mode UI.
@@ -39,8 +39,7 @@ namespace Simitone.Client.UI.Panels
     /// <para>
     /// The text is Simitone's own (see <see cref="CreditsData"/> for why it cannot be the game's
     /// <c>Credits.iff</c>), and the panel needs no new artwork: the plate behind it and the Close
-    /// button are rasterised at runtime with <c>TextureGenerator</c>, exactly as
-    /// <c>UISettingsPanel</c> does for its Apply/Revert buttons, and the type is the standard UI
+    /// button are rasterised at runtime with <c>TextureGenerator</c>, and the type is the standard UI
     /// font. Nothing here touches a <c>GraphicsDevice</c> outside the running game, so the whole
     /// content side stays headless-testable.
     /// </para>
@@ -612,7 +611,7 @@ namespace Simitone.Client.UI.Panels
 
         /// <summary>
         /// The plate behind the Close button. Generated once and shared, like the Apply/Revert
-        /// plates in <c>UISettingsPanel</c>, because <c>TextureGenerator</c> builds a fresh
+        /// plates elsewhere, because <c>TextureGenerator</c> builds a fresh
         /// texture on every call.
         /// </summary>
         private static Texture2D GetClosePlate(GraphicsDevice gd)

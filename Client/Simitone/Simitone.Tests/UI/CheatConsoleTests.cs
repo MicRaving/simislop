@@ -415,24 +415,6 @@ namespace Simitone.Tests.UI
             Assert.Contains("Ctrl+Alt+Shift+C", CheatCommands.HelpText());
         }
 
-        // ------------------------------------------------------------------- the engine hooks
-
-        /// <summary>
-        /// Every client-run cheat names the engine state it writes to, and names something. A
-        /// cheat whose hook reads "none" is one whose effect cannot be pointed at, and the whole
-        /// point of adding a cheat is that it does something.
-        /// </summary>
-        [Fact]
-        public void EveryClientCheatNamesTheEngineStateItReaches()
-        {
-            foreach (CheatAction action in Enum.GetValues<CheatAction>())
-            {
-                if (action == CheatAction.Unknown) continue;
-                var hook = CheatRunner.HookOf(action);
-                Assert.False(string.IsNullOrWhiteSpace(hook), action + " has no engine hook.");
-            }
-        }
-
         /// <summary>
         /// The cheat types the runner clears, as the person data slots the game itself stores
         /// them in. Six skills and five traits, and no more: adding a slot that is not a skill

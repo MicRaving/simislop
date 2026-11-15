@@ -59,9 +59,10 @@ MinimumVisualStudioVersion = 10.0.40219.1
 # -p:TrimSingleplayerOutput=false to keep the TSO server assemblies in the output,
 # which is what a Debug build already does.
 #
-# Simitone.GenerateMeshes and Simitone.PackageRemeshes are still absent from this file
-# and still built, as build-only ProjectReferences of Simitone.Windows. That is
-# unchanged and correct.
+# Simitone.GenerateMeshes, Simitone.PackageRemeshes and Simitone.MeshCleanup are still
+# absent from this file. GenerateMeshes and PackageRemeshes are still built, as
+# build-only ProjectReferences of Simitone.Windows; MeshCleanup is not referenced by
+# Simitone.Windows. That is unchanged and correct.
 # ============================================================================
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Simitone.Client", "Simitone.Client\Simitone.Client.csproj", "{0F20013D-0610-4573-A346-1C5A461B0BA0}"
 EndProject

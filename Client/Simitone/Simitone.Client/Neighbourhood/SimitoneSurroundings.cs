@@ -35,9 +35,7 @@ namespace Simitone.Client.Neighbourhood
     /// built from the same <see cref="NeighbourhoodMap"/> the neighbourhood screen draws and cropped
     /// to the region the surround shows, plus M3's <see cref="NeighbourhoodContent"/> textures and M3's
     /// <see cref="NeighbourhoodFacades"/> cache. This is the bespoke
-    /// <c>NeighbourhoodCityMeshBuilder</c>/<c>SimitoneSurroundingsCrop</c> path, restored after the
-    /// connected-mechanics rework briefly replaced it with the map view's lifted <c>CityGeometry</c>.
-    /// The other things this type owns are the placement (<see cref="SimitoneSurroundingsPlacement"/>),
+    /// <c>NeighbourhoodCityMeshBuilder</c>/<c>SimitoneSurroundingsCrop</c> path. The other things this type owns are the placement (<see cref="SimitoneSurroundingsPlacement"/>),
     /// the region of the map the band and the fog are measured from
     /// (<see cref="SimitoneSurroundingsCull"/>) and the decision to be here at all
     /// (<see cref="SimitoneSurroundingsSelection"/>).
@@ -62,8 +60,9 @@ namespace Simitone.Client.Neighbourhood
     /// costs a whole <c>World</c> and a <c>VM</c> and a facade mesh costs seconds, so
     /// <see cref="SimitoneSurroundingsPlacement.Cull"/> is still
     /// <see cref="SimitoneSurroundingsPlacement.CullRadiusTiles"/> tiles past the property and only
-    /// the lots inside it are stood up or built. Beyond it the map's own ground and the far houses
-    /// the map view already drew are what is on screen.</para>
+    /// the lots inside it are stood up or built. Beyond it only the map's own ground and streets are
+    /// drawn: the lot view builds its own mesh and draws none of the map view's houses, so lots
+    /// past the cull show as bare plots.</para>
     /// </para>
     ///
     /// <para><b>The facade queue is the region too.</b> The cache is handed a layout holding only
@@ -126,6 +125,11 @@ namespace Simitone.Client.Neighbourhood
         private readonly int _activeLot;
         private readonly SimitoneSurroundingsPlacement _placement;
         private readonly SimitoneSurroundingsCull _cull;
+        //where the live lot's own ground is, in blueprint altitude units, and the altitude array it
+        //was read from. The lot keeps BaseAlt at zero, so the surround is lifted to meet it. Zero
+        //(the surround exactly where it was) until a blueprint with a field has been seen.
+        private int _lotGroundAltitude;
+        private short[] _lotGroundSource;
         //the rectangle of the shared map the terrain and the streets are drawn for. The whole
         //neighbourhood, so this is not a second world and not a second generation: it is the same
         //raster as _map, and the only thing that changed about it is that the crop no longer throws
@@ -463,10 +467,17 @@ namespace Simitone.Client.Neighbourhood
             {
                 _failure = "the city shaders could not be loaded: " + ex.Message;
             }
+            //No shaders means DrawSurrounding returns on every frame and draws nothing, while the
+            //lot's log says it is "surrounded". Refuse instead: TryCreate turns a null _terrain into
+            //the reason, and the lot is left as it is.
+            if (_vertexShader == null || _pixelShader == null)
+            {
+                if (_failure == null) _failure = "the city shaders are not available";
+                return;
+            }
 
             //the surround's own generated-map mesh, built on a worker and uploaded on the game
-            //thread. This is the bespoke NeighbourhoodCityMeshBuilder/Crop path, restored after the
-            //connected-mechanics rework briefly replaced it with the map view's lifted CityGeometry.
+            //thread, via NeighbourhoodCityMeshBuilder and the crop.
             _terrain = SurroundTerrain.TryCreate(device, _map, _layout, _cull, _drawn, _activeLot, out var terrainReason);
             if (_terrain == null)
             {
@@ -484,7 +495,7 @@ namespace Simitone.Client.Neighbourhood
             //so a queue of every lot in the neighbourhood would be thirty-odd of them for houses
             //eight lot widths away, and "0 facades, 38 still building" is what a player sees while
             //that drains. Two or three lots, built nearest first, are up before the player has
-            //finished turning round; the rest of the map's houses are the map view's.
+            //finished turning round; lots past the cull have no house in the lot view at all.
             _facades = new NeighbourhoodFacades(device, NearLotsLayout(), _map);
         }
 
@@ -622,6 +633,31 @@ namespace Simitone.Client.Neighbourhood
         }
 
         /// <summary>
+        /// The lift currently applied to the surround, in blueprint altitude units. See
+        /// <see cref="FollowLotGround"/>.
+        /// </summary>
+        public int LotGroundAltitude
+        {
+            get { return _lotGroundAltitude; }
+        }
+
+        /// <summary>
+        /// Keeps the surround level with the live lot's ground. Cheap to call every frame: the
+        /// median is only recomputed when the blueprint's altitude <em>array</em> is a different
+        /// object, which is what a lot load, a save reload and a template reset all produce. A
+        /// blueprint with no field leaves the previous lift alone.
+        /// </summary>
+        /// <param name="blueprint">The live lot's blueprint, or <c>null</c>.</param>
+        public void FollowLotGround(FSO.LotView.Model.Blueprint blueprint)
+        {
+            var altitude = blueprint?.Altitude;
+            if (altitude == null || altitude.Length == 0) return;
+            if (ReferenceEquals(altitude, _lotGroundSource)) return;
+            _lotGroundSource = altitude;
+            _lotGroundAltitude = SimitoneSurroundingsPlacement.LotGroundAltitudeFor(blueprint);
+        }
+
+        /// <summary>
         /// The altitude a lot's own ground has to be measured from for this surround to meet it, or
         /// <see cref="int.MinValue"/> when there is nothing to measure.
         /// </summary>
@@ -630,7 +666,7 @@ namespace Simitone.Client.Neighbourhood
         /// <b>Prefer the lot's own field.</b> A blueprint that carries an altitude field knows
         /// exactly where its ground is - that is the array its own terrain component draws from -
         /// so the median of it is the level its middle sits at, and that is
-        /// <c>Blueprint.AnchorBaseAltitude</c>'s answer. The map's answer
+        /// <c>Blueprint.MedianAltitude</c>'s answer. The map's answer
         /// (<see cref="SimitoneSurroundingsPlacement.BaseAltitudeFor"/>) is the fallback, and it is
         /// the surround's own plane restated, so a blueprint with no field still lands on the
         /// surface the surround is drawing.
@@ -816,7 +852,7 @@ namespace Simitone.Client.Neighbourhood
             var fogDistance = FogDistanceFor(fog.W, _drawn);
             fog.W = 1f;
 
-            var world = _placement.WorldMatrix;
+            var world = _placement.WorldMatrixAt(_lotGroundAltitude);
             var mv = world * cam.View;
             var mvp = mv * (cam.Projection * Matrix.CreateScale(1f, 1f, BackdropDepthSquash));
             //the facade bounds are in generated-map space, so the frustum has to be the one the
@@ -935,9 +971,8 @@ namespace Simitone.Client.Neighbourhood
         /// and <see cref="SimitoneSurroundingsCrop"/> on a worker and uploaded on the game thread.
         ///
         /// <para>
-        /// This is the bespoke path the connected-mechanics rework replaced with the map view's lifted
-        /// <c>CityGeometry</c>; the revert restores it, so the surround owns its buffers and a lot
-        /// load never reaches into the neighbourhood's renderer. The mesh is the whole generated map
+        /// The surround owns its buffers, so a lot load never reaches into the neighbourhood's
+        /// renderer. The mesh is the whole generated map
         /// cropped to <see cref="_drawn"/>, with the lot-view band laid over the active lot's frontage
         /// - the one street grammar the generated map does not carry.
         /// </para>
@@ -1090,9 +1125,7 @@ namespace Simitone.Client.Neighbourhood
             /// <para>
             /// <b>The whole map is built and cropped, not just the band.</b> The surround owns its
             /// generated-map mesh: the ground, the map's own connector quads and the lot-view band,
-            /// cropped to the drawn region. This is the bespoke path the connected-mechanics rework
-            /// replaced with the map view's lifted <c>CityGeometry</c>; the revert restores it, so the
-            /// surround never touches the neighbourhood's renderer.
+            /// cropped to the drawn region, and never touches the neighbourhood's renderer.
             /// </para>
             /// </summary>
             public void BeginMeshBuild()
@@ -1132,6 +1165,14 @@ namespace Simitone.Client.Neighbourhood
                             if (built != null) Upload(built);
                             else _failure = failure;
                         }
+                        catch (Exception ex)
+                        {
+                            //an upload that throws (device lost, out of memory) would otherwise
+                            //escape into the game thread's callback queue; a surround that cannot
+                            //upload is a reason in the log, not a failed frame. Dispose frees whatever
+                            //was uploaded before the throw.
+                            _failure = "the terrain mesh could not be uploaded: " + ex.Message;
+                        }
                         finally
                         {
                             _building = false;
@@ -1157,28 +1198,18 @@ namespace Simitone.Client.Neighbourhood
             /// tapestry over the surrounding plots. Built for every lot in the region it also filled
             /// the corridor beside every plot, which is what made the surround read as a grid of
             /// tarmac rather than as ground with streets on it.
-            /// <para>
-            /// The band is built against the connector mask the 2D neighbourhood map produced, so
-            /// the active lot's half-street lands on the edge the player was shown a street on rather
-            /// than on one measured from the gaps between lots. The mask comes from
-            /// <see cref="NeighbourhoodRoadInference"/>'s slot binding, which is a cache read: a
-            /// neighbourhood with nothing bound is on the map's own road bytes.
-            /// </para>
             /// </remarks>
             private static SimitoneLotViewRoadBand BuildRoadBand(
                 NeighbourhoodMap map, NeighbourhoodLayout layout, SimitoneSurroundingsCull cull,
                 short activeLot)
             {
                 if (map == null || layout == null || !cull.IsValid) return null;
-                //The band is built against the map's own road bytes; the connector mask the
-                //connected-mechanics rework inferred off the 2D bitmap was removed.
-                bool[] mask = null;
                 var active = layout.FindLot(activeLot);
                 if (active == null)
                 {
                     var region = new Rectangle(
                         cull.MinX, cull.MinZ, cull.WidthTiles, cull.HeightTiles);
-                    return SimitoneLotViewRoadBand.For(map, mask, cull.LotsInRange(layout), region);
+                    return SimitoneLotViewRoadBand.For(map, cull.LotsInRange(layout), region);
                 }
                 //The active lot's own rectangle, not the neighbour region. The band's grammar is the
                 //lot view's RestoreRoad seam - the half-street stamped inside the lot and the
@@ -1190,7 +1221,7 @@ namespace Simitone.Client.Neighbourhood
                 var lotRegion = new Rectangle(
                     Math.Max(0, active.WorldX), Math.Max(0, active.WorldY),
                     Math.Max(0, active.Size), Math.Max(0, active.Size));
-                return SimitoneLotViewRoadBand.For(map, mask, new[] { active }, lotRegion);
+                return SimitoneLotViewRoadBand.For(map, new[] { active }, lotRegion);
             }
 
             private void Upload(SimitoneSurroundingsCropResult crop)

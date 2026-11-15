@@ -1043,7 +1043,7 @@ namespace Simitone.Tests.Neighbourhood
 
             //the restore and the attach, and the attach after it
             var restore = body.IndexOf("SimitoneSurroundingsRestore.TryRestore", StringComparison.Ordinal);
-            var attach = body.IndexOf("AttachSubWorlds(plan)", StringComparison.Ordinal);
+            var attach = body.IndexOf("AttachSubWorlds(resolvedPlan", StringComparison.Ordinal);
             Assert.True(restore >= 0, "the bridge does not restore any neighbours");
             Assert.True(attach >= 0,
                 "the bridge restores neighbours but never tells the surround, so every real lot is "
@@ -1058,7 +1058,7 @@ namespace Simitone.Tests.Neighbourhood
 
             //the same plan object on both sides, so the two halves cannot disagree
             var withheld = body.Substring(attach - 400 < 0 ? 0 : attach - 400, 400);
-            Assert.Contains("TryRestore(vm, plan", body, StringComparison.Ordinal);
+            Assert.Contains("TryRestore(vm, plan, out reason, out resolvedPlan", body, StringComparison.Ordinal);
             Assert.NotNull(withheld);
         }
 
@@ -1150,7 +1150,6 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal(SubWorldRadius, full.RadiusTiles);
             Assert.Equal(SubWorldBudget, full.SubWorldBudget);
             Assert.True(full.RadiusSharedWith(cull));
-            Assert.True(NeighbourhoodRenderDecision.RadiiAreShared(full, cull));
 
             for (int i = 0; i < inRegion.Count; i++)
             {
@@ -3620,8 +3619,8 @@ namespace Simitone.Tests.Neighbourhood
             //the boolean still cannot walk off the end of nothing.
             Assert.False(TransitPath.None.IsValid);
             Assert.Equal(0, TransitPath.None.Length);
-            Assert.Equal(0, TransitPath.None.Waypoints.Count);
-            Assert.Equal(0, TransitPath.None.Corners.Count);
+            Assert.Empty(TransitPath.None.Waypoints);
+            Assert.Empty(TransitPath.None.Corners);
             Assert.Equal(NeighbourhoodTransitLot.NoLot, TransitPath.None.OriginLot);
             Assert.Equal("no path", TransitPath.None.Describe());
 
@@ -3680,8 +3679,8 @@ namespace Simitone.Tests.Neighbourhood
                 Assert.True(plan.Region.Contains(waypoint.X, waypoint.Y),
                     "waypoint " + i + " (" + waypoint + ") fell outside " + plan.Describe());
                 var local = plan.LocalTileFor(waypoint);
-                Assert.InRange(local.x, (short)0, (short)(plan.Side - 1));
-                Assert.InRange(local.y, (short)0, (short)(plan.Side - 1));
+                Assert.InRange(local.TileX, (short)0, (short)(plan.Side - 1));
+                Assert.InRange(local.TileY, (short)0, (short)(plan.Side - 1));
             }
 
             //The sub-world hangs off the lot the player left, measured from that lot's own
@@ -3691,8 +3690,8 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal(plan.Region.MinX - originLot.WorldX, (int)plan.SubWorldOrigin.X);
             Assert.Equal(plan.Region.MinZ - originLot.WorldY, (int)plan.SubWorldOrigin.Y);
             var start = plan.LocalTileFor(path.Start);
-            Assert.Equal((short)(path.Start.X - plan.Region.MinX), start.x);
-            Assert.Equal((short)(path.Start.Y - plan.Region.MinZ), start.y);
+            Assert.Equal((short)(path.Start.X - plan.Region.MinX), start.TileX);
+            Assert.Equal((short)(path.Start.Y - plan.Region.MinZ), start.TileY);
             Assert.True(start.Level == SimitoneSurroundingsRestore.SubWorldLevel,
                 "the walk starts on a different storey than the lot the player left");
 
@@ -3868,7 +3867,6 @@ namespace Simitone.Tests.Neighbourhood
             //And the stronger shape the lot screen now ships: the two radii are one number, so
             //there is no ring of facades between the real lots and the edge of the drawn ground.
             Assert.True(plan.RadiusSharedWith(cull));
-            Assert.True(NeighbourhoodRenderDecision.RadiiAreShared(plan, cull));
 
             //--- before: every lot with a house in the region is a facade -----------------------
             var cache = FacadeCache(world, placement, active);
@@ -5625,7 +5623,7 @@ namespace Simitone.Tests.Neighbourhood
             var cut = SimitoneSurroundingsPlan.ApplyBudget(candidates, 2, deferred);
             Assert.Equal(full.Count - 2, cut);
             Assert.Equal(2, candidates.Count);
-            Assert.Equal(1, deferred.Count);
+            Assert.Single(deferred);
             Assert.Equal(ordered[2].Lot.Number, deferred[0].Lot.Number);
             //The list really was truncated in place rather than copied, which is what makes the
             //plan's "the order the budget was applied in" record meaningful.
@@ -5659,7 +5657,7 @@ namespace Simitone.Tests.Neighbourhood
             SimitoneSurroundingsPlan.OrderNearestFirst(plan.ActiveLot, null);
             var single = new List<SimitoneSurroundingsNeighbour> { ordered[0] };
             SimitoneSurroundingsPlan.OrderNearestFirst(plan.ActiveLot, single);
-            Assert.Equal(1, single.Count);
+            Assert.Single(single);
         }
 
         /// <summary>The lot numbers of a neighbour list, in the list's own order.</summary>
@@ -5862,13 +5860,6 @@ namespace Simitone.Tests.Neighbourhood
                 CopyWith(layout, seed: layout.Seed + 7)));
             Assert.Null(NeighbourhoodRasterCache.Load(null, layout.Slot, layout));
             Assert.Null(NeighbourhoodRasterCache.Load(_root, 99, layout));
-
-            //--- and deleting it is how the next refresh is told to generate again ------------------
-            Assert.True(NeighbourhoodRasterCache.Delete(_root, layout.Slot));
-            Assert.False(File.Exists(path));
-            Assert.True(NeighbourhoodRasterCache.Delete(_root, layout.Slot),
-                "deleting a file that was never there is not a failure");
-            Assert.False(NeighbourhoodRasterCache.Delete(_root, 99));
 
             //--- the refusals on the way out are refusals, not exceptions ---------------------------
             Assert.False(NeighbourhoodRasterCache.Save(_root, null, map));
@@ -6133,8 +6124,8 @@ namespace Simitone.Tests.Neighbourhood
                     NeighbourhoodMeshLod.SubdivTilesAcross - 0.01f));
             Assert.Equal(1, NeighbourhoodMeshLod.SubdivisionsForTilesAcross(
                 NeighbourhoodMeshLod.SubdivTilesAcross));
-            Assert.Equal(NeighbourhoodMeshLod.SubdivisionsFor(NeighbourhoodMeshLod.Full),
-                NeighbourhoodMeshLod.MaxSubdivisions);
+            Assert.Equal(NeighbourhoodMeshLod.MaxSubdivisions,
+                NeighbourhoodMeshLod.SubdivisionsFor(NeighbourhoodMeshLod.Full));
             Assert.Equal(1, NeighbourhoodMeshLod.SubdivisionsFor(NeighbourhoodMeshLod.Quarter));
 
             //--- the clamps, and their tie-breaking ---------------------------------------------

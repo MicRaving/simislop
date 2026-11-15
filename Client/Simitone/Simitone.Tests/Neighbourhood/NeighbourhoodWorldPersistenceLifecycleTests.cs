@@ -143,32 +143,6 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Equal(before, File.ReadAllBytes(SidecarPath()));
         }
 
-        [Fact]
-        public void WithTheFlagOffTheMergeStripsTheSessionAPatchCarried()
-        {
-            //The rule on its own, with no refresh around it, and the pair of branches that together
-            //keep a Part A sidecar a Part A sidecar. The patcher carries the session forward for its
-            //own reasons - a repaired layout should not lose the player's clock - and the writer
-            //takes it back off again. Both halves are asserted, because either one on its own would
-            //produce a file that silently gained a member.
-            Flags(false);
-            var session = ASession();
-            var previous = WithWorld(NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed), session);
-
-            var patched = NeighbourhoodLayoutPatch.Apply(previous, FourLots(), Slot, _seed);
-            Assert.Same(session, patched.Layout.WorldState);
-
-            var written = NeighbourhoodLifecycle.LayoutToWrite(patched.Layout, previous);
-
-            Assert.Null(written.WorldState);
-            //and the arrangement is untouched by the stripping, which is the other half of the
-            //claim: this is the same neighbourhood, not a rebuilt one
-            Assert.Equal(patched.Layout.LotCount, written.LotCount);
-            Assert.Equal(patched.Layout.Seed, written.Seed);
-            Assert.Equal(patched.Layout.Lots[0].WorldX, written.Lots[0].WorldX);
-            Assert.Same(patched.Layout.Lots[0], written.Lots[0]);
-        }
-
         // ---- the gate, on ----------------------------------------------------------------------
 
         [Fact]
@@ -295,8 +269,8 @@ namespace Simitone.Tests.Neighbourhood
         public void WithTheFlagOnTheMergePrefersTheLayoutsOwnSession()
         {
             Flags(true);
-            var fresh = NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed);
-            var cached = WithWorld(NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed), ASession());
+            var fresh = NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed);
+            var cached = WithWorld(NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed), ASession());
             var mine = ASession();
             var theirs = cached.WorldState;
             theirs.ActiveLot = 31;
@@ -321,12 +295,43 @@ namespace Simitone.Tests.Neighbourhood
         }
 
         [Fact]
+        public void ARepackCarriesEachLotsSessionFieldsAcrossByLotNumber()
+        {
+            // PackOnGrid builds every lot from the house files, so without the carry a changed
+            // house file reset every lot's hollow state, last-simulated stamp and entrance.
+            Flags(true);
+            var cached = WithWorld(NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed), ASession());
+            var first = cached.Lots[0];
+            var second = cached.Lots[1];
+            first.LotState = NeighbourhoodLotState.Hollow;
+            first.LastSimulated = 4242;
+            first.Entrance = new NeighbourhoodLotEntrance(first.WorldX, first.WorldY, 2);
+            second.LastSimulated = 7;
+            second.Entrance = new NeighbourhoodLotEntrance(second.WorldX, second.WorldY, 1);
+
+            var fresh = NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed);
+            // the second lot has moved on the repack, so its entrance tile is no longer valid
+            fresh.FindLot(second.Number).WorldX += 5;
+
+            var written = NeighbourhoodLifecycle.LayoutToWrite(fresh, cached);
+
+            var carried = written.FindLot(first.Number);
+            Assert.Equal(NeighbourhoodLotState.Hollow, carried.LotState);
+            Assert.Equal(4242, carried.LastSimulated);
+            Assert.Equal(first.Entrance, carried.Entrance);
+
+            var moved = written.FindLot(second.Number);
+            Assert.Equal(7, moved.LastSimulated);
+            Assert.Null(moved.Entrance);
+        }
+
+        [Fact]
         public void StampingASessionChangesNothingButTheSession()
         {
             //Pure, and the reason WithWorldState can be a rule rather than a save path: same slot,
             //same seed, same lots, the same instances even - a lot record is shared with the layout
             //it was built from, and this must not quietly copy or replace it.
-            var layout = NeighbourhoodLayoutBuilder.Pack(FourLots(), Slot, _seed);
+            var layout = NeighbourhoodLayoutBuilder.PackOnGrid(FourLots(), Slot, _seed);
             var world = ASession();
 
             var stamped = NeighbourhoodLifecycle.WithWorldState(layout, world);
@@ -383,7 +388,7 @@ namespace Simitone.Tests.Neighbourhood
         private void WriteSidecar(IReadOnlyList<NeighbourhoodLotRead> reads, int seed,
             NeighbourhoodWorldState world, string rawWorldState = null)
         {
-            var packed = NeighbourhoodLayoutBuilder.Pack(reads, Slot, seed);
+            var packed = NeighbourhoodLayoutBuilder.PackOnGrid(reads, Slot, seed);
             var path = SidecarPath();
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             if (rawWorldState == null)

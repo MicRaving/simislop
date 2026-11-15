@@ -140,6 +140,12 @@ namespace Simitone.Client.UI.Panels
         private UITextBox CatalogSearchField;
         private UILabel SearchPlaceholder;
 
+        // The tooltips are strings built from the stack's top entry, so they are rebuilt only when that
+        // entry changes (or after a language change, which clears _tooltipsBuilt in SetMode).
+        private BuildUndoEntry _undoTooltipEntry;
+        private BuildUndoEntry _redoTooltipEntry;
+        private bool _tooltipsBuilt;
+
         /// <summary>Left mouse button state last frame, for the click-outside edge detector.</summary>
         private bool _lastLeftButtonDown;
 
@@ -235,78 +241,10 @@ namespace Simitone.Client.UI.Panels
             new UICategory() { ID = 0, IconName = "cat_build_arch.png" },
         };
 
-        // -------------------------------------------------------------------------------------
-        // Options strip layout.
-        //
-        // UIButtonSubpanel lays its buttons out on a fixed 120px pitch (50 + i * 120) and centres
-        // a 120px label 27px to the left of each one, so the extent of an N-slot strip is
-        // arithmetic rather than something to eyeball. It is pulled out here because the free
-        // will button below is the one that has to know whether it fits before it is built: a
-        // button placed off the right edge cannot be clicked, which is worse than not offering
-        // it, and on a narrow window the strip is the only way in.
-        // -------------------------------------------------------------------------------------
-
         /// <summary>
-        /// Where the strip's left edge sits inside the main panel. Also what
-        /// <see cref="SetSubpanel"/> positions the subpanel at, which is where the pitch below
-        /// starts counting from.
+        /// Where the options-strip subpanel sits inside the main panel (see <see cref="SetSubpanel"/>).
         /// </summary>
         public const int OptionsStripLeft = 263;
-
-        /// <summary>Distance between the left edges of two consecutive strip buttons.</summary>
-        public const int OptionsStripSlotSpacing = 120;
-
-        /// <summary>X of the first strip button, relative to the subpanel.</summary>
-        public const int OptionsStripFirstButtonX = 50;
-
-        /// <summary>X of the first strip label, relative to the subpanel.</summary>
-        public const int OptionsStripFirstLabelX = OptionsStripFirstButtonX - 27;
-
-        /// <summary>Width of a strip label, which is wider than the 50px button it captions.</summary>
-        public const int OptionsStripLabelWidth = 120;
-
-        /// <summary>Width of a strip button, for the same reason.</summary>
-        public const int OptionsStripButtonWidth = 50;
-
-        /// <summary>
-        /// How many buttons the Options category of the strip puts down: Save, Neighbourhood,
-        /// Settings, Quit. They take slots 0..n-1, so the one thing added after them - the free
-        /// will toggle - has to take slot <c>n</c>, not a slot counted before the list changed.
-        /// </summary>
-        public const int OptionsStripOptionsButtonCount = 4;
-
-        /// <summary>
-        /// X of the button in <paramref name="slot"/>, relative to the subpanel.
-        /// </summary>
-        public static float OptionsStripButtonX(int slot)
-        {
-            return OptionsStripFirstButtonX + (slot * OptionsStripSlotSpacing);
-        }
-
-        /// <summary>
-        /// X of the label in <paramref name="slot"/>, relative to the subpanel.
-        /// </summary>
-        public static float OptionsStripLabelX(int slot)
-        {
-            return OptionsStripFirstLabelX + (slot * OptionsStripSlotSpacing);
-        }
-
-        /// <summary>
-        /// Panel width needed for a strip of <paramref name="slotCount"/> buttons to be fully
-        /// on screen.
-        ///
-        /// <para>
-        /// Measured to the right edge of the last label rather than of the last button: a label
-        /// is 120px wide under a 50px button, so it overhangs by 35px a side and it is the
-        /// label that would be clipped first.
-        /// </para>
-        /// </summary>
-        public static int OptionsStripRequiredWidth(int slotCount)
-        {
-            if (slotCount < 1) return 0;
-            var lastLabelX = OptionsStripFirstLabelX + ((slotCount - 1) * OptionsStripSlotSpacing);
-            return OptionsStripLeft + lastLabelX + OptionsStripLabelWidth;
-        }
 
         public UIMainPanel(TS1GameScreen game) : base()
         {
@@ -474,6 +412,7 @@ namespace Simitone.Client.UI.Panels
             if (!force)
                 if (mode == Mode) return;
             Mode = mode;
+            _tooltipsBuilt = false; // a forced SetMode is the language-change rebuild: re-read the strings
 
             Game.LotControl.World.State.BuildMode = 0;
             switch (mode)
@@ -543,8 +482,6 @@ namespace Simitone.Client.UI.Panels
                         new UICatFunc(SimitoneStrings.Get("20", "Settings"), "opt_setting.png", () => { Game.ShowOptionsDialog(); }),
                         new UICatFunc(GameFacade.Strings.GetString("145", "5"), "opt_quit.png", () => { Game.CloseAttempt(); }),
                     });
-                    // Four buttons, and OptionsStripOptionsButtonCount says so: a button added
-                    // to or dropped from this list has to move that constant with it.
                     break;
             }
             SetSubpanel(panel);
@@ -791,14 +728,25 @@ namespace Simitone.Client.UI.Panels
             {
                 UndoButton.Visible = inBuildBuy;
                 UndoButton.Disabled = !holder?.Undo.CanUndo ?? true;
-                UndoButton.Tooltip = BuildUndoPolicy.UndoTooltip(holder?.Undo.PeekUndo);
+                var undoTop = holder?.Undo.PeekUndo;
+                if (!_tooltipsBuilt || !ReferenceEquals(undoTop, _undoTooltipEntry))
+                {
+                    _undoTooltipEntry = undoTop;
+                    UndoButton.Tooltip = BuildUndoPolicy.UndoTooltip(undoTop);
+                }
             }
             if (RedoButton != null)
             {
                 RedoButton.Visible = inBuildBuy;
                 RedoButton.Disabled = !holder?.Undo.CanRedo ?? true;
-                RedoButton.Tooltip = BuildUndoPolicy.RedoTooltip(holder?.Undo.PeekRedo);
+                var redoTop = holder?.Undo.PeekRedo;
+                if (!_tooltipsBuilt || !ReferenceEquals(redoTop, _redoTooltipEntry))
+                {
+                    _redoTooltipEntry = redoTop;
+                    RedoButton.Tooltip = BuildUndoPolicy.RedoTooltip(redoTop);
+                }
             }
+            _tooltipsBuilt = true;
 
             if (!inBuildBuy) return;
 

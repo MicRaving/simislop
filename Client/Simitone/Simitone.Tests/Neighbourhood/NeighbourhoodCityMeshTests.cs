@@ -1051,11 +1051,9 @@ namespace Simitone.Tests.Neighbourhood
             // mesh's AddQuad is given, so there is no second conversion to compare against
             Assert.Equal(137f / NeighbourhoodCityMeshBuilder.ElevationScale, ground, 5);
 
-            // the facade's other end: a raw ARRY(0) altitude converted the same way
-            Assert.Equal(NeighbourhoodCityMeshBuilder.WorldHeightForArryUnit(lot.BaseHeight),
-                NeighbourhoodFacadeTransform.GroundHeightForArryUnit(lot.BaseHeight), 5);
-            // and the two ends are three sixteenths of a tile apart per unit, not a whole tile
-            Assert.Equal(0.75f, NeighbourhoodFacadeTransform.GroundHeightForArryUnit(lot.BaseHeight), 5);
+            // the facade's other end: a raw ARRY(0) altitude, three sixteenths of a tile per unit,
+            // not a whole tile
+            Assert.Equal(0.75f, NeighbourhoodCityMeshBuilder.WorldHeightForArryUnit(lot.BaseHeight), 5);
         }
 
         [Fact]

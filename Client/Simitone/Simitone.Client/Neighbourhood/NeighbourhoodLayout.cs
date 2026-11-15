@@ -250,11 +250,10 @@ namespace Simitone.Client.Neighbourhood
         /// <c>LotLocations.iff</c>.
         /// </summary>
         /// <remarks>
-        /// Authoritative since Part 8: <see cref="WorldX"/> and <see cref="WorldY"/> are derived
-        /// from it through <c>NeighbourhoodPixelTransform</c> and nothing moves them afterwards, so
-        /// these two numbers and that transform are what decide where the lot is. Kept on the lot as
-        /// well as derivable from the rectangle so the 2D fallback, the camera, the house buttons and
-        /// a failing diagnostic can all be cross-checked against the file that says so.
+        /// Recorded, not authoritative: the shipped shelf packer (<c>PackOnGrid</c>) only uses it
+        /// to order the lots and places <see cref="WorldX"/>/<see cref="WorldY"/> itself. It is
+        /// what the 2D fallback, the camera and the house buttons read, so they can be
+        /// cross-checked against the file that says so.
         /// </remarks>
         public int MapX { get; set; }
 
@@ -323,11 +322,7 @@ namespace Simitone.Client.Neighbourhood
         /// Which edge of the rectangle the driveway is on.
         /// </summary>
         /// <remarks>
-        /// Since Part 8 this is the edge the 2D map's own connector mask puts a road on, probed by
-        /// <c>NeighbourhoodLayoutBuilder.TryDoorSideFromRoad</c> - a question about the
-        /// neighbourhood rather than a guess. <c>DoorSideFor</c> (the edge nearest a map border) is
-        /// still the answer for a mode with no readable backdrop, and
-        /// <c>NeighbourhoodLayoutPatch</c> still calls it.
+        /// The edge nearest a map border, from <c>NeighbourhoodLayoutBuilder.DoorSideFor</c>.
         /// </remarks>
         public NeighbourhoodLotSide DoorSide { get; set; }
 
@@ -381,10 +376,8 @@ namespace Simitone.Client.Neighbourhood
         /// road graph and the surround's own arithmetic measure against.
         /// </summary>
         /// <remarks>
-        /// A footprint is <em>not</em> a reserved rectangle any more. Since Part 8 the lot stands
-        /// where <c>LotLocations.iff</c> says and nothing reserves a corridor around it - TSO's own
-        /// pitch overlaps by two tiles - so a caller asking <see cref="Overlaps"/> with a margin is
-        /// asking how close two lots are, not whether the packer kept a street between them.
+        /// The shelf packer advances by exactly this, so two shelf lots are never closer than
+        /// the street corridor; <see cref="Overlaps"/> with a margin asks how close two lots are.
         /// </remarks>
         /// <param name="margin">Tiles of margin to add on each dimension.</param>
         public int Footprint(int margin)
@@ -545,10 +538,8 @@ namespace Simitone.Client.Neighbourhood
         /// <para>
         /// Lot-level session state is <em>not</em> here. Which lots are hollow, when each was
         /// last simulated and where its door is belong to the lots themselves
-        /// (<see cref="NeighbourhoodLot.LotState"/> and its neighbours), because they have to
-        /// survive a layout patch that rebuilds this object - see
-        /// <c>NeighbourhoodLayoutPatch.Keep</c>. This member is the part that belongs to the
-        /// world as a whole.
+        /// (<see cref="NeighbourhoodLot.LotState"/> and its neighbours). This member is the part
+        /// that belongs to the world as a whole.
         /// </para>
         ///
         /// <para>

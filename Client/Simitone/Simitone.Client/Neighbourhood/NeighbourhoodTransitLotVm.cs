@@ -794,7 +794,12 @@ namespace Simitone.Client.Neighbourhood
         /// <param name="mapZ">Tile z in generated-map space.</param>
         public LotTilePos LocalTileAt(int mapX, int mapZ)
         {
-            return new LotTilePos(
+            //LotTilePos.x/y are sixteenths of a tile, not whole tiles: handing the raw tile count to
+            //the constructor put every walker within a tile of the blueprint's north-west corner
+            //whatever the route said. FromBigTile is the engine's tile-to-position conversion and
+            //stands the sim in the middle of the tile (the same convention TS1GameScreen's
+            //PlaceArrivalAtDoor uses for the door tile).
+            return LotTilePos.FromBigTile(
                 (short)ClampTile(LocalX(mapX), Side),
                 (short)ClampTile(LocalZ(mapZ), Side),
                 SimitoneSurroundingsRestore.SubWorldLevel);
@@ -2142,6 +2147,9 @@ namespace Simitone.Client.Neighbourhood
                 {
                     reason = "the transit lot did not get a TSO lot state, so its street cannot be"
                         + " built out of the generated map";
+                    //a plain return does not reach the catch below, so the sub-world (and its
+                    //light map) would be orphaned: nothing else holds it yet
+                    TryDispose(subWorld);
                     return false;
                 }
                 transitVm.TSOState.LotID = TransitLotId;
@@ -2196,6 +2204,9 @@ namespace Simitone.Client.Neighbourhood
                 if (!binder.TryBind(transitVm, parentVm, traveller,
                     plan.LocalTileFor(walk.State.Path.Start), out carried, out reason))
                 {
+                    //same as above: the sub-world is not on the parent blueprint yet, so this is
+                    //the only place that can take it down
+                    TryDispose(subWorld);
                     return false;
                 }
 
@@ -2216,6 +2227,12 @@ namespace Simitone.Client.Neighbourhood
                 //The only holder of the reference to a transit lot that failed before it came back.
                 SimitoneLog.Warn("B4: a transit lot failed while it was being built and has been"
                     + " taken down. The lot itself is unaffected.", ex);
+                //it may already be on the parent's list if the failure was in InitSubWorlds, and a
+                //disposed sub-world left there would be drawn for the rest of the session
+                if (subWorld != null && parentBlueprint.SubWorlds != null)
+                {
+                    parentBlueprint.SubWorlds.Remove(subWorld);
+                }
                 TryDispose(subWorld);
                 transit = null;
                 reason = "the transit lot could not be built: " + ex.Message;

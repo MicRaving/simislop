@@ -43,7 +43,6 @@ namespace Simitone.Client.UI.Controls
             ElemProvider = elemProvider;
         }
 
-        private int MouseDownTime;
         private int MouseDownID = -1;
         private Point MouseDownAt;
         private bool InScroll;
@@ -56,7 +55,6 @@ namespace Simitone.Client.UI.Controls
             {
                 case UIMouseEventType.MouseDown:
                     MouseDownID = state.CurrentMouseID;
-                    MouseDownTime = 0;
                     MouseDownAt = state.MouseState.Position;
                     InScroll = false;
                     ScrollVelocity = 0;

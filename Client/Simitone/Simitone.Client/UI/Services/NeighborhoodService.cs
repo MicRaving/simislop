@@ -352,12 +352,6 @@ namespace Simitone.Client.UI.Services
         }
 
         /// <summary>
-        /// The refresh in flight, or <c>null</c>. Exposed for the screen and for a test that wants
-        /// to know whether the neighbourhood is still settling.
-        /// </summary>
-        public NeighbourhoodRefreshJob GeneratedNeighbourhoodRefresh => _generatedWorld;
-
-        /// <summary>
         /// Brings the generated 3D world for a neighbourhood up to date, off the game thread, and
         /// waits for the part the panel needs.
         ///

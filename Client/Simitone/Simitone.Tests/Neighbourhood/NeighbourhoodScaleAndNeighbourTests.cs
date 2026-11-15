@@ -700,7 +700,6 @@ namespace Simitone.Tests.Neighbourhood
                 "the plan and the drawn region are at different radii, so the lots between the two"
                 + " are facades rather than real lots");
             Assert.True(f.Plan.RadiusSharedWith(f.Cull));
-            Assert.True(NeighbourhoodRenderDecision.RadiiAreShared(f.Plan, f.Cull));
 
             //and the weaker one-sided rule still holds, which is what makes it safe for a caller to
             //ask for a narrower radius deliberately: no real lot ever stands outside the drawn

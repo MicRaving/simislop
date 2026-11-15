@@ -75,14 +75,21 @@ namespace Simitone.Windows
 
             foreach (var arg in args)
             {
-                if (arg[0] == '-')
+                // arg.Length: an empty argument ("") would otherwise throw IndexOutOfRange here,
+                // before the unhandled-exception logger is registered, so it would die silently.
+                if (arg.Length > 0 && arg[0] == '-')
                 {
                     var cmd = arg.Substring(1);
+                    // TryParse: a malformed -lang/-hz value is ignored rather than crashing startup
+                    // before anything is logged.
                     if (cmd.StartsWith("lang"))
                     {
-                        GlobalSettings.Default.LanguageCode = byte.Parse(cmd.Substring(4));
+                        if (byte.TryParse(cmd.Substring(4), out var langCode)) GlobalSettings.Default.LanguageCode = langCode;
                     }
-                    else if (cmd.StartsWith("hz")) GlobalSettings.Default.TargetRefreshRate = int.Parse(cmd.Substring(2));
+                    else if (cmd.StartsWith("hz"))
+                    {
+                        if (int.TryParse(cmd.Substring(2), out var hz)) GlobalSettings.Default.TargetRefreshRate = hz;
+                    }
                     else
                     {
                         //normal style param
@@ -636,13 +643,14 @@ namespace Simitone.Windows
             // Record the crash before showing the modal dialog: the dialog may be dismissed without
             // being copied anywhere, so the log is the only durable record of what went wrong.
             SimitoneLog.Error("Unhandled exception: " + (exception == null ? "(null)" : exception.ToString()));
+            var text = exception == null ? "(null)" : exception.ToString();
             if (exception is OutOfMemoryException)
             {
-                MessageBox.Show(e.ExceptionObject.ToString(), "Out of Memory! FreeSO needs to close.");
+                MessageBox.Show(text, "Out of Memory! Simitone needs to close.");
             }
             else
             {
-                MessageBox.Show(e.ExceptionObject.ToString(), "A fatal error occured! Screenshot this dialog and post it on Discord.");
+                MessageBox.Show(text, "A fatal error occurred! Screenshot this dialog and report it.");
             }
         }
     }

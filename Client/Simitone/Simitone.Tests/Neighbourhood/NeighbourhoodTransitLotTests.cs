@@ -524,6 +524,27 @@ namespace Simitone.Tests.Neighbourhood
             Assert.True(transit.Advance(0.5));
         }
 
+        [Fact]
+        public void AZeroLengthWalkOwnsTheAvatarButIsNeverWalkingSoAnIsWalkingGateCannotFinishIt()
+        {
+            // Documents the hazard behind a real defect: TS1GameScreen.TryBeginTransitWalk starts a
+            // walk for a request whose origin door is its destination door (a travel request for the
+            // lot the player is already on), and UpdateTransitWalk only ever advances a walk while
+            // IsWalking. Here is why that never ends: the walk has begun - the avatar is owned by
+            // the transit lot and no numbered lot - but IsWalking is false from the first frame, so
+            // nothing completes or cancels it.
+            var transit = TransitLot(BlockQuery(), NorthWestLot);
+
+            TransitPath path;
+            string reason;
+            Assert.True(transit.TryBeginTransit(NorthWestLot, NorthWestLot, out path, out reason));
+
+            Assert.Equal(ActiveLotKind.Transit, transit.Kind);
+            Assert.Equal(NeighbourhoodTransitLot.NoLot, transit.ActiveLotNumber);
+            Assert.False(transit.IsWalking);
+            Assert.True(transit.State.IsArrived);
+        }
+
         [Theory]
         [InlineData(0.0)]
         [InlineData(-4.0)]

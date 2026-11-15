@@ -195,7 +195,8 @@ namespace Simitone.Client
             }
             catch (Exception e)
             {
-                //MessageBox.Show("Failed to initialize audio: \r\n\r\n" + e.StackTrace);
+                //The game runs without sound rather than failing to start, but the reason is logged.
+                Simitone.Client.Utils.SimitoneLog.Warn("Audio device probe failed; continuing without confirmed audio", e);
             }
 
             this.IsFixedTimeStep = true;
@@ -354,6 +355,8 @@ namespace Simitone.Client
             catch (Exception e)
             {
                 //MessageBox.Windows.Forms.MessageBox.Show("Content could not be loaded. Make sure that the FreeSO content has been compiled! (ContentSrc/TSOClientContent.mgcb)");
+                //The game has no attached console, so the log is the only place this is visible.
+                Simitone.Client.Utils.SimitoneLog.Error("Content could not be loaded; exiting.", e);
                 Console.WriteLine(e.ToString());
                 Exit();
             }

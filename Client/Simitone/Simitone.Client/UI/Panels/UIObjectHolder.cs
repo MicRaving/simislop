@@ -36,17 +36,13 @@ namespace Simitone.Client.UI.Panels
         public World World;
         public UILotControl ParentControl;
 
-        public Direction Rotation;
         public int MouseDownX;
         public int MouseDownY;
         private bool MouseIsDown;
         private bool MouseWasDown;
         private bool MouseClicked;
 
-        private int OldMX;
-        private int OldMY;
         private UpdateState LastState; //state for access from Sellback and friends.
-        public bool DirChanged;
         public bool ShowTooltip;
         public bool Roommate = true;
         public bool UseNet = false;
@@ -438,11 +434,6 @@ namespace Simitone.Client.UI.Panels
             MouseIsDown = true;
             MouseDownX = state.MouseState.X;
             MouseDownY = state.MouseState.Y;
-            if (Holding != null)
-            {
-                Rotation = Holding.Dir;
-                DirChanged = false;
-            }
         }
 
         public void MouseUp(UpdateState state)
@@ -516,20 +507,11 @@ namespace Simitone.Client.UI.Panels
                     ClearSelected();
                     if (OnPutDown != null) OnPutDown(putDown, state); //call this after so that buy mode etc can produce more.
                 }
-                else
-                {
-
-                }
             }
 
             state.UIState.TooltipProperties.Show = false;
             state.UIState.TooltipProperties.Opacity = 0;
             ShowTooltip = false;
-        }
-
-        private void ExecuteEntryPoint(int num)
-        {
-            for (int i = 0; i < Holding.Group.Objects.Count; i++) Holding.Group.Objects[i].ExecuteEntryPoint(num, vm.Context, true);
         }
 
         public void SellBack(UIElement button)
@@ -563,6 +545,7 @@ namespace Simitone.Client.UI.Panels
 
         public void Cancel()
         {
+            if (Holding == null) return;
             Holding.Dir = Holding.OriginalDir;
             OnDelete?.Invoke(Holding, null);
             ClearSelected();
@@ -765,7 +748,7 @@ namespace Simitone.Client.UI.Panels
 
         /// <summary>
         /// The live game object of <paramref name="guid"/> whose <em>base tile</em> is the given
-        /// one and whose id is above <paramref name="objectIdFloorExclusive}>, or null.
+        /// one and whose id is above <paramref name="objectIdFloorExclusive"/>, or null.
         /// </summary>
         /// <param name="objectIdFloorExclusive">
         /// The highest object id that existed before the action, or 0 for no floor. The VM hands
@@ -1055,7 +1038,6 @@ namespace Simitone.Client.UI.Panels
                             updatePos = true;
                             HITVM.Get().PlaySoundEvent(UISounds.ObjectRotate);
                             Holding.Dir = newDir;
-                            DirChanged = true;
                         }
                     }
                     if (updatePos)
@@ -1267,7 +1249,6 @@ namespace Simitone.Client.UI.Panels
             }
             HITVM.Get().PlaySoundEvent(UISounds.ObjectRotate);
             Holding.Dir = newDir;
-            DirChanged = true;
         }
 
         public delegate void HolderEventHandler(UIObjectSelection holding, UpdateState state);

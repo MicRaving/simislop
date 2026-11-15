@@ -2129,7 +2129,34 @@ namespace Simitone.Client.Neighbourhood
             if (!PersistsWorldState) return WithWorldState(fresh, null);
             var world = fresh?.WorldState ?? cached?.WorldState
                 ?? NeighbourhoodWorldState.CreateDefault();
+            CarryLotSessions(fresh, cached);
             return WithWorldState(fresh, world);
+        }
+
+        /// <summary>
+        /// Copies each lot's session fields (<see cref="NeighbourhoodLot.LotState"/>,
+        /// <see cref="NeighbourhoodLot.LastSimulated"/>, <see cref="NeighbourhoodLot.Entrance"/>)
+        /// from the cached layout onto the freshly packed one, matched by lot number. A repack
+        /// builds every lot from the house files and would otherwise drop them whenever any file
+        /// changed. The entrance is a world-tile position, so it is only carried when the lot
+        /// still stands where it did and is the same size.
+        /// </summary>
+        internal static void CarryLotSessions(NeighbourhoodLayout fresh, NeighbourhoodLayout cached)
+        {
+            if (fresh == null || cached == null) return;
+            for (int i = 0; i < fresh.Lots.Count; i++)
+            {
+                var lot = fresh.Lots[i];
+                var before = cached.FindLot(lot.Number);
+                if (before == null) continue;
+                lot.LotState = before.LotState;
+                lot.LastSimulated = before.LastSimulated;
+                if (before.WorldX == lot.WorldX && before.WorldY == lot.WorldY
+                    && before.Size == lot.Size)
+                {
+                    lot.Entrance = before.Entrance;
+                }
+            }
         }
 
         /// <summary>

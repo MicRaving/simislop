@@ -202,7 +202,6 @@ namespace Simitone.Client.Neighbourhood
         /// would wrap rather than clamp - 256 would become 0 and 260 would become 4 - so the
         /// range test happens on the <c>int</c> and an out-of-range value becomes north, which is
         /// what <see cref="NeighbourhoodDoorSide.Clamp"/> also does with a byte it cannot read.
-        /// </para>
         /// </remarks>
         /// <param name="facing">A side index, possibly out of range or negative.</param>
         public static byte ClampFacing(int facing)

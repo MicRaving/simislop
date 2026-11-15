@@ -106,6 +106,7 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
         public static short[] WallStylePatterns { get { return BuyCatalogService.WallStylePatterns; } }
 
         public bool HoldingEvents;
+        private UILotControl SubscribedLot;
 
         // -------------------------------------------------------------------------------------
         // Eyedropper support.
@@ -151,6 +152,7 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
 
             InitCategory(category, false);
 
+            SubscribedLot = screen.LotControl;
             screen.LotControl.ObjectHolder.OnPickup += ObjectHolder_OnPickup;
             screen.LotControl.ObjectHolder.OnPutDown += ObjectHolder_OnPutDown;
             screen.LotControl.ObjectHolder.OnDelete += ObjectHolder_OnDelete;
@@ -559,13 +561,22 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
             if (HoldingEvents)
             {
                 HoldingEvents = false;
-                Game.LotControl.ObjectHolder.OnPickup -= ObjectHolder_OnPickup;
-                Game.LotControl.ObjectHolder.OnPutDown -= ObjectHolder_OnPutDown;
-                Game.LotControl.ObjectHolder.OnDelete -= ObjectHolder_OnDelete;
-                Game.LotControl.ObjectHolder.OnEyedropperPick -= ObjectHolder_OnEyedropperPick;
-                Game.LotControl.ObjectHolder.OnEyedropperArchitecturePick -= ObjectHolder_OnEyedropperArchitecturePick;
-                Game.LotControl.ObjectHolder.OnUndoRedo -= ObjectHolder_OnUndoRedo;
-                Game.LotControl.OnCustomControlReleased -= LotControl_OnCustomControlReleased;
+                //Unsubscribe from the lot control that was subscribed to, not whichever one the
+                //screen holds now: after a lot reload the two differ and the handlers would stay
+                //on the old holder for good.
+                var subscribed = SubscribedLot;
+                SubscribedLot = null;
+                if (subscribed?.ObjectHolder != null)
+                {
+                    subscribed.ObjectHolder.OnPickup -= ObjectHolder_OnPickup;
+                    subscribed.ObjectHolder.OnPutDown -= ObjectHolder_OnPutDown;
+                    subscribed.ObjectHolder.OnDelete -= ObjectHolder_OnDelete;
+                    subscribed.ObjectHolder.OnEyedropperPick -= ObjectHolder_OnEyedropperPick;
+                    subscribed.ObjectHolder.OnEyedropperArchitecturePick -= ObjectHolder_OnEyedropperArchitecturePick;
+                    subscribed.ObjectHolder.OnUndoRedo -= ObjectHolder_OnUndoRedo;
+                    subscribed.OnCustomControlReleased -= LotControl_OnCustomControlReleased;
+                }
+                if (Game.LotControl == null) return; //lot already gone: nothing left to tidy
                 //The tool is armed on the object holder, which outlives this panel, so a panel
                 //that is torn down mid-pick would otherwise leave it armed with nothing listening.
                 Game.LotControl.ObjectHolder.EyedropperMode = false;
@@ -678,7 +689,6 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
         {
             RemoveEvents();
             base.Removed();
-            //Catalog.UICatalogItem.ClearIconCache(); //might want to be careful here...
         }
 
         public void Reset()

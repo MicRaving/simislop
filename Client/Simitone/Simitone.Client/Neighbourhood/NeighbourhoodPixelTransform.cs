@@ -139,23 +139,6 @@ namespace Simitone.Client.Neighbourhood
         public const float EdgeMargin = NeighbourhoodCityMeshBuilder.FadeRange;
 
         /// <summary>
-        /// The tile grid a bitmap maps onto when nobody has asked for a different one:
-        /// <see cref="NeighbourhoodLayout.DefaultMapSize"/>, which is the size every real generated
-        /// neighbourhood is 512x512 - the same size the diamond is written for.
-        /// </summary>
-        /// <remarks>
-        /// A method rather than a constant so that a caller can be handed "the grid the bitmap maps
-        /// onto" without knowing that <see cref="NeighbourhoodLayoutBuilder"/> owns the map's
-        /// default size. It takes no arguments because there is exactly one answer today; when there
-        /// is a second (a LOD map, a test's small map) the argument is what changes, not the
-        /// spelling of the question.
-        /// </remarks>
-        public static int MapSizeForBitmap()
-        {
-            return NeighbourhoodLayout.DefaultMapSize;
-        }
-
-        /// <summary>
         /// A bitmap position as a continuous tile position. The pixel is treated as the lot's
         /// <em>centre</em> on the bitmap - which is what <c>LotLocations.iff</c> means
         /// (<c>SimitoneNeighOBJExporter</c> treats it as a centre too) - so the tile this answers
@@ -183,64 +166,6 @@ namespace Simitone.Client.Neighbourhood
             return new Vector2(
                 BitmapWidth * Fraction(tile.X - tile.Y, factor, DifferenceMid(), DifferenceInside()),
                 BitmapHeight * Fraction(tile.X + tile.Y, factor, SumMid(), SumInside()));
-        }
-
-        /// <summary>
-        /// The tile x a bitmap x contributes, on its own: the half-difference the projection gives a
-        /// step right along the bitmap. Added to <see cref="TileYForPixelY"/> and the map's centre it
-        /// is <see cref="TileForPixel"/>'s answer; subtracted from it, it is the same step's effect
-        /// on the tile row, which is the sign a mirrored test is looking for.
-        ///
-        /// <para><b>Not the whole answer for an x.</b> The transform is diamond-aligned, so a
-        /// bitmap position has two contributions rather than one per axis and this returns one of
-        /// them. It was the whole answer when the transform was an axis-aligned square mapping, and
-        /// that is the only thing about it that changed.</para>
-        /// </summary>
-        /// <param name="pixelX">Bitmap x.</param>
-        /// <param name="mapSize">The generated map's side length, in tiles.</param>
-        public static float TileXForPixelX(int pixelX, int mapSize)
-        {
-            return DifferenceForPixelX(pixelX, mapSize) * 0.5f;
-        }
-
-        /// <summary>
-        /// The tile row a bitmap y contributes, on its own: the half-sum the projection gives a step
-        /// down the bitmap, which moves tile x and tile row together. See
-        /// <see cref="TileXForPixelX"/>.
-        /// </summary>
-        /// <param name="pixelY">Bitmap y.</param>
-        /// <param name="mapSize">The generated map's side length, in tiles.</param>
-        public static float TileYForPixelY(int pixelY, int mapSize)
-        {
-            return SumForPixelY(pixelY, mapSize) * 0.5f;
-        }
-
-        /// <summary>
-        /// The bitmap x a tile x back-projects to, as a whole pixel, taken along the diamond's
-        /// centre row.
-        ///
-        /// <para><b>A sheared transform has no per-axis inverse</b>, and pretending otherwise is
-        /// how a caller ends up a hundred pixels from where it meant to be. What this can answer is
-        /// the well-defined question - which column of the backdrop this column of the map sits on -
-        /// and that is what it answers.</para>
-        /// </summary>
-        /// <param name="tileX">Map tile x.</param>
-        /// <param name="mapSize">The generated map's side length, in tiles.</param>
-        public static int PixelXForTileX(int tileX, int mapSize)
-        {
-            var centre = CentreFor(mapSize);
-            var back = PixelForTile(new Vector2(tileX, centre.Y), mapSize);
-            return ClampPixel((int)Math.Floor(back.X), BitmapWidth);
-        }
-
-        /// <summary>A bitmap y as a whole pixel, along the diamond's centre column. See <see cref="PixelXForTileX"/>.</summary>
-        /// <param name="tileY">Map tile y.</param>
-        /// <param name="mapSize">The generated map's side length, in tiles.</param>
-        public static int PixelYForTileY(int tileY, int mapSize)
-        {
-            var centre = CentreFor(mapSize);
-            var back = PixelForTile(new Vector2(centre.X, tileY), mapSize);
-            return ClampPixel((int)Math.Floor(back.Y), BitmapHeight);
         }
 
         /// <summary>
@@ -289,73 +214,6 @@ namespace Simitone.Client.Neighbourhood
                 origin.Y < 0 ? 0 : (origin.Y > max ? max : origin.Y));
         }
 
-        /// <summary>
-        /// The bitmap rectangle that covers a map tile, as pixel bounds, for the connector inference
-        /// to read a tile's worth of backdrop out of. Used by the road inference so that "which
-        /// pixels is tile 300" has one answer in the tree.
-        /// </summary>
-        /// <remarks>
-        /// <para><b>A bounding box, not a partition - and it could not be a partition.</b> The
-        /// transform is diamond-aligned, so the bitmap's preimage of one tile is a <em>rotated
-        /// square</em>, about a third larger by area than the axis-aligned rectangle this returns.
-        /// Every pixel of the backdrop is still inside the rectangle of the tile it maps to, so
-        /// nothing is missed and nothing is sampled from outside the map's own footprint; a pixel
-        /// can simply be inside more than one tile's rectangle, which is what a road classifier
-        /// taking a <em>fraction</em> of a rectangle tolerates and what a partition would have
-        /// forbidden.</para>
-        /// </remarks>
-        /// <param name="tileX">Map tile x.</param>
-        /// <param name="tileY">Map tile y.</param>
-        /// <param name="mapSize">The generated map's side length, in tiles.</param>
-        /// <param name="left">First pixel column, inclusive.</param>
-        /// <param name="top">First pixel row, inclusive.</param>
-        /// <param name="right">Last pixel column, exclusive.</param>
-        /// <param name="bottom">Last pixel row, exclusive.</param>
-        public static void PixelBoundsForTile(
-            int tileX, int tileY, int mapSize, out int left, out int top, out int right, out int bottom)
-        {
-            //the tile's four corners, projected back to the bitmap, and the box around them: the
-            //cheapest honest answer for "which pixels could be this tile's"
-            var a = PixelForTile(new Vector2(tileX, tileY), mapSize);
-            var b = PixelForTile(new Vector2(tileX + 1f, tileY), mapSize);
-            var c = PixelForTile(new Vector2(tileX, tileY + 1f), mapSize);
-            var d = PixelForTile(new Vector2(tileX + 1f, tileY + 1f), mapSize);
-
-            left = MinPixel(a.X, b.X, c.X, d.X);
-            right = MaxPixel(a.X, b.X, c.X, d.X) + 1;
-            top = MinPixel(a.Y, b.Y, c.Y, d.Y);
-            bottom = MaxPixel(a.Y, b.Y, c.Y, d.Y) + 1;
-
-            if (left < 0) left = 0;
-            if (top < 0) top = 0;
-            if (right > BitmapWidth) right = BitmapWidth;
-            if (bottom > BitmapHeight) bottom = BitmapHeight;
-            if (right <= left) right = Math.Min(BitmapWidth, left + 1);
-            if (bottom <= top) bottom = Math.Min(BitmapHeight, top + 1);
-            if (left >= BitmapWidth) left = BitmapWidth - 1;
-            if (top >= BitmapHeight) top = BitmapHeight - 1;
-            if (right <= left) right = left + 1;
-            if (bottom <= top) bottom = top + 1;
-        }
-
-        /// <summary>
-        /// Whether a tile position is on ground the map actually draws: strictly inside the
-        /// isometric diamond, in continuous tile coordinates.
-        ///
-        /// <para><b>The continuous form of <see cref="NeighbourhoodCityMeshBuilder.IsInsideDiamond"/>,
-        /// for a lot's <em>centre</em>.</b> The mesh builder's predicate is over whole tiles and
-        /// says whether a tile gets a quad; a lot is placed by a point, and a point is inside the
-        /// diamond when the whole tile containing it is. It is asked of the transform's own output
-        /// by the acceptance test, and by nothing in the game, which is deliberate: the game asks
-        /// the mesh builder.</para>
-        /// </summary>
-        /// <param name="tile">A continuous tile position.</param>
-        public static bool IsInsideDrawnRegion(Vector2 tile)
-        {
-            return NeighbourhoodCityMeshBuilder.IsInsideDiamond(
-                (int)Math.Floor(tile.X), (int)Math.Floor(tile.Y));
-        }
-
         // ---- the fit, in the map's diagonal coordinates ------------------------------------------
 
         /// <summary>
@@ -396,20 +254,6 @@ namespace Simitone.Client.Neighbourhood
             return (ReferenceDifferenceMin + ReferenceDifferenceMax) * 0.5f;
         }
 
-        /// <summary>
-        /// The middle of the drawn region in tile coordinates - which is the map's centre in x and
-        /// half a tile above it in y, because the diamond's two diagonals are 411 and 613 rather
-        /// than equal. A full-screen camera target is this point.
-        /// </summary>
-        /// <param name="mapSize">The generated map's side length, in tiles.</param>
-        public static Vector2 CentreFor(int mapSize)
-        {
-            var factor = Positive(mapSize) / (float)ReferenceMapSize;
-            return new Vector2(
-                (SumMid() + DifferenceMid()) * 0.5f * factor,
-                (SumMid() - DifferenceMid()) * 0.5f * factor);
-        }
-
         private static float SumForPixelY(float pixelY, int mapSize)
         {
             //the whole diagonal scales with the map, offset included: a 96-tile map is the same
@@ -437,31 +281,6 @@ namespace Simitone.Client.Neighbourhood
             return Positive(mapSize) / (float)ReferenceMapSize;
         }
 
-        private static int MinPixel(float a, float b, float c, float d)
-        {
-            var low = a;
-            if (b < low) low = b;
-            if (c < low) low = c;
-            if (d < low) low = d;
-            return (int)Math.Floor(low);
-        }
-
-        private static int MaxPixel(float a, float b, float c, float d)
-        {
-            var high = a;
-            if (b > high) high = b;
-            if (c > high) high = c;
-            if (d > high) high = d;
-            return (int)Math.Ceiling(high);
-        }
-
-        private static int ClampPixel(int pixel, int extent)
-        {
-            if (pixel < 0) return 0;
-            if (pixel > extent) return extent;
-            return pixel;
-        }
-
         /// <summary>
         /// A non-positive map size is not a map, and every caller here divides by it. Folded to one
         /// rather than thrown: a camera that has just lost its device asks this question with a
@@ -471,24 +290,6 @@ namespace Simitone.Client.Neighbourhood
         private static int Positive(int mapSize)
         {
             return mapSize > 0 ? mapSize : 1;
-        }
-
-        /// <summary>One line, for a log or a failing assertion's message.</summary>
-        public static string Describe()
-        {
-            var sum = SumInside();
-            var difference = DifferenceInside();
-            var centre = CentreFor(ReferenceMapSize);
-            return BitmapWidth + "x" + BitmapHeight + " bitmap -> isometric projection -> the "
-                + ReferenceMapSize + "-tile diamond, " + sum.ToString("0.##",
-                    System.Globalization.CultureInfo.InvariantCulture) + " sum diagonal and "
-                + difference.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
-                + " difference diagonal inside (of " + (ReferenceSumMax - ReferenceSumMin).ToString("0",
-                    System.Globalization.CultureInfo.InvariantCulture) + " and "
-                + (ReferenceDifferenceMax - ReferenceDifferenceMin).ToString("0",
-                    System.Globalization.CultureInfo.InvariantCulture) + "), centred at "
-                + centre.X.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + ","
-                + centre.Y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
         }
     }
 }

@@ -75,7 +75,6 @@ namespace Simitone.Client.UI.Panels.EODs
         private Action<VMNetEODMessageCmd> Deliver;
         private FieldInfo ActivePanelField;
         private FieldInfo ActiveIDField;
-        private MethodInfo CloseMethod;
 
         private EODPanelBridge()
         {
@@ -200,7 +199,7 @@ namespace Simitone.Client.UI.Panels.EODs
             {
                 ActivePanelID = Convert.ToUInt32(ActiveIDField.GetValue(Controller));
             }
-            catch (Exception e)
+            catch (Exception)
             {
                 //A missing or renamed ActivePID costs the window its title. Not worth a log line
                 //every frame for a field the fork may simply not have.
@@ -217,14 +216,11 @@ namespace Simitone.Client.UI.Panels.EODs
             if (ActivePanel == null) return;
             try
             {
-                if (CloseMethod == null)
-                {
-                    CloseMethod = ActivePanel.GetType().GetMethod("OnClose", Type.EmptyTypes);
-                }
-                if (CloseMethod != null)
-                {
-                    CloseMethod.Invoke(ActivePanel, null);
-                }
+                // Looked up per call, not cached: each minigame is its own panel class, so a
+                // MethodInfo kept from the first panel closed would throw a TargetException on
+                // the second one (and the plugin would never be told to close).
+                var close = ActivePanel.GetType().GetMethod("OnClose", Type.EmptyTypes);
+                close?.Invoke(ActivePanel, null);
             }
             catch (Exception e)
             {

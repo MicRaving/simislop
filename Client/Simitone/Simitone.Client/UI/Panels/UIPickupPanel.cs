@@ -153,7 +153,6 @@ namespace Simitone.Client.UI.Panels
                 if (Thumbnail != null) Thumbnail.Dispose();
                 if (Thumb3D != null) Thumb3D.Dispose();
                 Thumbnail = null; Thumb3D = null;
-                Thumbnail = null;
             }
         }
 
@@ -191,8 +190,12 @@ namespace Simitone.Client.UI.Panels
 
         public override void Removed()
         {
+            base.Removed();
+            //the panel outlives its time in the tree (it is re-added to the main panel), so drop the
+            //disposed references rather than leave something Draw could still pick up
             if (Thumbnail != null) Thumbnail.Dispose();
             if (Thumb3D != null) Thumb3D.Dispose();
+            Thumbnail = null; Thumb3D = null;
         }
     }
 }

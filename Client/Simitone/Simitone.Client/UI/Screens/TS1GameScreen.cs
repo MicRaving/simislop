@@ -542,9 +542,11 @@ namespace Simitone.Client.UI.Screens
             Surroundings = surroundings;
             if (World != null) World.Surroundings = surroundings;
 
-            //The ground-plane anchor is gone with the connected work: the lot's Blueprint.BaseAlt is
-            //left at zero and the surround is no longer drawn against the generated map's coordinate
-            //frame, so there is no shared plane to line up. See VMTS1Activator.
+            //The lot keeps BaseAlt at zero, so its ground is at its own absolute altitude and the
+            //surround (measured down to the lot's ground) is lifted to meet it. Done here for the
+            //first frame and again every frame in UpdateSurroundings, which picks up a lot load or
+            //a save reload that replaces the altitude array.
+            surroundings.FollowLotGround(vm?.Context?.Blueprint);
 
             SimitoneLog.Info("Lot " + house + " is surrounded by the generated neighbourhood: "
                 + selection.Reason + " (" + surroundings.Placement + ").");
@@ -591,8 +593,14 @@ namespace Simitone.Client.UI.Screens
                     if (world == null || !world.HasWorld) return;
                     //A private source, not the map view's shared one - see AttachSurroundings. The
                     //two modes are independent, so the lot never borrows the neighbourhood's world.
-                    SurroundingsWorld = new NeighbourhoodSceneSource(world.Layout, world.Map);
-                    SurroundingsWorldSlot = slot;
+                    //Kept when it already is this neighbourhood's: TryGetNeighbourhoodWorld compares
+                    //sources by reference, so a new object for every landing would discard the live
+                    //world and its clock.
+                    if (SurroundingsWorld == null || SurroundingsWorldSlot != slot)
+                    {
+                        SurroundingsWorld = new NeighbourhoodSceneSource(world.Layout, world.Map);
+                        SurroundingsWorldSlot = slot;
+                    }
                     if (token != SurroundingsToken) return;
                     if (SurroundingsHouse != house) return;
                     if (World == null || Surroundings != null) return;
@@ -660,6 +668,7 @@ namespace Simitone.Client.UI.Screens
         private void UpdateSurroundings()
         {
             if (Surroundings == null) return;
+            Surroundings.FollowLotGround(vm?.Context?.Blueprint);
             var state = World?.State;
             if (state != null)
             {
@@ -810,6 +819,11 @@ namespace Simitone.Client.UI.Screens
 
             try
             {
+                //A cold neighbourhood's world is built after the lot loaded, so the load's handshake
+                //found no world and was skipped. Ticking an unseeded clock reads as available at
+                //1 June 1997 midnight, so the lot's time seeds it first.
+                var lotClock = vm?.Context?.Clock;
+                if (!world.Clock.IsAvailable && lotClock != null) world.PullClockFrom(lotClock);
                 world.Tick(deltaSeconds);
             }
             catch (Exception ex)
@@ -817,8 +831,10 @@ namespace Simitone.Client.UI.Screens
                 // A world that will not tick is dropped rather than retried every frame: the clock
                 // is the only thing it has, and a neighbourhood whose time is stuck is a far
                 // smaller problem than a lot load that throws sixty times a second.
+                // NeighbourhoodWorldSource is deliberately kept: TryGetNeighbourhoodWorld clears the
+                // Unavailable latch whenever the source differs, so nulling it here re-armed the
+                // rebuild and the throw (and this warning) on every following frame.
                 NeighbourhoodWorld = null;
-                NeighbourhoodWorldSource = null;
                 NeighbourhoodWorldUnavailable = true;
                 SimitoneLog.Warn("The neighbourhood world could not be advanced, so this session's"
                     + " neighbourhood time is not being kept. The lot itself is unaffected.", ex);
@@ -967,10 +983,9 @@ namespace Simitone.Client.UI.Screens
         /// light, and the world's clock carries on running underneath for the lot the player is
         /// about to walk into. The branch is stated rather than inferred from
         /// <c>vm == null</c>, and it asks whether the neighbourhood panel is <em>on screen</em>
-        /// rather than whether it exists: <c>NeighborhoodService.SuspendNeighbourhoodForLot</c> now
-        /// parks the panel on lot entry instead of removing it, so a lot stands behind a panel object
-        /// that is hidden and must still be lit - asking for null-ness here would have silently
-        /// stopped B8's lighting for the whole of every lot once the park landed.
+        /// rather than whether it exists. <c>NeighborhoodService.SuspendNeighbourhoodForLot</c>
+        /// currently removes the panel on lot entry (the parking was reverted), so this is
+        /// effectively a null check today, but a hidden-and-attached panel must still be lit.
         /// </para>
         /// <para>
         /// <b>It writes the outside colour, and nothing else.</b> This used to call
@@ -1176,7 +1191,14 @@ namespace Simitone.Client.UI.Screens
                     if (travellingSim == 0 && held[i].Sim > 0) travellingSim = held[i].Sim;
                 }
 
-                gameState.LotTransitInfo = (short)Math.Min(travelling, short.MaxValue);
+                //Only a real traveller is written. A completed switch has nobody in flight, and
+                //writing 0 then erased what VMGenericTS1Call mode 17 had just set for the arrival
+                //script ("the family comes too"), so the vacation arrival built one sim. The script
+                //rewrites the field on every trip, so leaving it alone cannot leave a stale value.
+                if (travelling > 0)
+                {
+                    gameState.LotTransitInfo = (short)Math.Min(travelling, short.MaxValue);
+                }
 
                 //the family's own reference first, then the guid: the family is a FAMI chunk the
                 //screen already holds, and the guid is only written from a record that names a sim
@@ -1335,7 +1357,8 @@ namespace Simitone.Client.UI.Screens
             }
 
             string reason;
-            var built = SimitoneSurroundingsRestore.TryRestore(vm, plan, out reason);
+            SimitoneSurroundingsPlan resolvedPlan;
+            var built = SimitoneSurroundingsRestore.TryRestore(vm, plan, out reason, out resolvedPlan);
             //One attempt per lot whatever the answer, because neither the plan nor the restore
             //depends on anything that will change under it: the placement, the map, the lot store
             //and the blueprint are all the same objects on the next frame.
@@ -1356,7 +1379,10 @@ namespace Simitone.Client.UI.Screens
             //exact failure AttachSubWorlds's own SubWorldsInside check is there to prevent.
             if (built)
             {
-                surround.AttachSubWorlds(plan);
+                //Only the neighbours that carry a house withhold their facade. A blank one (past the
+                //per-load hollow-build budget, or with an unreadable house file) is an empty plot,
+                //and withholding its facade as well left "4 built, 8 blank".
+                surround.AttachSubWorlds(resolvedPlan.WithoutBlankNeighbours());
             }
 
             //Always logged, on both answers, and the plan's own Describe either way: a gap in the
@@ -1395,34 +1421,12 @@ namespace Simitone.Client.UI.Screens
         // -------------------------------------------------------------------------------------
 
         /// <summary>
-        /// The walk in progress, for a panel that draws one. <c>default</c> - i.e.
-        /// <see cref="TransitState.IsValid"/> false - when there is none, which is what the
-        /// capability-off session and the no-walk-but-on case both answer.
-        /// </summary>
-        public TransitState TransitWalkState
-        {
-            get { return TransitLot == null ? default(TransitState) : TransitLot.State; }
-        }
-
-        /// <summary>
-        /// Whether an avatar is on the generated street between two doors right now, which is the
-        /// state a panel asks before it draws a route and the switch block asks before it offers
-        /// to start a second one.
+        /// Whether an avatar is on the generated street between two doors right now, which is what
+        /// the switch block asks before it offers to start a second walk.
         /// </summary>
         public bool IsWalkingBetweenLots
         {
             get { return TransitLot != null && TransitLot.IsWalking; }
-        }
-
-        /// <summary>
-        /// The camera that follows that walk, or null when there is no walk to follow. Exposed
-        /// because §B4's follow camera is the panel scene's, not this screen's: it is driven here
-        /// and drawn wherever the panel is, and <see cref="NeighbourhoodWorldCamera.Placement"/>
-        /// is the one stand-point both halves take rather than each deriving a view matrix.
-        /// </summary>
-        public NeighbourhoodWorldCamera TransitWalkCamera
-        {
-            get { return TransitCamera; }
         }
 
         /// <summary>
@@ -1941,6 +1945,14 @@ namespace Simitone.Client.UI.Screens
             TransitPath path;
             if (!TransitLot.TryPlanPath(origin, houseId, out path, out reason))
             {
+                TransitLot = null;
+                TransitWorld = null;
+                return false;
+            }
+            if (path.Length <= 0)
+            {
+                //a zero-length walk is "walking" for no frames: it never advances and never ends
+                reason = "the route from lot " + origin + " to lot " + houseId + " is zero tiles long";
                 TransitLot = null;
                 TransitWorld = null;
                 return false;
@@ -2985,11 +2997,10 @@ namespace Simitone.Client.UI.Screens
             //through the transparent backdrop. Only while the neighbourhood panel is the screen: the
             //lot view sets Bg.Visible itself and there is no panel then.
             //
-            //"Is actually on screen", not "exists": a panel parked for a lot stays in the screen's
-            //child list and in GameFacade.Scenes, hidden, so that returning from a lot does not have
-            //to build a second neighbourhood. A null check would then leave the background hidden for
-            //every frame of a lot - a black lot view - because a parked panel still remembers that it
-            //was showing 3D. See SuspendNeighbourhoodForLot.
+            //"Is actually on screen", not "exists": SuspendNeighbourhoodForLot now removes the panel
+            //and nulls TS1NeighPanel on lot entry, so in practice this is a null check, but the
+            //IsSuspendedForLot test keeps a panel that is still attached and hidden from blanking
+            //the lot view.
             var neighPanel = TS1NeighPanel;
             if (neighPanel != null && !neighPanel.IsSuspendedForLot)
             {
@@ -3063,27 +3074,6 @@ namespace Simitone.Client.UI.Screens
                 GraphicsModeControl.ChangeMode((GraphicsModeControl.Mode == GlobalGraphicsMode.Full3D) ? GlobalGraphicsMode.Hybrid2D : GlobalGraphicsMode.Full3D);
             }
 
-            /*
-            if (state.NewKeys.Contains(Keys.F12))
-            {
-                ChangeSpeedTo(1);
-                //running 10000 ticks
-                var timer = new System.Diagnostics.Stopwatch();
-                timer.Start();
-
-                for (int i=0; i<10000; i++)
-                {
-                    vm.Tick();
-                }
-
-                timer.Stop();
-                UIScreen.GlobalShowDialog(new UIMobileAlert(new UIAlertOptions() {
-                    Title = "Benchmark",
-                    Message = "10000 ticks took " + timer.ElapsedMilliseconds + "ms."
-                }), true);
-            }
-            */
-
             if (SwitchLot > 0)
             {
                 //travel is deferred to here so the VM finishes the tick that requested the
@@ -3113,6 +3103,13 @@ namespace Simitone.Client.UI.Screens
                     //dropped request is recoverable - the sim asks again when it gets somewhere it
                     //can leave from - whereas a walk to the wrong lot is a switch nobody made.
                     walkRefusal = "a walk to lot " + TransitDestination + " is already under way";
+                }
+                else if (NeighbourhoodWorldFlags.IsOn(NeighbourhoodWorldFlag.Walk) && vm != null
+                    && (int)vm.GetGlobalValue(10) == SwitchLot)
+                {
+                    //travelling to the lot already standing in is a no-op: a walk from a door to
+                    //itself is zero tiles long, never advances, and would leave the lot paused
+                    walkRefusal = "the sim is already on lot " + SwitchLot;
                 }
                 else if (TryBeginWalkIfAsked(SwitchLot, out walkRefusal))
                 {
@@ -3423,11 +3420,9 @@ namespace Simitone.Client.UI.Screens
         {
             //Every route into a lot comes through here - a house picked on the map, a travel switch,
             //a marshalled lot, a lot launched from CAS - so this is where the neighbourhood view is
-            //parked. It is not torn down: the generated world lives in GameFacade.Scenes and is not
-            //this screen's to dispose, and rebuilding it on the way back is exactly the cost §8.1
-            //says must not be paid. Parking hides the panel and stops its scene drawing - a hidden
-            //scene is skipped by _3DLayer.Draw, and a hidden panel takes no mouse - so nothing draws
-            //over the lot and nothing eats its clicks. See NeighborhoodService.SuspendNeighbourhoodForLot.
+            //taken down. NeighborhoodService.SuspendNeighbourhoodForLot removes the panel (and with
+            //it the generated 3D world); the connected-mechanics "park it and keep it resident"
+            //behaviour was reverted, so leaving a lot builds a fresh view.
             NeighborhoodService.SuspendNeighbourhoodForLot();
 
             CleanupLastWorld();
@@ -3801,18 +3796,6 @@ namespace Simitone.Client.UI.Screens
                 Message = errorMsg,
             });
 
-            /*
-            // dead code kept for reference: the equivalent of this is
-            // Dialogs.ShowAlert(GameFacade.Strings.GetString("153", "17"), errorMsg);
-            CloseAlert = new UIMobileAlert(new FSO.Client.UI.Controls.UIAlertOptions
-            {
-                Title = GameFacade.Strings.GetString("153", "17"), //missing objects!
-                Message = errorMsg,
-                Buttons = UIAlertButton.Ok(
-                        (b) => { CloseAlert.Close(); CloseAlert = null; }
-                        )
-            });
-            */
         }
 
         /// <summary>
@@ -3921,7 +3904,16 @@ namespace Simitone.Client.UI.Screens
                 //the blueprint's own time is what the lot opens at, exactly as before.
                 HandshakeClockOnLoad();
 
-                if (vm.LoadErrors.Count > 0) GameThread.NextUpdate((state) => ShowLoadErrors(vm.LoadErrors, true));
+                if (vm.LoadErrors.Count > 0)
+                {
+                    //deferred a frame; if another lot has replaced this VM by then the errors belong
+                    //to a lot that is gone, and ShowLoadErrors would signal a dialog on the wrong VM
+                    var erroredVm = vm;
+                    GameThread.NextUpdate((state) =>
+                    {
+                        if (vm == erroredVm) ShowLoadErrors(vm.LoadErrors, true);
+                    });
+                }
 
                 CenterOnLotCentre();
 

@@ -160,9 +160,38 @@ namespace Simitone.Client.Utils
                     sb.Append(Environment.NewLine);
                     sb.Append(ex.StackTrace);
                 }
+                AppendInner(sb, ex, 0);
             }
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// The rest of the chain behind <paramref name="ex"/>, each on its own lines after the
+        /// outer one, so wrapped failures (TypeInitializationException, AggregateException)
+        /// keep their root cause. The outer exception's own line format is unchanged.
+        /// </summary>
+        private static void AppendInner(System.Text.StringBuilder sb, Exception ex, int depth)
+        {
+            if (depth >= 8) return;
+            var inners = ex is AggregateException agg
+                ? (System.Collections.Generic.IEnumerable<Exception>)agg.InnerExceptions
+                : (ex.InnerException != null ? new[] { ex.InnerException } : Array.Empty<Exception>());
+            foreach (var inner in inners)
+            {
+                if (inner == null) continue;
+                sb.Append(Environment.NewLine);
+                sb.Append(" ---> ");
+                sb.Append(inner.GetType().Name);
+                sb.Append(": ");
+                sb.Append(inner.Message);
+                if (inner.StackTrace != null)
+                {
+                    sb.Append(Environment.NewLine);
+                    sb.Append(inner.StackTrace);
+                }
+                AppendInner(sb, inner, depth + 1);
+            }
         }
     }
 }

@@ -150,7 +150,7 @@ namespace Simitone.Tests.Utils
             Assert.Equal(1, pool.Available);
             var buffer = pool.Rent();
             Assert.NotNull(buffer);
-            Assert.NotSame(null, buffer);
+            Assert.Same(factory.Created[0], buffer);
         }
 
         [Fact]
@@ -242,12 +242,36 @@ namespace Simitone.Tests.Utils
 
             Assert.True(pool.Replace(128, 96));
 
-            Assert.All(old, b => Assert.True(b.Disposed));
+            // Still checked out (a render plane mid-frame): not disposed under its holder.
+            Assert.All(old, b => Assert.False(b.Disposed));
             Assert.Equal(3, pool.Available);
             var fresh = pool.Rent();
             Assert.False(fresh.Disposed);
             Assert.Equal(128, fresh.Width);
             Assert.Equal(96, fresh.Height);
+
+            // Handed back, they are never re-pooled; the next Replace releases them.
+            foreach (var b in old) { pool.Return(b); }
+            Assert.Equal(2, pool.Available);
+            Assert.All(old, b => Assert.False(b.Disposed));
+            Assert.True(pool.Replace(64, 64));
+            Assert.All(old, b => Assert.True(b.Disposed));
+        }
+
+        [Fact]
+        public void ResizeDisposesBuffersThatWereFreeAndReleasesRetiredOnesOnDispose()
+        {
+            var pool = Pool(new Factory(), initial: 2, max: 2);
+            var held = pool.Rent();
+            var free = pool.Rent();
+            pool.Return(free);
+
+            Assert.True(pool.Replace(10, 10));
+
+            Assert.True(free.Disposed);
+            Assert.False(held.Disposed);
+            pool.Dispose();
+            Assert.True(held.Disposed);
         }
 
         [Fact]

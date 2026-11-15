@@ -39,11 +39,6 @@ namespace Simitone.Client.UI.Panels.Options
         public const string SettingsKey = "TS1FreeWill";
 
         /// <summary>
-        /// CustomUI name of the option's glyph, for the one-tap button on the Options strip.
-        /// </summary>
-        public const string IconName = "opt_freewill.png";
-
-        /// <summary>
         /// Whether Sims in the player's family are currently choosing their own actions. Read
         /// live off the engine flag rather than off the settings object, so the UI reflects
         /// what the lot is actually doing.
@@ -69,8 +64,7 @@ namespace Simitone.Client.UI.Panels.Options
         /// <remarks>
         /// Saving is left to the caller because the Options page already saves the whole
         /// settings object on every change (see
-        /// <c>UIOptionsSubpanelBase.OnSettingsChanged</c>). Use <see cref="Toggle"/> from a
-        /// path that has no page around to do it.
+        /// <c>UIOptionsSubpanelBase.OnSettingsChanged</c>).
         /// </remarks>
         /// <param name="enabled">The state to leave the game in.</param>
         /// <param name="settings">Settings to record the choice on; ignored when null.</param>
@@ -86,20 +80,6 @@ namespace Simitone.Client.UI.Panels.Options
         }
 
         /// <summary>
-        /// Flips the setting, applies it and saves it. This is the path the one-tap Options
-        /// strip button takes, where there is no Options page to do the saving.
-        /// </summary>
-        /// <param name="settings">Settings to record and persist the choice on.</param>
-        /// <returns>The state the game was left in.</returns>
-        public static bool Toggle(GlobalSettings settings)
-        {
-            var enabled = !VM.FreeWillEnabled;
-            SetEnabled(enabled, settings);
-            settings?.Save();
-            return enabled;
-        }
-
-        /// <summary>
         /// Whether <paramref name="descriptor"/> is the Options row for this setting.
         /// </summary>
         /// <remarks>
@@ -108,62 +88,11 @@ namespace Simitone.Client.UI.Panels.Options
         /// than on instance identity is what the page's reflection is built on - the descriptor
         /// is rebuilt every time the page re-lays itself out, so there is no stable object to
         /// compare against. Kept here rather than inlined so the match is testable: a mismatch
-        /// would not throw, it would leave the checkbox saving a preference the VM never reads.
+        /// would not throw, it would leave the switch saving a preference the VM never reads.
         /// </remarks>
         public static bool Describes(UIOptionsSubpanelBase.UIOptionDescriprion descriptor)
         {
             return descriptor?.AttachedProperty?.Name == SettingsKey;
-        }
-
-        /// <summary>Short "On"/"Off" wording for the setting's state.</summary>
-        /// <remarks>
-        /// Read out of Simitone's own string table rather than TS1's. The Options page's row for
-        /// this setting does use a TS1 id, but the one-tap strip button's caption is Simitone's
-        /// own and the game never put these two words in front of a player on their own, so there
-        /// is nothing there to point at.
-        /// </remarks>
-        public static string DescribeState(bool enabled)
-        {
-            return enabled
-                ? SimitoneStrings.Get("190", "On")
-                : SimitoneStrings.Get("191", "Off");
-        }
-
-        /// <summary>
-        /// Caption for the one-tap Options strip button, which has no checkbox to read state
-        /// from, so the state is in the label.
-        /// </summary>
-        /// <remarks>
-        /// The table entry is "Free Will: %s" and the state is substituted into it, so the two
-        /// words can be put in whatever order the language wants. The English is written already
-        /// composed, which is deliberate: a fallback that carried a %s of its own would be
-        /// substituted a second time.
-        /// </remarks>
-        public static string DescribeToggle(bool enabled)
-        {
-            var state = DescribeState(enabled);
-            return SimitoneStrings.Format("192", "Free Will: " + state, state);
-        }
-
-        /// <summary>
-        /// Explanation of what the setting does, used as the quick toggle's tooltip.
-        /// The Gameplay page's own row does not need this: its caption and tooltip come from
-        /// TS1's string table (145:59-61), which turns out to describe the setting - and the
-        /// visitor exemption - in more detail than this does.
-        ///
-        /// <para>
-        /// The "visitors and pets are unaffected" half is not decoration: it is the part of the
-        /// rule players get wrong, and the part that makes the setting safe to offer at all.
-        /// Turning it off does not stop the lot, it stops the player's own household acting on
-        /// its own.
-        /// </para>
-        /// </summary>
-        public static string DescribeEffect(bool enabled)
-        {
-            return enabled
-                ? SimitoneStrings.Get("193", "Sims in your family choose their own actions.")
-                : SimitoneStrings.Get("194",
-                    "Sims in your family wait for you to direct them. Visitors and pets still act on their own.");
         }
     }
 }

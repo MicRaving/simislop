@@ -54,7 +54,7 @@ namespace Simitone.Tests.Engine
             Assert.Equal(5, VMStackFrame.SizeLocals(Routine(locals: 5, arguments: 3), null).Length);
             Assert.Equal(6, VMStackFrame.SizeLocals(Routine(locals: 2, arguments: 6), null).Length);
             Assert.Equal(6, VMStackFrame.SizeLocals(Routine(locals: 6, arguments: 6), null).Length);
-            Assert.Equal(0, VMStackFrame.SizeLocals(Routine(locals: 0, arguments: 0), null).Length);
+            Assert.Empty(VMStackFrame.SizeLocals(Routine(locals: 0, arguments: 0), null));
         }
 
         [Fact]

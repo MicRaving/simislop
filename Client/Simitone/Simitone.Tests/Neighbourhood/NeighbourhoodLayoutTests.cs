@@ -42,7 +42,7 @@ namespace Simitone.Tests.Neighbourhood
 
         private static NeighbourhoodLayout Build(FakeLotContentSource source)
         {
-            return NeighbourhoodLayoutBuilder.Build(source, Mode, Slot, Seed);
+            return NeighbourhoodLayoutBuilder.PackOnGrid(NeighbourhoodLayoutBuilder.ReadLots(source, Mode), Slot, Seed);
         }
 
         // ---- the lot-location table ------------------------------------------------------------
@@ -108,11 +108,11 @@ namespace Simitone.Tests.Neighbourhood
         [Fact]
         public void ANullOrEmptyTable_ProducesAnEmptyLayoutRatherThanAFailure()
         {
-            var empty = NeighbourhoodLayoutBuilder.Build(new FakeLotContentSource(), Mode, Slot, Seed);
+            var empty = Build(new FakeLotContentSource());
             Assert.Equal(0, empty.LotCount);
             Assert.Equal(NeighbourhoodExtent.Empty, empty.Extent);
 
-            var nullSource = NeighbourhoodLayoutBuilder.Build((ILotContentSource)null, Mode, Slot, Seed);
+            var nullSource = Build(null);
             Assert.Equal(0, nullSource.LotCount);
         }
 

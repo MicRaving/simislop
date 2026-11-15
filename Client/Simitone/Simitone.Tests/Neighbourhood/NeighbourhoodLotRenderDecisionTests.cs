@@ -10,7 +10,6 @@ using FSO.Content.Model;
 using Microsoft.Xna.Framework;
 using Simitone.Client.Neighbourhood;
 using Simitone.Client.Utils;
-using System.Collections.Generic;
 using System.Linq;
 using Xunit;
 
@@ -332,13 +331,6 @@ namespace Simitone.Tests.Neighbourhood
             var plan = Plan(map, layout, SimitoneSurroundingsPlan.DefaultSubWorldRadiusTiles);
 
             Assert.True(plan.RadiusSharedWith(cull));
-            Assert.True(NeighbourhoodRenderDecision.RadiiAreShared(plan, cull));
-            //no cut is not "shared" - it is "nothing to share it with", and the caller that has no
-            //region is the map view, which has no sub-worlds to be inconsistent about
-            Assert.False(NeighbourhoodRenderDecision.RadiiAreShared(plan, null));
-            Assert.False(NeighbourhoodRenderDecision.RadiiAreShared(null, cull));
-            Assert.False(NeighbourhoodRenderDecision.RadiiAreShared(
-                Plan(map, layout, 8), cull));
         }
 
         [Fact]
@@ -397,8 +389,6 @@ namespace Simitone.Tests.Neighbourhood
                     layout, Active, plan, cull));
                 Assert.Equal(plan.DeferredCount,
                     deferredWithHouse + (plan.DeferredNumbers.Contains((short)Empty) ? 1 : 0));
-                Assert.Equal(facades == 0,
-                    NeighbourhoodRenderDecision.RegionIsFullyReal(layout, Active, plan, cull));
             }
 
             //The nearest-first prefix, over a budget of one. The gaps are the ones the fixture is
@@ -566,8 +556,8 @@ namespace Simitone.Tests.Neighbourhood
 
             var wanted = NeighbourhoodFacadePlan.ToBuild(layout, cache, Active, Vector2.Zero, 100);
             Assert.Equal(2, wanted.Count);
-            Assert.Equal(1, NeighbourhoodFacadePlan.ToBuild(
-                layout, cache, Active, Vector2.Zero, 100, 0f, withheld).Count);
+            Assert.Single(NeighbourhoodFacadePlan.ToBuild(
+                layout, cache, Active, Vector2.Zero, 100, 0f, withheld));
 
             int outstanding, eligible;
             NeighbourhoodFacadePlan.Progress(layout, cache, Active, Vector2.Zero,
@@ -593,15 +583,6 @@ namespace Simitone.Tests.Neighbourhood
             Assert.True(NeighbourhoodRenderDecision.SubWorldsAreInsideCut(invalid, cull));
             Assert.Equal(NeighbourhoodLotRender.Facade,
                 NeighbourhoodRenderDecision.Decide(layout.FindLot(Near), Active, invalid, cull));
-        }
-
-        [Fact]
-        public void TheDecisionNamesItselfForTheLog()
-        {
-            Assert.Equal("facade", NeighbourhoodRenderDecision.Describe(NeighbourhoodLotRender.Facade));
-            Assert.Equal("sub-world", NeighbourhoodRenderDecision.Describe(NeighbourhoodLotRender.SubWorld));
-            Assert.Equal("not drawn", NeighbourhoodRenderDecision.Describe(NeighbourhoodLotRender.None));
-            Assert.Equal("not drawn", NeighbourhoodRenderDecision.Describe((NeighbourhoodLotRender)99));
         }
     }
 }

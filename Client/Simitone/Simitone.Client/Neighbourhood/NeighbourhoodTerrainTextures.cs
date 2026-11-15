@@ -38,7 +38,7 @@ namespace Simitone.Client.Neighbourhood
     /// hard discontinuity, and the whole ground reads as a grid of glitches. So the lattice is
     /// looked up <em>modulo its period</em> - <see cref="LatticePeriod"/> cells across for the
     /// coarse octave and <c>LatticePeriod * FineOctave</c> for the fine one - and the texture then
-    /// tiles exactly, which <see cref="WrappedPixel"/> lets a test assert without a device.
+    /// tiles exactly, which <see cref="NoiseAt"/> at <c>Size</c> versus <c>0</c> lets a test assert without a device.
     /// </para>
     ///
     /// <para><b>Pure, so it can be asserted.</b> This is the one piece of the renderer's content
@@ -124,26 +124,6 @@ namespace Simitone.Client.Neighbourhood
             return pixels;
         }
 
-        /// <summary>
-        /// The pixel the texture shows at a wrapped coordinate - the same colour
-        /// <see cref="PixelsFor"/> would put at <c>(x mod Size, y mod Size)</c>.
-        /// </summary>
-        /// <remarks>
-        /// This exists for the tiling assertion, and it is the assertion's whole point that it
-        /// takes coordinates <em>outside</em> the array: a texture tiles exactly when
-        /// <c>WrappedPixel(t, 0, y) == WrappedPixel(t, Size, y)</c>, and there is no way to ask
-        /// that of a <c>Color[]</c> without a seam visible on one of its own edges. Passing
-        /// <c>Size</c> rather than <c>Size - 1</c> is deliberate - the repeat boundary is one
-        /// past the last texel, and it is the boundary that has to agree with the first.
-        /// </remarks>
-        /// <param name="terrainType">A <see cref="NeighbourhoodTerrain"/> value.</param>
-        /// <param name="x">Pixel x, wrapped into the texture.</param>
-        /// <param name="y">Pixel y, wrapped into the texture.</param>
-        public static Color WrappedPixel(byte terrainType, int x, int y)
-        {
-            return Shade(BaseColorFor(terrainType), NoiseAt(Wrap(x, Size), Wrap(y, Size), terrainType));
-        }
-
         private static Color Shade(Color baseColor, int noise)
         {
             return new Color(
@@ -158,18 +138,6 @@ namespace Simitone.Client.Neighbourhood
             if (period <= 0) return 0;
             var wrapped = value % period;
             return wrapped < 0 ? wrapped + period : wrapped;
-        }
-
-        /// <summary>
-        /// Every ground texture, indexed by <see cref="NeighbourhoodTerrain"/> value. The order is
-        /// the one <c>CityGeometry</c> documents on its own layer buffers: grass, sand, rock, snow,
-        /// water.
-        /// </summary>
-        public static Color[][] All()
-        {
-            var all = new Color[Count][];
-            for (int i = 0; i < Count; i++) all[i] = PixelsFor((byte)i);
-            return all;
         }
 
         /// <summary>

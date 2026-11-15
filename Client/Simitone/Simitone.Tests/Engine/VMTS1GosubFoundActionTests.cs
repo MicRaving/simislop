@@ -286,7 +286,7 @@ namespace Simitone.Tests.Engine
             // points at the wrong model fails here instead of at run time on a real autonomy tree.
             VMContext.InitVMConfig(true);
             var instructions = PersonGlobalsTryAutonomy();
-            Assert.Single(instructions.Where(i => i.Opcode == 30));
+            Assert.Single(instructions, i => i.Opcode == 30);
             var shipped = new byte[8];
 
             var model = VMContext.Primitives[30].OperandModel;

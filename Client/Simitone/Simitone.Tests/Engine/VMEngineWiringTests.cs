@@ -218,7 +218,7 @@ namespace Simitone.Tests.Engine
             var source = RoutingFrame();
 
             Assert.Single(Regex.Matches(source, @"PortalTurnsActual\+\+"));
-            Assert.Equal(0, Regex.Matches(source, @"(?<!Actual)PortalTurns\+\+").Count);
+            Assert.Empty(Regex.Matches(source, @"(?<!Actual)PortalTurns\+\+"));
             Assert.Equal(2, Regex.Matches(source, @"CountPortalTurn\(\);").Count);
         }
 

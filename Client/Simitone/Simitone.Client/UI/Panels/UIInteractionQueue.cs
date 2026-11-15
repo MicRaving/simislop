@@ -108,19 +108,12 @@ namespace Simitone.Client.UI.Panels
                         itemui.IconOwner = elem.IconOwner;
                         itemui.UpdateInteractionIcon();
                     }
-
-                    if (itemui.InteractionResult != elem.InteractionResult)
-                    {
-                        itemui.InteractionResult = elem.InteractionResult;
-                        itemui.UpdateInteractionResult();
-                    }
                 }
                 if (!found)
                 {
                     itemui.UI.Kill();
                     QueueItems.RemoveAt(i--); //not here anymore
                 }
-                else itemui.Update();
             }
 
             //now detect if there are any interactions we're not displaying and add them.
@@ -149,19 +142,16 @@ namespace Simitone.Client.UI.Panels
                         Interaction = elem,
                         IconOwner = elem.IconOwner,
                         SourcePos = (PieMenuClickPos.X < 0) ? (new Vector2(30 + position * 50, 30)) : PieMenuClickPos,
-                        TweenProgress = 0,
                         UI = new UIInteraction(i == 0),
                         Active = (i == 0)
                     };
                     itemui.UI.Position = itemui.SourcePos;
                     itemui.UI.OnMouseEvent += new FSO.Client.UI.Controls.ButtonClickDelegate(InteractionClicked);
-                    itemui.UI.OnInteractionResult += InteractionResult;
                     itemui.UI.ParentEntry = itemui;
                     itemui.Name = elem.Name;
                     itemui.UI.Tooltip = itemui.Name;
                     itemui.TweenToPosition(position);
                     itemui.UpdateInteractionIcon();
-                    itemui.Update();
                     this.Add(itemui.UI);
                     QueueItems.Add(itemui);
 
@@ -179,32 +169,6 @@ namespace Simitone.Client.UI.Panels
         {
             queueModes.Clear();
             for (int i = 0; i < queue.Count; i++) queueModes.Add(queue[i].Mode);
-        }
-
-        private void InteractionResult(UIElement ui, bool accepted)
-        {
-            if (QueueOwner == null) return;
-            UIInteraction item = (UIInteraction)ui;
-            var itemui = item.ParentEntry;
-            var queue = QueueOwner.Thread.Queue;
-            for (int i = 0; i < queue.Count; i++)
-            {
-                if (queue[i] == itemui.Interaction)
-                {
-                    HITVM.Get().PlaySoundEvent(UISounds.CallSend);
-                    var priority = GetElemPriority(itemui.Interaction, i);
-                    if (!(itemui.Interaction.NotifyIdle && priority <= 0))
-                    {
-                        vm.SendCommand(new VMNetInteractionResultCmd
-                        {
-                            ActionUID = itemui.Interaction.UID,
-                            ActorUID = QueueOwner.PersistID,
-                            Accepted = accepted
-                        });
-                    }
-                    break;
-                }
-            }
         }
 
         /// <summary>
@@ -359,12 +323,8 @@ namespace Simitone.Client.UI.Panels
         public bool Cancelled;
         public string Name;
 
-        public sbyte InteractionResult = -1;
-
-        public double TweenProgress;
-        public Vector2 TargetPos;
+        /// <summary>Where the entry first appears (the pie menu click, or a default); the tween moves it from there.</summary>
         public Vector2 SourcePos;
-        public double MotionPerFrame = 1.0 / 25.0; //default to finishing in 25 frames
 
         public void TweenToPosition(int pos)
         {
@@ -374,34 +334,11 @@ namespace Simitone.Client.UI.Panels
 
             GameFacade.Screens.Tween.To(UI, 0.5f, new Dictionary<string, float>() { { "X", realPos.X }, { "Y", realPos.Y } }, TweenQuad.EaseOut);
             QueuePosition = pos;
-            /*
-            SourcePos = GetTweenPosition();
-            TargetPos = new Vector2(30 + pos * 50, 30);
-            TweenProgress = 0;*/
-        }
-
-        private Vector2 GetTweenPosition()
-        {
-            return TargetPos * (float)TweenProgress + SourcePos * (1 - (float)TweenProgress);
-        }
-
-        public void Update()
-        {
-            if (TweenProgress < 1)
-            {
-                TweenProgress = Math.Min(TweenProgress + MotionPerFrame * (60.0 / FSOEnvironment.RefreshRate), 1);
-                UI.Position = GetTweenPosition();
-            }
         }
 
         public void UpdateInteractionIcon()
         {
             UI.Icon = UIIconCache.GetObject(IconOwner);
-        }
-
-        public void UpdateInteractionResult()
-        {
-            UI.UpdateInteractionResult(InteractionResult);
         }
 
         /// <summary>

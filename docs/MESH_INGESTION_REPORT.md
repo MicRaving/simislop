@@ -50,7 +50,7 @@ Two independent harnesses, both under
   `FSO.Files.dll` via `HintPath` and uses the real `FAR1Archive` / `IffFile` / `DGRP` reader
   against `D:\Program Files\Sims` to answer "does this drawgroup really exist, and is that
   sprite index really valid for that rotation?". 552 IFF stems, 81 archives, 0 read errors.
-* **`handparse.ps1`** - an independent PowerShell re-implementation used to spot-check the C#
+* **`handparse.ps1`** (script not kept in the repo) - an independent PowerShell re-implementation used to spot-check the C#
   harness by hand (below).
 
 ### The harness itself was validated first
@@ -243,7 +243,7 @@ built game  bin\Release\net10.0-windows\Content\MeshReplace\
   generator exits; retrying plain is the right first option then.
 * `dotnet test Client\Simitone\Simitone.Tests\Simitone.Tests.csproj -c Release` -
   **Passed! Failed: 0, Passed: 1676, Skipped: 0, Total: 1676** (12 s).
-* **Hand re-parse** (`handparse.ps1`, independent PowerShell implementation, no shared code with
+* **Hand re-parse** (`handparse.ps1` (script not kept in the repo), independent PowerShell implementation, no shared code with
   the C# harness):
   * `arcadecabinetsspellbound_iff_200.fsom` - `FSOm`, v3/reconstruct 2, stored name matches the
     filename, 1 group / 4 geometries (PixelDir 0,2,3,1 at PixelSPR 0), 15,965 verts, 22,206 tris,
@@ -349,7 +349,7 @@ Reused the same `meshcheck` harness (rebuilt unchanged) over the whole directory
 The decisive check: grouping the 2,043 rejected files by their reason column yields exactly one
 group, `non_finite_normal` — no file has any *other* finding, and none carries a secondary note.
 So the entire 8,648-file set is loadable and structurally sound; 24.1 % carry the known §4 defect.
-(The harness counts bad *vertices*; `handparse.ps1` counts non-finite *floats*, so 2 bad vertices
+(The harness counts bad *vertices*; `handparse.ps1` (script not kept in the repo) counts non-finite *floats*, so 2 bad vertices
 = 6 floats. Both agree.)
 
 Distribution moved as expected with the extra 2.5 k files: `tris` min 2 / p50 4,624 / p95 26,057 /
@@ -368,7 +368,7 @@ archives, then joined against the per-file metrics:
 * drawgroup id present as a real `DGRP.ChunkID` in that IFF: **2,538 / 2,538**
 * stored `(PixelDir, PixelSPR)` in range for that rotation: **2,538 / 2,538**
 
-Independently, `handparse.ps1` (the hand-rolled PowerShell reader, no shared code with the C#
+Independently, `handparse.ps1` (script not kept in the repo; the hand-rolled PowerShell reader, no shared code with the C#
 harness) was re-run on two delta files and agrees with `meshcheck` to the vertex and triangle:
 `alarmclock_iff_128.fsom` (1 group / 4 geoms / 2,767 verts / 3,654 tris / **0 bytes left over** /
 0 non-finite / 0 out-of-range index) and `alarmclock_iff_134.fsom` (1 group / 4 geoms / 1,049 verts

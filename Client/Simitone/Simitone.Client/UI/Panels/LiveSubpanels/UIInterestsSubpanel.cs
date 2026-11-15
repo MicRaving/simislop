@@ -139,8 +139,11 @@ namespace Simitone.Client.UI.Panels.LiveSubpanels
 
                 // "+" and "-" are the whole caption. A symbol needs no translation, and a word
                 // per button would be two more table entries to keep in step with nothing.
-                lower[i] = MakeStepper(x + StepperX, y, "-", () => Nudge(i, -1));
-                raise[i] = MakeStepper(x + StepperX + StepperSize + 2, y, "+", () => Nudge(i, +1));
+                // Copied out of the loop variable: a `for` counter is one variable shared by every
+                // lambda, so capturing `i` itself made every click see slots.Length and do nothing.
+                var slotIndex = i;
+                lower[i] = MakeStepper(x + StepperX, y, "-", () => Nudge(slotIndex, -1));
+                raise[i] = MakeStepper(x + StepperX + StepperSize + 2, y, "+", () => Nudge(slotIndex, +1));
             }
 
             footer = new UILabel()

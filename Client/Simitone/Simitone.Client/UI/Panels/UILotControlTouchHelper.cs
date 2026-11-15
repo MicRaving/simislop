@@ -21,9 +21,8 @@ namespace Simitone.Client.UI.Panels
     {
         private UILotControl Master;
         public HashSet<int> MiceDown = new HashSet<int>();
-        private int UpdatesSinceDraw;
+        private readonly HashSet<int> _liveMouseIds = new HashSet<int>();
         private Vector2 ScrollVelocity;
-        private Vector2 LastValidScrollVelocity;
         private int MiceDownTimer;
         private Point TapPoint;
         //current time for a tap to register is a third of a second. if
@@ -80,7 +79,11 @@ namespace Simitone.Client.UI.Panels
                 }
             }
 
-            MiceDown = new HashSet<int>(MiceDown.Intersect(state.MouseStates.Select(x => x.ID)));
+            //drop pointers that are no longer reported; the set is shared with UILotControl, so it is
+            //trimmed in place against a reused scratch set rather than replaced every frame
+            _liveMouseIds.Clear();
+            foreach (var ms in state.MouseStates) _liveMouseIds.Add(ms.ID);
+            MiceDown.IntersectWith(_liveMouseIds);
 
             int transitionTo = -2;
             if (MiceDown.Count == 0)
@@ -248,7 +251,6 @@ namespace Simitone.Client.UI.Panels
             if (ScrollVelocityHistory.Count > 5) ScrollVelocityHistory.RemoveAt(ScrollVelocityHistory.Count - 1);
             if (transitionTo == -1)
             {
-                //ScrollVelocity = LastValidScrollVelocity / UpdatesSinceDraw;
                 if (ScrollVelocityHistory.Count > 1)
                 {
                     int total = 0;
@@ -292,7 +294,6 @@ namespace Simitone.Client.UI.Panels
             }
             if (ScrollVelocity.Length() > 0.001f) Master.World.Scroll(-ScrollVelocity / (Master.TargetZoom * 128), false);
 
-            UpdatesSinceDraw++;
 
             if (Math.Abs(RotateAngle) > Math.PI / 8 && !_3d) //>20 degrees starts a rotation gesture. 40 degrees ends it. 
             {
@@ -319,7 +320,6 @@ namespace Simitone.Client.UI.Panels
         {
             //the rotation graphic is a real child element (UIRotationAnimation), added to
             //the lot control while the gesture is active, so it draws itself.
-            UpdatesSinceDraw = 1;
         }
     }
 }

@@ -193,7 +193,7 @@ namespace Simitone.Tests.Neighbourhood
 
             var wanted = NeighbourhoodFacadePlan.ToBuild(layout, new Dictionary<short, uint>(), null,
                 Vector2.Zero, 100);
-            Assert.Equal(1, wanted.Count);
+            Assert.Single(wanted);
             Assert.Equal(12, wanted[0].Number);
         }
 
@@ -204,7 +204,7 @@ namespace Simitone.Tests.Neighbourhood
 
             var wanted = NeighbourhoodFacadePlan.ToBuild(layout, new Dictionary<short, uint>(),
                 11, Vector2.Zero, 100);
-            Assert.Equal(1, wanted.Count);
+            Assert.Single(wanted);
             Assert.Equal(12, wanted[0].Number);
         }
 
@@ -487,8 +487,8 @@ namespace Simitone.Tests.Neighbourhood
             Assert.Null(NeighbourhoodFacadeDiagnostics.FirstMissing(
                 new[]
                 {
-                    NeighbourhoodFacadeRequirement.Have(NeighbourhoodFacadePiece.GraphicsDevice),
-                    NeighbourhoodFacadeRequirement.Have(NeighbourhoodFacadePiece.Blueprint)
+                    new NeighbourhoodFacadeRequirement(NeighbourhoodFacadePiece.GraphicsDevice, true, null),
+                    new NeighbourhoodFacadeRequirement(NeighbourhoodFacadePiece.Blueprint, true, null)
                 }));
 
             // first, not last, and not whichever the list happens to mention last: the reported
