@@ -1,13 +1,13 @@
 ![image](https://user-images.githubusercontent.com/6294155/29047328-2bb60b54-7bc3-11e7-8d88-cee5309495ed.png)
 
-[Latest Pre-release](https://github.com/riperiperi/Simitone/releases/latest/) | [Download](https://github.com/riperiperi/Simitone/releases/latest/download/SimitoneWindows.zip)
+Note: This is a forked version of Simitone with some updates by alexjong that are not in the current version at the time of writing. Additionally, I fixed several bugs and included missing features. Most things from the original Sims 1 games should work now.
+
 
 Alternative C# Windows Frontend for The Sims 1, based off of FreeSO. http://freeso.org 
 (***REQUIRES*** a legitimate copy of The Sims: Complete Collection)
 
 ![image](https://user-images.githubusercontent.com/6294155/68995217-112b2680-0883-11ea-9f92-1acc839a7ec0.png)
 
-NOTE! Currently does not support the entire Fame career track, saving on vacation and a few other important things. While all objects run, many of them have bugs that can make certain lot types unplayable. For current development progress, see [this issue.](https://github.com/riperiperi/Simitone/issues/8)
 
 *Only for Desktop Windows.* Other platforms cannot be officially supported.
 
